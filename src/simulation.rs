@@ -191,6 +191,137 @@ impl WaterMap {
     }
 }
 
+/// Moisture grid: driven by water presence, propagates downwind, drives vegetation.
+pub struct MoistureMap {
+    pub width: usize,
+    pub height: usize,
+    moisture: Vec<f64>,
+}
+
+impl MoistureMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            moisture: vec![0.0; width * height],
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.moisture[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    fn wrapping_idx(&self, x: i32, y: i32) -> usize {
+        let wx = x.rem_euclid(self.width as i32) as usize;
+        let wy = y.rem_euclid(self.height as i32) as usize;
+        wy * self.width + wx
+    }
+
+    /// Update moisture from water presence and propagate.
+    /// Also updates vegetation based on moisture bands.
+    pub fn update(&mut self, water: &WaterMap, vegetation: &mut VegetationMap) {
+        // Step 1: moisture from water
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let i = y * self.width + x;
+                let w = water.get(x, y);
+                if w > 0.01 {
+                    self.moisture[i] = 1.0;
+                } else {
+                    self.moisture[i] = self.moisture[i] * 0.50 + w * 50.0;
+                }
+
+                // vegetation responds to moisture
+                let m = self.moisture[i];
+                if m > 0.1 && m < 0.5 {
+                    vegetation.grow(x, y);
+                } else {
+                    vegetation.decay(x, y);
+                }
+            }
+        }
+
+        // Step 2: propagate moisture forward (downwind = +y direction, like original)
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let i = y * self.width + x;
+                let m = self.moisture[i];
+                // forward
+                let fi = self.wrapping_idx(x as i32, y as i32 + 1);
+                self.moisture[fi] += m * 0.25;
+                // diagonals
+                let fli = self.wrapping_idx(x as i32 + 1, y as i32 + 1);
+                self.moisture[fli] += m * 0.125;
+                let fri = self.wrapping_idx(x as i32 - 1, y as i32 + 1);
+                self.moisture[fri] += m * 0.125;
+            }
+        }
+
+        // Step 3: box blur
+        self.box_blur();
+    }
+
+    fn box_blur(&mut self) {
+        let mut temp = vec![0.0f64; self.width * self.height];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let mut sum = 0.0;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        let ni = self.wrapping_idx(x as i32 + dx, y as i32 + dy);
+                        sum += self.moisture[ni];
+                    }
+                }
+                temp[y * self.width + x] = (sum / 9.0).clamp(0.0, 1.0);
+            }
+        }
+        self.moisture = temp;
+    }
+}
+
+/// Vegetation density grid: grows where moisture is right, decays elsewhere.
+pub struct VegetationMap {
+    pub width: usize,
+    pub height: usize,
+    vegetation: Vec<f64>,
+}
+
+impl VegetationMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            vegetation: vec![0.0; width * height],
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.vegetation[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    pub fn grow(&mut self, x: usize, y: usize) {
+        if x < self.width && y < self.height {
+            let i = y * self.width + x;
+            self.vegetation[i] = (self.vegetation[i] + 0.01).min(1.0);
+        }
+    }
+
+    pub fn decay(&mut self, x: usize, y: usize) {
+        if x < self.width && y < self.height {
+            let i = y * self.width + x;
+            self.vegetation[i] = (self.vegetation[i] - 0.01).max(0.0);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +431,81 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .sum();
         assert!(diffs > 0.0, "erosion should modify terrain heights");
+    }
+
+    #[test]
+    fn moisture_rises_near_water() {
+        let mut wm = WaterMap::new(10, 10);
+        wm.water[55] = 0.5; // water at (5, 5)
+        let mut mm = MoistureMap::new(10, 10);
+        let mut vm = VegetationMap::new(10, 10);
+
+        mm.update(&wm, &mut vm);
+
+        // after blur, the water tile won't be exactly 1.0 but should be high
+        assert!(mm.get(5, 5) > 0.1, "tile with water should have high moisture");
+        // nearby tiles should also have some moisture from propagation + blur
+        assert!(mm.get(5, 6) > 0.0, "moisture should propagate forward");
+        // tile with water should be higher than a distant dry tile
+        assert!(mm.get(5, 5) > mm.get(0, 0), "water tile should be more moist than dry tile");
+    }
+
+    #[test]
+    fn moisture_decays_without_water() {
+        let wm = WaterMap::new(10, 10);
+        let mut mm = MoistureMap::new(10, 10);
+        mm.moisture[55] = 0.8; // some initial moisture, no water
+        let mut vm = VegetationMap::new(10, 10);
+
+        for _ in 0..20 {
+            mm.update(&wm, &mut vm);
+        }
+
+        assert!(mm.get(5, 5) < 0.1, "moisture should decay without water source");
+    }
+
+    #[test]
+    fn vegetation_grows_with_moisture() {
+        let mut wm = WaterMap::new(10, 10);
+        // put a little water so moisture lands in the sweet spot (0.1-0.5)
+        wm.water[55] = 0.005;
+        let mut mm = MoistureMap::new(10, 10);
+        mm.moisture[55] = 0.3; // in the growth band
+        let mut vm = VegetationMap::new(10, 10);
+
+        for _ in 0..50 {
+            mm.update(&wm, &mut vm);
+        }
+
+        assert!(vm.get(5, 5) > 0.0, "vegetation should grow with appropriate moisture");
+    }
+
+    #[test]
+    fn vegetation_decays_without_moisture() {
+        let wm = WaterMap::new(10, 10);
+        let mut mm = MoistureMap::new(10, 10);
+        let mut vm = VegetationMap::new(10, 10);
+        vm.vegetation[55] = 0.5; // some initial vegetation
+
+        for _ in 0..100 {
+            mm.update(&wm, &mut vm);
+        }
+
+        assert!(vm.get(5, 5) < 0.1, "vegetation should decay without moisture");
+    }
+
+    #[test]
+    fn vegetation_clamped_to_0_1() {
+        let mut vm = VegetationMap::new(5, 5);
+        for _ in 0..200 {
+            vm.grow(2, 2);
+        }
+        assert!(vm.get(2, 2) <= 1.0);
+
+        for _ in 0..200 {
+            vm.decay(2, 2);
+        }
+        assert!(vm.get(2, 2) >= 0.0);
     }
 
     #[test]

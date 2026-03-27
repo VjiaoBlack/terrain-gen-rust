@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::ecs::{self, Position, Sprite};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
-use crate::simulation::{SimConfig, WaterMap};
+use crate::simulation::{MoistureMap, SimConfig, VegetationMap, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{self, Camera, TileMap};
 
@@ -75,6 +75,8 @@ pub struct Game {
     pub map: TileMap,
     pub heights: Vec<f64>,
     pub water: WaterMap,
+    pub moisture: MoistureMap,
+    pub vegetation: VegetationMap,
     pub sim_config: SimConfig,
     pub terrain_config: TerrainGenConfig,
     pub camera: Camera,
@@ -88,6 +90,8 @@ impl Game {
         let terrain_config = TerrainGenConfig { seed, ..Default::default() };
         let (map, heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
         let water = WaterMap::new(256, 256);
+        let moisture = MoistureMap::new(256, 256);
+        let vegetation = VegetationMap::new(256, 256);
         let camera = Camera::new(100, 100);
         let mut world = World::new();
 
@@ -104,6 +108,8 @@ impl Game {
             map,
             heights,
             water,
+            moisture,
+            vegetation,
             sim_config: SimConfig::default(),
             terrain_config,
             camera,
@@ -137,6 +143,7 @@ impl Game {
             self.water.rain(&self.sim_config);
         }
         self.water.update(&mut self.heights, &self.sim_config);
+        self.moisture.update(&self.water, &mut self.vegetation);
 
         // rebuild tiles if erosion changed heights
         if self.sim_config.erosion_enabled {
@@ -161,6 +168,28 @@ impl Game {
 
         // draw terrain
         tilemap::render_map(&self.map, &self.camera, renderer);
+
+        // draw vegetation on top of terrain (before water)
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in 0..w {
+                let wx = self.camera.x + sx as i32;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 && (wx as usize) < self.vegetation.width && (wy as usize) < self.vegetation.height {
+                    let v = self.vegetation.get(wx as usize, wy as usize);
+                    if v > 0.2 {
+                        // vegetation intensity affects character and color
+                        let (ch, fg) = if v > 0.8 {
+                            ('♠', Color(0, 80, 10))       // dense forest
+                        } else if v > 0.5 {
+                            ('♣', Color(10, 110, 20))     // forest
+                        } else {
+                            ('"', Color(40, 160, 40))     // grass/scrub
+                        };
+                        renderer.draw(sx, sy, ch, fg, None);
+                    }
+                }
+            }
+        }
 
         // draw water on top of terrain
         for sy in 0..h.saturating_sub(status_h) {
