@@ -1,5 +1,6 @@
 mod renderer;
 mod crossterm_renderer;
+mod headless_renderer;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
@@ -103,6 +104,83 @@ fn hue_to_rgb(hue: f64) -> (u8, u8, u8) {
         _ => (c, 0.0, x),
     };
     (r as u8, g as u8, b as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use headless_renderer::HeadlessRenderer;
+
+    #[test]
+    fn game_draws_block_on_first_tick() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = GameLoop::new(30);
+        game.tick = 1;
+        game.draw(&mut r);
+
+        // the block should be somewhere — at least one '█' in the frame
+        let frame = r.frame_as_string();
+        assert!(frame.contains('█'), "expected block char in frame:\n{}", frame);
+    }
+
+    #[test]
+    fn game_draws_status_line() {
+        let mut r = HeadlessRenderer::new(60, 20);
+        let mut game = GameLoop::new(30);
+        game.tick = 42;
+        game.draw(&mut r);
+
+        let frame = r.frame_as_string();
+        assert!(frame.contains("tick: 42"), "expected tick in status line:\n{}", frame);
+        assert!(frame.contains("fps: 30"), "expected fps in status line:\n{}", frame);
+    }
+
+    #[test]
+    fn block_moves_between_ticks() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = GameLoop::new(30);
+
+        game.tick = 1;
+        game.draw(&mut r);
+        let frame1 = r.frame_as_string();
+
+        r.clear();
+        game.tick = 10;
+        game.draw(&mut r);
+        let frame2 = r.frame_as_string();
+
+        assert_ne!(frame1, frame2, "frames should differ between ticks");
+    }
+
+    #[test]
+    fn clear_between_frames_removes_old_content() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = GameLoop::new(30);
+
+        game.tick = 1;
+        game.draw(&mut r);
+        r.clear();
+
+        // after clear, no block chars should remain
+        let frame = r.frame_as_string();
+        assert!(!frame.contains('█'), "frame should be blank after clear:\n{}", frame);
+    }
+
+    #[test]
+    fn headless_runs_many_ticks_without_panic() {
+        let mut r = HeadlessRenderer::new(80, 24);
+        let mut game = GameLoop::new(60);
+
+        for _ in 0..1000 {
+            r.clear();
+            game.tick += 1;
+            game.draw(&mut r);
+            let _ = r.flush();
+        }
+
+        let frame = r.frame_as_string();
+        assert!(frame.contains("tick: 1000"));
+    }
 }
 
 fn main() -> Result<()> {
