@@ -457,7 +457,7 @@ impl DayNightCycle {
         // Pick the active light source
         let (light_dx, light_dy, light_dz, light_strength) = if is_night {
             let (dx, dy, dz) = self.moon_direction_3d();
-            (dx, dy, dz, 0.4) // moon at 40% sun intensity
+            (dx, dy, dz, 0.6) // moon at 60% sun intensity
         } else {
             let (dx, dy, dz) = self.sun_direction_3d();
             (dx, dy, dz, 1.0)
@@ -600,10 +600,10 @@ impl DayNightCycle {
         } else if moon_elev > 0.1 {
             // Moonlit night: cool blue-silver, fairly visible
             let m = (moon_elev / 0.5).min(1.0);
-            (0.25 + 0.15 * m, 0.28 + 0.15 * m, 0.45 + 0.15 * m)
+            (0.35 + 0.2 * m, 0.38 + 0.2 * m, 0.55 + 0.15 * m)
         } else {
-            // Dark night: still visible but muted
-            (0.18, 0.18, 0.30)
+            // Dark night (no moon): dim but visible
+            (0.25, 0.25, 0.38)
         }
     }
 
