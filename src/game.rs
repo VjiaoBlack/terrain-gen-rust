@@ -1073,7 +1073,7 @@ impl Game {
             ("", dim),
             ("All villagers have perished.", white),
             ("", dim),
-            (&format!("Survived: {} ticks ({} days)", self.tick, self.tick / 1200), dim),
+            (&format!("Survived to {} ({} ticks)", self.day_night.date_string(), self.tick), dim),
             (&format!("Peak population: {}", self.peak_population), dim),
             (&format!("Resources: {} food, {} wood, {} stone",
                 self.resources.food, self.resources.wood, self.resources.stone), dim),
