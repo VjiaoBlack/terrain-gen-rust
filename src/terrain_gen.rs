@@ -51,7 +51,7 @@ fn fbm(perlin: &Perlin, x: f64, y: f64, config: &TerrainGenConfig) -> f64 {
     (value / max_amplitude + 1.0) / 2.0
 }
 
-fn height_to_terrain(h: f64, config: &TerrainGenConfig) -> Terrain {
+pub fn height_to_terrain(h: f64, config: &TerrainGenConfig) -> Terrain {
     if h < config.water_level {
         Terrain::Water
     } else if h < config.sand_level {
@@ -67,18 +67,31 @@ fn height_to_terrain(h: f64, config: &TerrainGenConfig) -> Terrain {
     }
 }
 
-pub fn generate_terrain(width: usize, height: usize, config: &TerrainGenConfig) -> TileMap {
+/// Returns (TileMap, height_data) where height_data is the raw f64 heights for simulation.
+pub fn generate_terrain(width: usize, height: usize, config: &TerrainGenConfig) -> (TileMap, Vec<f64>) {
     let perlin = Perlin::new(config.seed);
     let mut map = TileMap::new(width, height, Terrain::Grass);
+    let mut heights = vec![0.0f64; width * height];
 
     for y in 0..height {
         for x in 0..width {
             let h = fbm(&perlin, x as f64, y as f64, config);
+            heights[y * width + x] = h;
             map.set(x, y, height_to_terrain(h, config));
         }
     }
 
-    map
+    (map, heights)
+}
+
+/// Rebuild tile types from heights (call after erosion modifies terrain).
+pub fn rebuild_tiles(map: &mut TileMap, heights: &[f64], config: &TerrainGenConfig) {
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let h = heights[y * map.width + x];
+            map.set(x, y, height_to_terrain(h, config));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -87,14 +100,14 @@ mod tests {
 
     #[test]
     fn generates_correct_dimensions() {
-        let map = generate_terrain(50, 30, &TerrainGenConfig::default());
+        let (map, _) = generate_terrain(50, 30, &TerrainGenConfig::default());
         assert_eq!(map.width, 50);
         assert_eq!(map.height, 30);
     }
 
     #[test]
     fn all_tiles_are_valid() {
-        let map = generate_terrain(100, 100, &TerrainGenConfig::default());
+        let (map, _) = generate_terrain(100, 100, &TerrainGenConfig::default());
         for y in 0..100 {
             for x in 0..100 {
                 assert!(map.get(x, y).is_some());
@@ -105,8 +118,8 @@ mod tests {
     #[test]
     fn same_seed_produces_same_map() {
         let config = TerrainGenConfig::default();
-        let map1 = generate_terrain(50, 50, &config);
-        let map2 = generate_terrain(50, 50, &config);
+        let (map1, _) = generate_terrain(50, 50, &config);
+        let (map2, _) = generate_terrain(50, 50, &config);
 
         for y in 0..50 {
             for x in 0..50 {
@@ -122,8 +135,8 @@ mod tests {
         let mut config2 = TerrainGenConfig::default();
         config2.seed = 999;
 
-        let map1 = generate_terrain(50, 50, &config1);
-        let map2 = generate_terrain(50, 50, &config2);
+        let (map1, _) = generate_terrain(50, 50, &config1);
+        let (map2, _) = generate_terrain(50, 50, &config2);
 
         let mut diffs = 0;
         for y in 0..50 {
@@ -138,7 +151,7 @@ mod tests {
 
     #[test]
     fn generates_multiple_terrain_types() {
-        let map = generate_terrain(200, 200, &TerrainGenConfig::default());
+        let (map, _) = generate_terrain(200, 200, &TerrainGenConfig::default());
         let mut has_water = false;
         let mut has_grass = false;
         let mut has_forest = false;
@@ -167,7 +180,7 @@ mod tests {
         use crate::headless_renderer::HeadlessRenderer;
         use crate::tilemap::{Camera, render_map};
 
-        let map = generate_terrain(100, 100, &TerrainGenConfig::default());
+        let (map, _) = generate_terrain(100, 100, &TerrainGenConfig::default());
         let camera = Camera::new(0, 0);
         let mut r = HeadlessRenderer::new(40, 20);
         render_map(&map, &camera, &mut r);

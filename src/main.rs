@@ -5,6 +5,7 @@ mod game;
 mod ecs;
 mod tilemap;
 mod terrain_gen;
+mod simulation;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
@@ -26,6 +27,9 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
                     KeyCode::Down => GameInput::ScrollDown,
                     KeyCode::Left => GameInput::ScrollLeft,
                     KeyCode::Right => GameInput::ScrollRight,
+                    KeyCode::Char('r') => GameInput::ToggleRain,
+                    KeyCode::Char('e') => GameInput::ToggleErosion,
+                    KeyCode::Char('d') => GameInput::Drain,
                     _ => GameInput::None,
                 },
                 Event::Resize(w, h) => {
@@ -206,6 +210,81 @@ mod tests {
         let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
         let diff = snap1.diff(&snap1);
         assert!(diff.changes.is_empty(), "diffing a frame against itself should be empty");
+    }
+
+    #[test]
+    fn toggle_rain_starts_water() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = test_game();
+        assert!(!game.raining);
+
+        game.step(GameInput::ToggleRain, &mut r).unwrap();
+        assert!(game.raining);
+
+        // run some ticks with rain
+        for _ in 0..50 {
+            game.step(GameInput::None, &mut r).unwrap();
+        }
+
+        // check that water appeared somewhere on the map
+        let mut has_water = false;
+        for y in 0..game.water.height {
+            for x in 0..game.water.width {
+                if game.water.get(x, y) > 0.0 {
+                    has_water = true;
+                    break;
+                }
+            }
+            if has_water { break; }
+        }
+        assert!(has_water, "rain should add water to the map");
+    }
+
+    #[test]
+    fn drain_removes_water() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = test_game();
+
+        // rain, then stop rain, then drain
+        game.step(GameInput::ToggleRain, &mut r).unwrap();
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut r).unwrap();
+        }
+        game.step(GameInput::ToggleRain, &mut r).unwrap(); // stop rain
+        game.step(GameInput::Drain, &mut r).unwrap();
+
+        let total: f64 = (0..game.water.height)
+            .flat_map(|y| (0..game.water.width).map(move |x| (x, y)))
+            .map(|(x, y)| game.water.get(x, y))
+            .sum();
+        assert_eq!(total, 0.0, "drain should remove all water");
+    }
+
+    #[test]
+    fn toggle_erosion() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = test_game();
+        assert!(!game.sim_config.erosion_enabled);
+
+        game.step(GameInput::ToggleErosion, &mut r).unwrap();
+        assert!(game.sim_config.erosion_enabled);
+
+        game.step(GameInput::ToggleErosion, &mut r).unwrap();
+        assert!(!game.sim_config.erosion_enabled);
+    }
+
+    #[test]
+    fn status_line_shows_rain_state() {
+        let mut r = HeadlessRenderer::new(80, 20);
+        let mut game = test_game();
+
+        game.step(GameInput::None, &mut r).unwrap();
+        let frame = r.frame_as_string();
+        assert!(frame.contains("rain: [r] off"), "should show rain off:\n{}", frame);
+
+        game.step(GameInput::ToggleRain, &mut r).unwrap();
+        let frame = r.frame_as_string();
+        assert!(frame.contains("rain: [r] ON"), "should show rain ON:\n{}", frame);
     }
 
     #[test]

@@ -5,6 +5,7 @@ use serde::Serialize;
 use crate::ecs::{self, Position, Sprite};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
+use crate::simulation::{SimConfig, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{self, Camera, TileMap};
 
@@ -62,6 +63,9 @@ pub enum GameInput {
     ScrollDown,
     ScrollLeft,
     ScrollRight,
+    ToggleRain,
+    ToggleErosion,
+    Drain,
     None,
 }
 
@@ -69,15 +73,21 @@ pub struct Game {
     pub target_fps: u32,
     pub tick: u64,
     pub map: TileMap,
+    pub heights: Vec<f64>,
+    pub water: WaterMap,
+    pub sim_config: SimConfig,
+    pub terrain_config: TerrainGenConfig,
     pub camera: Camera,
     pub world: World,
     pub scroll_speed: i32,
+    pub raining: bool,
 }
 
 impl Game {
     pub fn new(target_fps: u32, seed: u32) -> Self {
-        let config = TerrainGenConfig { seed, ..Default::default() };
-        let map = terrain_gen::generate_terrain(256, 256, &config);
+        let terrain_config = TerrainGenConfig { seed, ..Default::default() };
+        let (map, heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
+        let water = WaterMap::new(256, 256);
         let camera = Camera::new(100, 100);
         let mut world = World::new();
 
@@ -92,9 +102,14 @@ impl Game {
             target_fps,
             tick: 0,
             map,
+            heights,
+            water,
+            sim_config: SimConfig::default(),
+            terrain_config,
             camera,
             world,
             scroll_speed: 2,
+            raining: false,
         }
     }
 
@@ -105,15 +120,28 @@ impl Game {
             GameInput::ScrollDown => self.camera.y += self.scroll_speed,
             GameInput::ScrollLeft => self.camera.x -= self.scroll_speed,
             GameInput::ScrollRight => self.camera.x += self.scroll_speed,
+            GameInput::ToggleRain => self.raining = !self.raining,
+            GameInput::ToggleErosion => self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled,
+            GameInput::Drain => self.water.drain(),
             GameInput::Quit | GameInput::None => {}
         }
 
         let (vw, vh) = renderer.size();
         self.camera.clamp(self.map.width, self.map.height, vw, vh);
 
-        // update
+        // update simulation
         self.tick += 1;
         ecs::system_movement(&mut self.world);
+
+        if self.raining {
+            self.water.rain(&self.sim_config);
+        }
+        self.water.update(&mut self.heights, &self.sim_config);
+
+        // rebuild tiles if erosion changed heights
+        if self.sim_config.erosion_enabled {
+            terrain_gen::rebuild_tiles(&mut self.map, &self.heights, &self.terrain_config);
+        }
 
         // render
         renderer.clear();
@@ -129,28 +157,68 @@ impl Game {
 
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
+        let status_h = 2u16; // reserve 2 lines for status
 
         // draw terrain
         tilemap::render_map(&self.map, &self.camera, renderer);
+
+        // draw water on top of terrain
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in 0..w {
+                let wx = self.camera.x + sx as i32;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
+                    let depth = self.water.get_avg(wx as usize, wy as usize);
+                    if depth > 0.0005 {
+                        // water color varies by depth
+                        let intensity = (depth * 500.0).min(1.0);
+                        let r = (50.0 * (1.0 - intensity)) as u8;
+                        let g = (100.0 + 50.0 * intensity) as u8;
+                        let b = (180.0 + 75.0 * intensity) as u8;
+                        let ch = if depth > 0.01 { '≈' } else { '~' };
+                        renderer.draw(sx, sy, ch, Color(r, g, b), Some(Color(20, 40, (80.0 + 40.0 * intensity) as u8)));
+                    }
+                }
+            }
+        }
 
         // draw entities (offset by camera)
         for (pos, sprite) in self.world.query::<(&Position, &Sprite)>().iter() {
             let sx = pos.x.round() as i32 - self.camera.x;
             let sy = pos.y.round() as i32 - self.camera.y;
-            if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(1) {
+            if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
                 renderer.draw(sx as u16, sy as u16, sprite.ch, sprite.fg, None);
             }
         }
 
-        // status line at bottom
-        let status = format!(
-            " tick: {}  cam: ({},{})  arrows: scroll  q: quit ",
-            self.tick, self.camera.x, self.camera.y
+        // status lines at bottom
+        let rain_str = if self.raining { "ON" } else { "off" };
+        let erosion_str = if self.sim_config.erosion_enabled { "ON" } else { "off" };
+        let status1 = format!(
+            " tick: {}  cam: ({},{})  rain: [r] {}  erosion: [e] {}  drain: [d]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, rain_str, erosion_str,
         );
-        for (i, ch) in status.chars().enumerate() {
+        let status2 = format!(
+            " arrows: scroll  ",
+        );
+
+        for (i, ch) in status1.chars().enumerate() {
             if (i as u16) < w {
-                renderer.draw(i as u16, h - 1, ch, Color(0, 0, 0), Some(Color(200, 200, 200)));
+                renderer.draw(i as u16, h - 2, ch, Color(0, 0, 0), Some(Color(200, 200, 200)));
             }
+        }
+        // fill rest of status line 1
+        for i in status1.len()..w as usize {
+            renderer.draw(i as u16, h - 2, ' ', Color(0, 0, 0), Some(Color(200, 200, 200)));
+        }
+
+        for (i, ch) in status2.chars().enumerate() {
+            if (i as u16) < w {
+                renderer.draw(i as u16, h - 1, ch, Color(0, 0, 0), Some(Color(170, 170, 170)));
+            }
+        }
+        for i in status2.len()..w as usize {
+            renderer.draw(i as u16, h - 1, ' ', Color(0, 0, 0), Some(Color(170, 170, 170)));
         }
     }
 
