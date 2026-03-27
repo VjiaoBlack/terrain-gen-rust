@@ -1121,7 +1121,10 @@ impl Game {
             None => "---".to_string(),
         };
         let query_str = if self.query_mode { "ON (wasd, q:exit)" } else { "off" };
-        let build_str = if self.build_mode { "ON" } else { "off" };
+        let build_str = if self.build_mode {
+            let (cf, cw, cs) = self.selected_building.cost();
+            format!("{} (f:{} w:{} s:{})", self.selected_building.name(), cf, cw, cs)
+        } else { "off".to_string() };
         let pause_str = if self.paused { "PAUSED" } else { "" };
         let status1 = format!(
             " tick: {}  cam: ({},{})  fps: {}  {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  build: [b] {}  pause: [space]  q: quit ",
