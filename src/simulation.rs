@@ -578,8 +578,9 @@ impl DayNightCycle {
         let (tr, tg, tb) = self.ambient_tint();
         let directional = self.get_light(wx, wy);
 
-        // Low ambient (0.15) + strong directional (0.85) for visible normal shading
-        let light = 0.15 + 0.85 * directional;
+        // Ambient (0.25) + directional (0.75) — enough ambient to see terrain at night,
+        // enough directional for normals to show through
+        let light = 0.25 + 0.75 * directional;
 
         let r = (color.0 as f64 * tr * light).clamp(0.0, 255.0) as u8;
         let g = (color.1 as f64 * tg * light).clamp(0.0, 255.0) as u8;
