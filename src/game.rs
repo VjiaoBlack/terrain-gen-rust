@@ -344,7 +344,7 @@ impl Game {
             let mods = self.day_night.season_modifiers();
 
             ecs::system_hunger(&mut self.world, mods.hunger_mult);
-            let deposits = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression);
+            let (deposits, food_consumed) = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food);
             let mut deposited_food = 0u32;
             let mut deposited_wood = 0u32;
             let mut deposited_stone = 0u32;
@@ -363,6 +363,10 @@ impl Game {
             }
             if deposited_stone > 0 {
                 self.notify(format!("Resource deposited: +{} stone", deposited_stone));
+            }
+            if food_consumed > 0 {
+                self.resources.food = self.resources.food.saturating_sub(food_consumed);
+                self.notify(format!("Villager ate from stockpile (-{} food)", food_consumed));
             }
 
             ecs::system_movement(&mut self.world, &self.map);

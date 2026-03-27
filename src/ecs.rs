@@ -296,9 +296,11 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64) -> Vec<ResourceType> {
+/// Returns (deposited_resources, food_consumed_from_stockpile).
+pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32) -> (Vec<ResourceType>, u32) {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
+    let mut food_consumed: u32 = 0;
 
     // Phase 1: snapshot world state (positions of food, prey, predators, stockpiles)
     let food_positions: Vec<(f64, f64)> = world
@@ -408,11 +410,21 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64) -> Vec<
                     .iter()
                     .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
 
+                let has_food = stockpile_food.saturating_sub(food_consumed) > 0;
+                let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
+                let near_food_source = food_positions.iter()
+                    .any(|&(fx, fy)| dist(pos.x, pos.y, fx, fy) < 2.0);
+
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos, &creature, &behavior_state, speed, predator_nearby,
                     &food_positions, &stockpile_positions, &build_site_positions,
-                    &stone_deposit_positions, map, &mut rng,
+                    &stone_deposit_positions, has_food, map, &mut rng,
                 );
+
+                // If villager just started eating near stockpile (not near berry bush), consume food
+                if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
+                    food_consumed += 1;
+                }
                 // If villager claims a build site, mark it assigned
                 if let Some(site_entity) = claim_site {
                     if let Ok(mut site) = world.get::<&mut BuildSite>(site_entity) {
@@ -481,7 +493,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64) -> Vec<
         }
     }
 
-    deposited_resources
+    (deposited_resources, food_consumed)
 }
 
 /// Prey AI: eat berries, flee predators, return home.
@@ -943,6 +955,7 @@ fn ai_villager(
     stockpile: &[(f64, f64)],
     build_sites: &[(Entity, f64, f64, bool)],
     stone_deposits: &[(f64, f64)],
+    has_stockpile_food: bool,
     map: &TileMap,
     rng: &mut impl rand::RngExt,
 ) -> (BehaviorState, f64, f64, f64, Option<ResourceType>, Option<Entity>) {
@@ -1040,6 +1053,21 @@ fn ai_villager(
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, fx, fy, speed, &mut vel);
                         return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
+                    }
+                }
+                // No berry bush reachable — eat from stockpile if food available
+                if has_stockpile_food {
+                    let nearest_stockpile = stockpile.iter()
+                        .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
+                        .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                    if let Some((sx, sy, d)) = nearest_stockpile {
+                        if d < 1.5 {
+                            return (BehaviorState::Eating { timer: rng.random_range(20..40) }, 0.0, 0.0, hunger, None, None);
+                        } else {
+                            let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                            move_toward(pos, sx, sy, speed, &mut vel);
+                            return (BehaviorState::Seek { target_x: sx, target_y: sy }, vel.dx, vel.dy, hunger, None, None);
+                        }
                     }
                 }
             }
@@ -1379,7 +1407,7 @@ mod tests {
 
         // Run AI + movement for many ticks — NPC will wander eventually
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4);
+            system_ai(&mut world, &map, 0.4, 0);
             system_movement(&mut world, &map);
         }
 
@@ -1401,7 +1429,7 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4);
+            system_ai(&mut world, &map, 0.4, 0);
             system_movement(&mut world, &map);
         }
 
@@ -1425,7 +1453,7 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
-            system_ai(&mut world, &map, 0.4);
+            system_ai(&mut world, &map, 0.4, 0);
             system_movement(&mut world, &map);
         }
 
@@ -1449,7 +1477,7 @@ mod tests {
         // Check position each tick; NPC should get close before transitioning to Idle
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
-            system_ai(&mut world, &map, 0.4);
+            system_ai(&mut world, &map, 0.4, 0);
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
             let dist = ((pos.x - 15.0).powi(2) + (pos.y - 15.0).powi(2)).sqrt();
@@ -1491,7 +1519,7 @@ mod tests {
         }
 
         // Run AI — should start seeking food
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
@@ -1516,7 +1544,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1535,7 +1563,7 @@ mod tests {
             b.state = BehaviorState::FleeHome;
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::AtHome { .. }),
@@ -1557,7 +1585,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(matches!(state, BehaviorState::Hunting { .. }),
@@ -1579,7 +1607,7 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(!matches!(state, BehaviorState::Hunting { .. }),
@@ -1606,7 +1634,7 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
-            system_ai(&mut world, &map, 0.4);
+            system_ai(&mut world, &map, 0.4, 0);
             system_movement(&mut world, &map);
 
             let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1657,7 +1685,7 @@ mod tests {
 
         for tick in 0..1000 {
             system_hunger(&mut world, 1.0);
-            system_ai(&mut world, &map, 0.4);
+            system_ai(&mut world, &map, 0.4, 0);
             system_movement(&mut world, &map);
 
             let ws = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1695,7 +1723,7 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
@@ -1717,7 +1745,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -1743,7 +1771,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1769,7 +1797,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
@@ -1789,7 +1817,7 @@ mod tests {
             b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -1815,7 +1843,7 @@ mod tests {
             b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
         }
 
-        let deposited = system_ai(&mut world, &map, 0.4);
+        let (deposited, _) = system_ai(&mut world, &map, 0.4, 0);
 
         assert_eq!(deposited.len(), 1, "should deposit one resource");
         assert_eq!(deposited[0], ResourceType::Wood, "should deposit wood");
@@ -1867,7 +1895,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Building { .. }),
@@ -1896,7 +1924,7 @@ mod tests {
             b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         // Build site should now be complete (progress >= required)
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1968,7 +1996,7 @@ mod tests {
         // With low aggression threshold (winter: 0.8), wolf should target villagers
         // since hunger (0.9) > threshold (0.8)
         for _ in 0..5 {
-            system_ai(&mut world, &map, 0.8);
+            system_ai(&mut world, &map, 0.8, 0);
             system_movement(&mut world, &map);
         }
 
@@ -2150,7 +2178,7 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
-            let d = system_ai(&mut world, &map, 0.4);
+            let (d, _) = system_ai(&mut world, &map, 0.4, 0);
             deposits.extend(d);
             system_movement(&mut world, &map);
             system_death(&mut world);
@@ -2189,6 +2217,32 @@ mod tests {
     }
 
     #[test]
+    fn villager_eats_from_stockpile_when_no_berries() {
+        let mut world = World::new();
+        // No food sources on this map — only stockpile
+        let map = walkable_map(30, 30);
+
+        let villager = spawn_villager(&mut world, 5.0, 5.0);
+        spawn_stockpile(&mut world, 5.0, 5.0); // stockpile right next to villager
+
+        // Hungry villager, wandering
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.6;
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        // Pass stockpile_food=10 so villager knows food is available
+        let (_, consumed) = system_ai(&mut world, &map, 0.4, 10);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        assert!(matches!(state, BehaviorState::Eating { .. }),
+            "hungry villager near stockpile with food should eat, got: {:?}", state);
+        assert_eq!(consumed, 1, "should consume 1 food from stockpile");
+    }
+
+    #[test]
     fn villager_gathers_stone_from_deposit() {
         let mut world = World::new();
         // Map with no mountain tiles — only stone deposits available
@@ -2206,7 +2260,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4);
+        system_ai(&mut world, &map, 0.4, 0);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),
