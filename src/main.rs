@@ -24,6 +24,7 @@ fn map_key(code: KeyCode) -> GameInput {
         KeyCode::Char('r') => GameInput::ToggleRain,
         KeyCode::Char('e') => GameInput::ToggleErosion,
         KeyCode::Char('t') => GameInput::ToggleDayNight,
+        KeyCode::Char('v') => GameInput::ToggleDebugView,
         KeyCode::Char('d') => GameInput::Drain,
         _ => GameInput::None,
     }
@@ -335,6 +336,26 @@ mod tests {
         assert!(!game.day_night.enabled);
         let frame = r.frame_as_string();
         assert!(frame.contains("time: [t] off"), "should show time off:\n{}", frame);
+    }
+
+    #[test]
+    fn toggle_debug_view() {
+        let mut r = HeadlessRenderer::new(120, 20);
+        let mut game = test_game();
+        assert!(!game.debug_view);
+
+        game.step(GameInput::None, &mut r).unwrap();
+        let frame = r.frame_as_string();
+        assert!(frame.contains("view: [v] normal"), "should show normal view:\n{}", frame);
+
+        game.step(GameInput::ToggleDebugView, &mut r).unwrap();
+        assert!(game.debug_view);
+        let frame = r.frame_as_string();
+        assert!(frame.contains("view: [v] DEBUG"), "should show DEBUG view:\n{}", frame);
+
+        // debug view uses uppercase terrain letters
+        let has_debug_chars = frame.chars().any(|c| "WSGFMN".contains(c));
+        assert!(has_debug_chars, "debug view should use uppercase terrain letters:\n{}", frame);
     }
 
     #[test]

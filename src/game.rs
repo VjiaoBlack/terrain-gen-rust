@@ -7,7 +7,7 @@ use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, MoistureMap, SimConfig, VegetationMap, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
-use crate::tilemap::{Camera, TileMap};
+use crate::tilemap::{Camera, Terrain, TileMap};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FrameSnapshot {
@@ -66,6 +66,7 @@ pub enum GameInput {
     ToggleRain,
     ToggleErosion,
     ToggleDayNight,
+    ToggleDebugView,
     Drain,
     None,
 }
@@ -89,6 +90,7 @@ pub struct Game {
     pub day_night: DayNightCycle,
     pub scroll_speed: i32,
     pub raining: bool,
+    pub debug_view: bool,
     pub display_fps: Option<u32>,
 }
 
@@ -124,6 +126,7 @@ impl Game {
             day_night: DayNightCycle::new(256, 256),
             scroll_speed: 2,
             raining: false,
+            debug_view: false,
             display_fps: None,
         }
     }
@@ -138,6 +141,7 @@ impl Game {
             GameInput::ToggleRain => self.raining = !self.raining,
             GameInput::ToggleErosion => self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled,
             GameInput::ToggleDayNight => self.day_night.enabled = !self.day_night.enabled,
+            GameInput::ToggleDebugView => self.debug_view = !self.debug_view,
             GameInput::Drain => self.water.drain(),
             GameInput::Quit | GameInput::None => {}
         }
@@ -181,7 +185,11 @@ impl Game {
 
         // render
         renderer.clear();
-        self.draw(renderer);
+        if self.debug_view {
+            self.draw_debug(renderer);
+        } else {
+            self.draw(renderer);
+        }
         renderer.flush()?;
         Ok(())
     }
@@ -274,7 +282,11 @@ impl Game {
             }
         }
 
-        // status lines at bottom
+        self.draw_status(renderer);
+    }
+
+    fn draw_status(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
         let rain_str = if self.raining { "ON" } else { "off" };
         let erosion_str = if self.sim_config.erosion_enabled { "ON" } else { "off" };
         let dn_str = if self.day_night.enabled {
@@ -282,13 +294,14 @@ impl Game {
         } else {
             "off".to_string()
         };
+        let view_str = if self.debug_view { "DEBUG" } else { "normal" };
         let fps_str = match self.display_fps {
             Some(fps) => format!("{}", fps),
             None => "---".to_string(),
         };
         let status1 = format!(
-            " tick: {}  cam: ({},{})  fps: {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  drain: [d]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, fps_str, rain_str, erosion_str, dn_str,
+            " tick: {}  cam: ({},{})  fps: {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  drain: [d]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, fps_str, rain_str, erosion_str, dn_str, view_str,
         );
         let status2 = format!(
             " arrows: scroll  ",
@@ -299,7 +312,6 @@ impl Game {
                 renderer.draw(i as u16, h - 2, ch, Color(0, 0, 0), Some(Color(200, 200, 200)));
             }
         }
-        // fill rest of status line 1
         for i in status1.len()..w as usize {
             renderer.draw(i as u16, h - 2, ' ', Color(0, 0, 0), Some(Color(200, 200, 200)));
         }
@@ -312,6 +324,65 @@ impl Game {
         for i in status2.len()..w as usize {
             renderer.draw(i as u16, h - 1, ' ', Color(0, 0, 0), Some(Color(170, 170, 170)));
         }
+    }
+
+    /// Debug view: high-contrast, no lighting, single letter per terrain type.
+    /// Shows terrain, water depth, entity positions, and collision-relevant info.
+    pub fn draw_debug(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 2u16;
+        let aspect = CELL_ASPECT;
+
+        let black = Color(0, 0, 0);
+
+        // Terrain: single uppercase letter, distinct bg per type, no lighting
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in 0..w {
+                let wx = self.camera.x + sx as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 {
+                    if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
+                        let (ch, bg) = match terrain {
+                            Terrain::Water =>    ('W', Color(30, 60, 180)),
+                            Terrain::Sand =>     ('S', Color(200, 180, 100)),
+                            Terrain::Grass =>    ('G', Color(50, 160, 50)),
+                            Terrain::Forest =>   ('F', Color(20, 100, 30)),
+                            Terrain::Mountain => ('M', Color(140, 130, 120)),
+                            Terrain::Snow =>     ('N', Color(220, 220, 230)),
+                        };
+                        renderer.draw(sx, sy, ch, black, Some(bg));
+                    }
+                }
+            }
+        }
+
+        // Water overlay: show depth as 0-9
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in 0..w {
+                let wx = self.camera.x + sx as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
+                    let depth = self.water.get_avg(wx as usize, wy as usize);
+                    if depth > 0.0005 {
+                        let level = ((depth * 1000.0).min(9.0)) as u8;
+                        let ch = (b'0' + level) as char;
+                        renderer.draw(sx, sy, ch, Color(255, 255, 255), Some(Color(0, 40, 200)));
+                    }
+                }
+            }
+        }
+
+        // Entities: bright yellow on red so they pop
+        for (pos, sprite) in self.world.query::<(&Position, &Sprite)>().iter() {
+            let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
+            let sy = pos.y.round() as i32 - self.camera.y;
+            if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
+                renderer.draw(sx as u16, sy as u16, sprite.ch, Color(255, 255, 0), Some(Color(180, 0, 0)));
+            }
+        }
+
+        // Status bar (shared with normal draw)
+        self.draw_status(renderer);
     }
 
     pub fn run_script(&mut self, inputs: &[GameInput], renderer: &mut HeadlessRenderer) -> Result<Vec<FrameSnapshot>> {
