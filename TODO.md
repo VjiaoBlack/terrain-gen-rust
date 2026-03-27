@@ -36,7 +36,15 @@
 - [x] Vegetation growth/decay — responds to moisture bands
 - [x] Day/night cycle — sun position, color tinting, shadow raytracing, [t] toggle
 
+## Ecosystem AI [done]
+- [x] Berry bushes — static food source entities on grass tiles
+- [x] Dens — prey home base, safe from predators
+- [x] Prey AI — hungry→seek food→eat→go home, flee if predator nearby
+- [x] Predator AI — hungry→hunt visible prey (not at den)→eat
+- [x] Hunger cycle — increases over time, eating resets it
+
 ## Later
+- [ ] Water cycle rework — slower accumulation, evaporation balance, seasonal floods
 - [ ] notcurses backend swap
 - [ ] rayon parallelism where needed
 - [ ] ratatui UI panels (inventory, stats, etc.)

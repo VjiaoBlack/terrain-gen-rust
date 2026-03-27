@@ -130,15 +130,33 @@ impl Game {
             (cx as f64, cy as f64) // fallback
         };
 
+        // Player
         let (px, py) = find_walkable(&map, 128, 128);
         ecs::spawn_entity(&mut world, px, py, 0.0, 0.0, '@', Color(255, 255, 0));
 
-        let (n1x, n1y) = find_walkable(&map, 110, 105);
-        ecs::spawn_npc(&mut world, n1x, n1y, 0.15, '☺', Color(200, 100, 50));
-        let (n2x, n2y) = find_walkable(&map, 130, 115);
-        ecs::spawn_npc(&mut world, n2x, n2y, 0.12, '☺', Color(100, 200, 50));
-        let (n3x, n3y) = find_walkable(&map, 120, 130);
-        ecs::spawn_npc(&mut world, n3x, n3y, 0.1, '☺', Color(50, 150, 200));
+        // Ecosystem: dens, berry bushes, prey, predators
+        let den_spots = [(115, 110), (135, 120), (120, 140), (108, 130)];
+        let bush_spots = [(125, 105), (140, 115), (110, 125), (130, 135), (118, 118), (132, 128)];
+
+        for &(cx, cy) in &den_spots {
+            let (dx, dy) = find_walkable(&map, cx, cy);
+            ecs::spawn_den(&mut world, dx, dy);
+            // Spawn a prey near its den
+            let (rx, ry) = find_walkable(&map, cx + 1, cy + 1);
+            ecs::spawn_prey(&mut world, rx, ry, dx, dy);
+        }
+
+        for &(cx, cy) in &bush_spots {
+            let (bx, by) = find_walkable(&map, cx, cy);
+            ecs::spawn_berry_bush(&mut world, bx, by);
+        }
+
+        // Predators — fewer, roam wider
+        let pred_spots = [(120, 108), (130, 130)];
+        for &(cx, cy) in &pred_spots {
+            let (wx, wy) = find_walkable(&map, cx, cy);
+            ecs::spawn_predator(&mut world, wx, wy);
+        }
 
         Self {
             target_fps,
@@ -182,6 +200,7 @@ impl Game {
 
         // update simulation
         self.tick += 1;
+        ecs::system_hunger(&mut self.world);
         ecs::system_ai(&mut self.world, &self.map);
         ecs::system_movement(&mut self.world, &self.map);
 
