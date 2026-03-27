@@ -82,8 +82,14 @@ pub enum GameInput {
     BuildRight,
     Drain,
     Restart,
+    ToggleAutoBuild,
+    /// Mouse click at screen coordinates (x, y)
+    MouseClick { x: u16, y: u16 },
     None,
 }
+
+/// Width of the left-side UI panel in screen columns.
+pub const PANEL_WIDTH: u16 = 24;
 
 #[derive(Debug, Clone, Default)]
 pub struct Resources {
@@ -127,6 +133,7 @@ pub struct Game {
     pub notifications: Vec<(u64, String)>,
     pub game_over: bool,
     pub peak_population: u32,
+    pub auto_build: bool,
 }
 
 impl Game {
@@ -246,6 +253,7 @@ impl Game {
             notifications: Vec::new(),
             game_over: false,
             peak_population: 3,
+            auto_build: false,
         };
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
@@ -267,7 +275,8 @@ impl Game {
                 _ => {
                     // Still render the game-over screen
                     let (vw, vh) = renderer.size();
-                    let world_vw = (vw as i32 / CELL_ASPECT) as u16;
+                    let map_w = vw.saturating_sub(PANEL_WIDTH);
+                    let world_vw = (map_w as i32 / CELL_ASPECT) as u16;
                     self.camera.clamp(self.map.width, self.map.height, world_vw, vh);
                     renderer.clear();
                     self.draw(renderer);
@@ -293,9 +302,10 @@ impl Game {
                 self.query_mode = !self.query_mode;
                 if self.query_mode {
                     self.build_mode = false; // mutually exclusive
-                    // Center cursor on screen
+                    // Center cursor on screen (account for panel)
                     let (vw, vh) = renderer.size();
-                    let world_vw = vw as i32 / CELL_ASPECT;
+                    let map_w = vw.saturating_sub(PANEL_WIDTH) as i32;
+                    let world_vw = map_w / CELL_ASPECT;
                     self.query_cx = self.camera.x + world_vw / 2;
                     self.query_cy = self.camera.y + vh as i32 / 2;
                 }
@@ -309,7 +319,8 @@ impl Game {
                 if self.build_mode {
                     self.query_mode = false; // mutually exclusive
                     let (vw, vh) = renderer.size();
-                    let world_vw = vw as i32 / CELL_ASPECT;
+                    let map_w = vw.saturating_sub(PANEL_WIDTH) as i32;
+                    let world_vw = map_w / CELL_ASPECT;
                     self.build_cursor_x = self.camera.x + world_vw / 2;
                     self.build_cursor_y = self.camera.y + vh as i32 / 2;
                 }
@@ -327,12 +338,15 @@ impl Game {
                 self.try_place_building();
             },
             GameInput::Drain => self.water.drain(),
+            GameInput::ToggleAutoBuild => self.auto_build = !self.auto_build,
+            GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
             GameInput::Quit | GameInput::Restart | GameInput::None => {}
         }
 
         let (vw, vh) = renderer.size();
-        // World-space viewport: screen width is divided by aspect ratio
-        let world_vw = (vw as i32 / CELL_ASPECT) as u16;
+        // World-space viewport: map area is screen minus panel, divided by aspect ratio
+        let map_w = vw.saturating_sub(PANEL_WIDTH);
+        let world_vw = (map_w as i32 / CELL_ASPECT) as u16;
         self.camera.clamp(self.map.width, self.map.height, world_vw, vh);
 
         // update simulation (skip when paused)
@@ -449,6 +463,11 @@ impl Game {
             // Population growth check
             self.try_population_growth();
 
+            // Auto-build check (every 200 ticks)
+            if self.auto_build && self.tick % 200 == 0 {
+                self.auto_build_tick();
+            }
+
             // Seasonal config for rain/water
             let mut tick_config = self.sim_config.clone();
             tick_config.rain_rate *= mods.rain_mult;
@@ -557,6 +576,64 @@ impl Game {
         ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt);
     }
 
+    /// Handle a mouse click at screen coordinates.
+    fn handle_mouse_click(&mut self, sx: u16, sy: u16, renderer: &dyn Renderer) {
+        let (_w, h) = renderer.size();
+
+        // Click in panel area — handle panel buttons
+        if sx < PANEL_WIDTH {
+            self.handle_panel_click(sy, h);
+            return;
+        }
+
+        // Click in map area — convert screen coords to world coords
+        let map_sx = sx - PANEL_WIDTH;
+        let wx = self.camera.x + map_sx as i32 / CELL_ASPECT;
+        let wy = self.camera.y + sy as i32;
+
+        if self.build_mode {
+            // Move build cursor and place
+            self.build_cursor_x = wx;
+            self.build_cursor_y = wy;
+            self.try_place_building();
+        } else {
+            // Enter query mode at clicked position
+            self.query_mode = true;
+            self.query_cx = wx;
+            self.query_cy = wy;
+        }
+    }
+
+    /// Handle clicks on the left panel buttons.
+    fn handle_panel_click(&mut self, sy: u16, _h: u16) {
+        // Panel layout (row positions):
+        // 0: header
+        // 1: blank
+        // 2-3: date/season
+        // 4: blank
+        // 5-7: resources
+        // 8: blank
+        // 9-11: population
+        // 12: blank
+        // 13: "-- Build --"
+        // 14+: building type buttons
+        // After buildings: auto-build toggle
+        let building_start = 14u16;
+        let types = BuildingType::all();
+        let auto_build_row = building_start + types.len() as u16 + 1;
+
+        if sy >= building_start && sy < building_start + types.len() as u16 {
+            let idx = (sy - building_start) as usize;
+            if idx < types.len() {
+                self.selected_building = types[idx];
+                self.build_mode = true;
+                self.query_mode = false;
+            }
+        } else if sy == auto_build_row {
+            self.auto_build = !self.auto_build;
+        }
+    }
+
     /// Check for completed build sites and apply their tiles to the map.
     fn check_build_completion(&mut self) {
         let mut completed: Vec<(hecs::Entity, Position, BuildSite)> = Vec::new();
@@ -656,6 +733,146 @@ impl Game {
         None
     }
 
+    /// Auto-build: place buildings automatically based on settlement needs.
+    fn auto_build_tick(&mut self) {
+        // Find settlement center from villager positions
+        let villager_pos: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if villager_pos.is_empty() {
+            return;
+        }
+        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
+        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
+
+        // Count existing farms (completed + in-progress)
+        let farm_count = self.world.query::<&FarmPlot>().iter().count()
+            + self.world.query::<&BuildSite>().iter()
+                .filter(|s| s.building_type == BuildingType::Farm).count();
+
+        // Count existing build sites being worked on
+        let pending_builds = self.world.query::<&BuildSite>().iter().count();
+        // Don't queue too many builds at once
+        if pending_builds >= 3 {
+            return;
+        }
+
+        // Priority 1: Farm when food is low and we don't have many farms
+        let villager_count = villager_pos.len() as u32;
+        if self.resources.food < 8 + villager_count * 2 && farm_count < (villager_count as usize + 1) / 2 {
+            let (cost_f, cost_w, cost_s) = BuildingType::Farm.cost();
+            if self.resources.food >= cost_f && self.resources.wood >= cost_w && self.resources.stone >= cost_s {
+                if let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm) {
+                    self.resources.food -= cost_f;
+                    self.resources.wood -= cost_w;
+                    self.resources.stone -= cost_s;
+                    ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, BuildingType::Farm);
+                    self.notify("Auto-build: Farm queued".to_string());
+                    return;
+                }
+            }
+        }
+
+        // Priority 2: Hut when population is growing and needs housing
+        let hut_count = self.world.query::<&BuildSite>().iter()
+            .filter(|s| s.building_type == BuildingType::Hut).count();
+        // Count completed huts by checking for Hut-shaped building floor clusters
+        // Simple heuristic: 1 hut per 3 villagers needed
+        let huts_needed = (villager_count as usize + 2) / 3;
+        if hut_count < huts_needed && villager_count >= 3 {
+            let (cost_f, cost_w, cost_s) = BuildingType::Hut.cost();
+            if self.resources.food >= cost_f && self.resources.wood >= cost_w && self.resources.stone >= cost_s {
+                if let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut) {
+                    self.resources.food -= cost_f;
+                    self.resources.wood -= cost_w;
+                    self.resources.stone -= cost_s;
+                    ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, BuildingType::Hut);
+                    self.notify("Auto-build: Hut queued".to_string());
+                    return;
+                }
+            }
+        }
+
+        // Priority 3: Walls when wolves are nearby settlement
+        let wolf_near = self.world.query::<(&Position, &Creature)>().iter()
+            .filter(|(_, c)| c.species == Species::Predator)
+            .any(|(p, _)| {
+                let dx = p.x - cx;
+                let dy = p.y - cy;
+                dx * dx + dy * dy < 400.0 // within ~20 tiles
+            });
+        if wolf_near {
+            let (cost_f, cost_w, cost_s) = BuildingType::Wall.cost();
+            if self.resources.food >= cost_f && self.resources.wood >= cost_w && self.resources.stone >= cost_s {
+                // Place wall between settlement center and nearest wolf
+                if let Some((bx, by)) = self.find_wall_spot(cx, cy) {
+                    self.resources.food -= cost_f;
+                    self.resources.wood -= cost_w;
+                    self.resources.stone -= cost_s;
+                    ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, BuildingType::Wall);
+                    self.notify("Auto-build: Wall queued".to_string());
+                }
+            }
+        }
+    }
+
+    /// Find a valid spot for a building near (cx, cy), searching outward in rings.
+    fn find_building_spot(&self, cx: f64, cy: f64, bt: BuildingType) -> Option<(i32, i32)> {
+        let (bw, bh) = bt.size();
+        for r in 2i32..20 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let bx = cx as i32 + dx * bw;
+                    let by = cy as i32 + dy * bh;
+                    if self.can_place_building(bx, by, bt) {
+                        return Some((bx, by));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Find a spot for a defensive wall between settlement center and nearest wolf.
+    fn find_wall_spot(&self, cx: f64, cy: f64) -> Option<(i32, i32)> {
+        // Find direction to nearest wolf
+        let mut nearest_dist = f64::MAX;
+        let mut wolf_dir = (0.0f64, 0.0f64);
+        for (p, c) in self.world.query::<(&Position, &Creature)>().iter() {
+            if c.species != Species::Predator { continue; }
+            let dx = p.x - cx;
+            let dy = p.y - cy;
+            let dist = dx * dx + dy * dy;
+            if dist < nearest_dist {
+                nearest_dist = dist;
+                let d = dist.sqrt().max(1.0);
+                wolf_dir = (dx / d, dy / d);
+            }
+        }
+        if nearest_dist == f64::MAX {
+            return None;
+        }
+        // Place wall ~8 tiles out in that direction, searching nearby for valid spot
+        let target_x = cx as i32 + (wolf_dir.0 * 8.0) as i32;
+        let target_y = cy as i32 + (wolf_dir.1 * 8.0) as i32;
+        for r in 0..5 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let wx = target_x + dx;
+                    let wy = target_y + dy;
+                    if self.can_place_building(wx, wy, BuildingType::Wall) {
+                        return Some((wx, wy));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Apply seasonal color tinting to vegetation-sensitive terrain.
     fn season_tint(&self, color: Color, terrain: &Terrain) -> Color {
         use crate::simulation::Season;
@@ -686,16 +903,127 @@ impl Game {
         }
     }
 
+    /// Draw the left-side UI panel.
+    fn draw_panel(&self, renderer: &mut dyn Renderer) {
+        let (_w, h) = renderer.size();
+        let pw = PANEL_WIDTH as usize;
+        let bg = Color(25, 25, 40);
+        let fg = Color(200, 200, 200);
+        let dim = Color(120, 120, 140);
+        let highlight = Color(255, 220, 100);
+        let green = Color(100, 220, 100);
+
+        // Helper: draw a line of text in the panel
+        let mut row = 0u16;
+        let mut draw_line = |r: &mut dyn Renderer, y: u16, text: &str, color: Color| {
+            for (i, ch) in text.chars().enumerate() {
+                if i < pw {
+                    r.draw(i as u16, y, ch, color, Some(bg));
+                }
+            }
+            for i in text.len()..pw {
+                r.draw(i as u16, y, ' ', fg, Some(bg));
+            }
+        };
+
+        // Fill panel background
+        for y in 0..h {
+            for x in 0..PANEL_WIDTH {
+                renderer.draw(x, y, ' ', fg, Some(bg));
+            }
+        }
+
+        // Header
+        draw_line(renderer, row, " TERRAIN-GEN", highlight); row += 1;
+
+        // Separator
+        let sep: String = std::iter::repeat('-').take(pw).collect();
+        draw_line(renderer, row, &sep, dim); row += 1;
+
+        // Date / Season
+        let date = self.day_night.date_string();
+        let time = self.day_night.time_string();
+        draw_line(renderer, row, &format!(" {} {}", date, time), fg); row += 1;
+        row += 1;
+
+        // Resources
+        draw_line(renderer, row, " Resources", highlight); row += 1;
+        draw_line(renderer, row, &format!("  Food:  {}", self.resources.food), fg); row += 1;
+        draw_line(renderer, row, &format!("  Wood:  {}", self.resources.wood), fg); row += 1;
+        draw_line(renderer, row, &format!("  Stone: {}", self.resources.stone), fg); row += 1;
+        row += 1;
+
+        // Population
+        let villagers = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+        let prey = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Prey).count();
+        let wolves = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        draw_line(renderer, row, " Population", highlight); row += 1;
+        draw_line(renderer, row, &format!("  Villagers: {}", villagers), fg); row += 1;
+        draw_line(renderer, row, &format!("  Rabbits:   {}", prey), dim); row += 1;
+        draw_line(renderer, row, &format!("  Wolves:    {}", wolves), dim); row += 1;
+        row += 1;
+
+        // Build section
+        draw_line(renderer, row, " Build (click/[b])", highlight); row += 1;
+        let types = BuildingType::all();
+        for bt in types {
+            let (cf, cw, cs) = bt.cost();
+            let selected = self.build_mode && self.selected_building == *bt;
+            let marker = if selected { ">" } else { " " };
+            let line = format!("{} {} f:{} w:{} s:{}", marker, bt.name(), cf, cw, cs);
+            let color = if selected { green } else { fg };
+            draw_line(renderer, row, &line, color);
+            row += 1;
+        }
+        row += 1;
+
+        // Auto-build toggle
+        let ab_str = if self.auto_build { "ON" } else { "off" };
+        draw_line(renderer, row, &format!(" Auto-build [a]: {}", ab_str),
+            if self.auto_build { green } else { fg });
+        row += 1;
+        row += 1;
+
+        // Controls
+        draw_line(renderer, row, " Controls", highlight); row += 1;
+        draw_line(renderer, row, "  arrows: scroll", dim); row += 1;
+        draw_line(renderer, row, "  [b] build mode", dim); row += 1;
+        draw_line(renderer, row, "  [k] query/inspect", dim); row += 1;
+        draw_line(renderer, row, "  [space] pause", dim); row += 1;
+        draw_line(renderer, row, "  click: build/query", dim); row += 1;
+        draw_line(renderer, row, "  [q] quit", dim); row += 1;
+
+        // Mode indicator
+        if row + 2 < h {
+            row += 1;
+            if self.build_mode {
+                draw_line(renderer, row, " MODE: BUILD", green);
+            } else if self.query_mode {
+                draw_line(renderer, row, " MODE: QUERY", Color(200, 100, 255));
+            } else if self.paused {
+                draw_line(renderer, row, " PAUSED", Color(255, 100, 100));
+            }
+        }
+    }
+
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let status_h = 2u16; // reserve 2 lines for status
+        let status_h = 1u16; // reserve 2 lines for status
         let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH;
+
+        // draw left panel first (background)
+        self.draw_panel(renderer);
 
         // draw terrain with day/night lighting and seasonal tinting
         // Each world tile occupies `aspect` screen columns for square pixels.
+        // Map area starts at panel_w.
         for sy in 0..h {
-            for sx in 0..w {
-                let wx = self.camera.x + sx as i32 / aspect;
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
@@ -716,8 +1044,8 @@ impl Game {
 
         // draw vegetation on top of terrain (before water)
         for sy in 0..h.saturating_sub(status_h) {
-            for sx in 0..w {
-                let wx = self.camera.x + sx as i32 / aspect;
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.vegetation.width && (wy as usize) < self.vegetation.height {
                     let v = self.vegetation.get(wx as usize, wy as usize);
@@ -743,8 +1071,8 @@ impl Game {
 
         // draw water on top of terrain (skip Water terrain — already rendered as ocean)
         for sy in 0..h.saturating_sub(status_h) {
-            for sx in 0..w {
-                let wx = self.camera.x + sx as i32 / aspect;
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
                     // Skip ocean tiles — they already have their own water appearance
@@ -771,8 +1099,8 @@ impl Game {
 
         // Territory tint: subtle blue where influence > 0.1
         for sy in 0..h.saturating_sub(status_h) {
-            for sx in 0..w {
-                let wx = self.camera.x + sx as i32 / aspect;
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.influence.width && (wy as usize) < self.influence.height {
                     let inf = self.influence.get(wx as usize, wy as usize);
@@ -799,9 +1127,9 @@ impl Game {
             if matches!(bstate, Some(BehaviorState::AtHome { .. })) {
                 continue;
             }
-            let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
+            let sx = (pos.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
             let sy = pos.y.round() as i32 - self.camera.y;
-            if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
+            if sx >= panel_w as i32 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
                 let (tr, tg, tb) = self.day_night.ambient_tint();
                 let fg = if matches!(bstate, Some(BehaviorState::Captured)) {
                     // Captured prey rendered dim red
@@ -843,8 +1171,9 @@ impl Game {
 
     fn draw_build_mode(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let status_h = 2u16;
+        let status_h = 1u16;
         let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
         let (bw, bh) = self.selected_building.size();
 
         let valid = self.can_place_building(self.build_cursor_x, self.build_cursor_y, self.selected_building);
@@ -854,12 +1183,12 @@ impl Game {
             for dx in 0..bw {
                 let wx = self.build_cursor_x + dx;
                 let wy = self.build_cursor_y + dy;
-                let sx = (wx - self.camera.x) * aspect;
+                let sx = (wx - self.camera.x) * aspect + panel_w;
                 let sy = wy - self.camera.y;
                 if sy >= 0 && (sy as u16) < h.saturating_sub(status_h) {
                     for ax in 0..aspect {
                         let cx = sx + ax;
-                        if cx >= 0 && (cx as u16) < w {
+                        if cx >= panel_w && (cx as u16) < w {
                             let (fg, bg) = if valid {
                                 (Color(200, 255, 200), Color(0, 100, 0))
                             } else {
@@ -902,17 +1231,18 @@ impl Game {
 
     fn draw_query_cursor(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let status_h = 2u16;
+        let status_h = 1u16;
         let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
 
-        let sx = (self.query_cx - self.camera.x) * aspect;
+        let sx = (self.query_cx - self.camera.x) * aspect + panel_w;
         let sy = self.query_cy - self.camera.y;
 
         // Draw cursor bracket across aspect-width cells
         if sy >= 0 && (sy as u16) < h.saturating_sub(status_h) {
             for dx in 0..aspect {
                 let cx = sx + dx;
-                if cx >= 0 && (cx as u16) < w {
+                if cx >= panel_w && (cx as u16) < w {
                     // Draw a highlight — bright magenta border
                     let cell = renderer.get_cell(cx as u16, sy as u16);
                     let ch = cell.map(|c| c.ch).unwrap_or(' ');
@@ -924,7 +1254,7 @@ impl Game {
 
     fn draw_query_panel(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let status_h = 2u16;
+        let status_h = 1u16;
 
         // Gather info about the tile and any entities at cursor
         let wx = self.query_cx;
@@ -1077,7 +1407,7 @@ impl Game {
 
     fn draw_notifications(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let status_h = 2u16;
+        let status_h = 1u16;
         let base_y = h.saturating_sub(status_h + 1);
 
         let now = self.tick;
@@ -1141,57 +1471,27 @@ impl Game {
 
     fn draw_status(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let rain_str = if self.raining { "ON" } else { "off" };
-        let erosion_str = if self.sim_config.erosion_enabled { "ON" } else { "off" };
-        let dn_str = if self.day_night.enabled {
-            format!("ON {} {}", self.day_night.time_string(), self.day_night.date_string())
-        } else {
-            "off".to_string()
-        };
-        let view_str = if self.debug_view { "DEBUG" } else { "normal" };
         let fps_str = match self.display_fps {
-            Some(fps) => format!("{}", fps),
+            Some(fps) => format!("{}fps", fps),
             None => "---".to_string(),
         };
-        let query_str = if self.query_mode { "ON (wasd, q:exit)" } else { "off" };
-        let build_str = if self.build_mode {
-            let (cf, cw, cs) = self.selected_building.cost();
-            format!("{} (f:{} w:{} s:{})", self.selected_building.name(), cf, cw, cs)
-        } else { "off".to_string() };
-        let pause_str = if self.paused { "PAUSED" } else { "" };
-        let status1 = format!(
-            " tick: {}  cam: ({},{})  fps: {}  {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  build: [b] {}  pause: [space]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, fps_str, pause_str, rain_str, erosion_str, dn_str, view_str, query_str, build_str,
-        );
-        let villager_count = self.world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Villager).count();
-        let prey_count = self.world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Prey).count();
-        let wolf_count = self.world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Predator).count();
-
-        let status2 = format!(
-            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}  |  Pop: {}  Prey: {}  Wolves: {}  |  drain: [d]",
-            self.resources.food, self.resources.wood, self.resources.stone,
-            villager_count, prey_count, wolf_count,
+        let pause_str = if self.paused { " PAUSED " } else { "" };
+        let status = format!(
+            " tick:{}  {}{}  rain:[r]{} erosion:[e]{} time:[t]{} view:[v]{} drain:[d]",
+            self.tick, fps_str, pause_str,
+            if self.raining { "+" } else { "-" },
+            if self.sim_config.erosion_enabled { "+" } else { "-" },
+            if self.day_night.enabled { "+" } else { "-" },
+            if self.debug_view { "D" } else { "-" },
         );
 
-        for (i, ch) in status1.chars().enumerate() {
+        for (i, ch) in status.chars().enumerate() {
             if (i as u16) < w {
-                renderer.draw(i as u16, h - 2, ch, Color(0, 0, 0), Some(Color(200, 200, 200)));
+                renderer.draw(i as u16, h - 1, ch, Color(0, 0, 0), Some(Color(180, 180, 180)));
             }
         }
-        for i in status1.len()..w as usize {
-            renderer.draw(i as u16, h - 2, ' ', Color(0, 0, 0), Some(Color(200, 200, 200)));
-        }
-
-        for (i, ch) in status2.chars().enumerate() {
-            if (i as u16) < w {
-                renderer.draw(i as u16, h - 1, ch, Color(0, 0, 0), Some(Color(170, 170, 170)));
-            }
-        }
-        for i in status2.len()..w as usize {
-            renderer.draw(i as u16, h - 1, ' ', Color(0, 0, 0), Some(Color(170, 170, 170)));
+        for i in status.len()..w as usize {
+            renderer.draw(i as u16, h - 1, ' ', Color(0, 0, 0), Some(Color(180, 180, 180)));
         }
     }
 
@@ -1199,7 +1499,7 @@ impl Game {
     /// Shows terrain, water depth, entity positions, and collision-relevant info.
     pub fn draw_debug(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
-        let status_h = 2u16;
+        let status_h = 1u16;
         let aspect = CELL_ASPECT;
 
         let black = Color(0, 0, 0);
@@ -1377,5 +1677,34 @@ mod tests {
 
         assert!(game.game_over, "game should be over when all villagers die");
         assert!(game.paused, "game should pause on game over");
+    }
+
+    #[test]
+    fn auto_build_places_farm_when_food_low() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        game.auto_build = true;
+        game.resources.food = 2;
+        game.resources.wood = 10;
+        game.resources.stone = 10;
+
+        // Count farms before
+        let farms_before = game.world.query::<&BuildSite>().iter()
+            .filter(|s| s.building_type == BuildingType::Farm).count()
+            + game.world.query::<&FarmPlot>().iter().count();
+
+        // Run auto_build_tick directly
+        game.auto_build_tick();
+
+        let farms_after = game.world.query::<&BuildSite>().iter()
+            .filter(|s| s.building_type == BuildingType::Farm).count()
+            + game.world.query::<&FarmPlot>().iter().count();
+
+        assert!(farms_after > farms_before, "auto-build should queue a farm when food is low");
+        // Resources should be deducted
+        let (cost_f, cost_w, _cost_s) = BuildingType::Farm.cost();
+        assert_eq!(game.resources.food, 2 - cost_f);
+        assert_eq!(game.resources.wood, 10 - cost_w);
     }
 }

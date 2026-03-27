@@ -1,6 +1,8 @@
 use anyhow::Result;
 use crossterm::{
     cursor, execute, queue,
+    event::EnableMouseCapture,
+    event::DisableMouseCapture,
     style::{Color as CColor, Colors, ResetColor, SetColors},
     terminal,
 };
@@ -24,7 +26,7 @@ impl CrosstermRenderer {
         let mut stdout = io::stdout();
 
         terminal::enable_raw_mode()?;
-        execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
+        execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide, EnableMouseCapture)?;
         // clear the alternate screen with the default background
         execute!(stdout, ResetColor, terminal::Clear(terminal::ClearType::All))?;
 
@@ -40,7 +42,7 @@ impl CrosstermRenderer {
 
 impl Drop for CrosstermRenderer {
     fn drop(&mut self) {
-        let _ = execute!(self.stdout, ResetColor, terminal::LeaveAlternateScreen, cursor::Show);
+        let _ = execute!(self.stdout, DisableMouseCapture, ResetColor, terminal::LeaveAlternateScreen, cursor::Show);
         let _ = terminal::disable_raw_mode();
     }
 }

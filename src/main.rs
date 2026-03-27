@@ -8,7 +8,7 @@ mod terrain_gen;
 mod simulation;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
 use std::time::{Duration, Instant};
 
 use crossterm_renderer::CrosstermRenderer;
@@ -65,6 +65,7 @@ fn map_key(code: KeyCode, query_mode: bool, build_mode: bool, game_over: bool) -
             KeyCode::Char('v') => GameInput::ToggleDebugView,
             KeyCode::Char('k') => GameInput::ToggleQueryMode,
             KeyCode::Char('b') => GameInput::ToggleBuildMode,
+            KeyCode::Char('a') => GameInput::ToggleAutoBuild,
             KeyCode::Char(' ') => GameInput::TogglePause,
             KeyCode::Char('d') => GameInput::Drain,
             _ => GameInput::None,
@@ -95,6 +96,9 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
                     if mapped != GameInput::None {
                         input = mapped;
                     }
+                }
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, .. }) => {
+                    input = GameInput::MouseClick { x: column, y: row };
                 }
                 Event::Resize(w, h) => {
                     renderer.resize(w, h);
@@ -266,13 +270,12 @@ mod tests {
 
     #[test]
     fn game_draws_status_line() {
-        let mut r = HeadlessRenderer::new(60, 20);
+        let mut r = HeadlessRenderer::new(120, 20);
         let mut game = test_game();
         game.step(GameInput::None, &mut r).unwrap();
 
         let frame = r.frame_as_string();
-        assert!(frame.contains("tick: 1"), "expected tick in status line:\n{}", frame);
-        assert!(frame.contains("cam:"), "expected camera pos in status line:\n{}", frame);
+        assert!(frame.contains("tick:1"), "expected tick in status line:\n{}", frame);
     }
 
     #[test]
@@ -408,11 +411,11 @@ mod tests {
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("rain: [r] off"), "should show rain off:\n{}", frame);
+        assert!(frame.contains("rain:[r]-"), "should show rain off:\n{}", frame);
 
         game.step(GameInput::ToggleRain, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("rain: [r] ON"), "should show rain ON:\n{}", frame);
+        assert!(frame.contains("rain:[r]+"), "should show rain ON:\n{}", frame);
     }
 
     #[test]
@@ -423,12 +426,12 @@ mod tests {
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("time: [t] ON"), "should show time ON:\n{}", frame);
+        assert!(frame.contains("time:[t]+"), "should show time ON:\n{}", frame);
 
         game.step(GameInput::ToggleDayNight, &mut r).unwrap();
         assert!(!game.day_night.enabled);
         let frame = r.frame_as_string();
-        assert!(frame.contains("time: [t] off"), "should show time off:\n{}", frame);
+        assert!(frame.contains("time:[t]-"), "should show time off:\n{}", frame);
     }
 
     #[test]
@@ -439,12 +442,12 @@ mod tests {
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("view: [v] normal"), "should show normal view:\n{}", frame);
+        assert!(frame.contains("view:[v]-"), "should show normal view:\n{}", frame);
 
         game.step(GameInput::ToggleDebugView, &mut r).unwrap();
         assert!(game.debug_view);
         let frame = r.frame_as_string();
-        assert!(frame.contains("view: [v] DEBUG"), "should show DEBUG view:\n{}", frame);
+        assert!(frame.contains("view:[v]D"), "should show DEBUG view:\n{}", frame);
 
         // debug view uses uppercase terrain letters
         let has_debug_chars = frame.chars().any(|c| "WSGFMN".contains(c));
@@ -453,7 +456,7 @@ mod tests {
 
     #[test]
     fn day_night_affects_colors() {
-        let mut r = HeadlessRenderer::new(40, 20);
+        let mut r = HeadlessRenderer::new(60, 20);
         let mut game = test_game();
 
         // Noon: bright
@@ -465,9 +468,9 @@ mod tests {
         game.day_night.hour = 0.0;
         let midnight_snap = game.step_headless(GameInput::None, &mut r).unwrap();
 
-        // Compare brightness of a terrain cell (not status bar)
-        let noon_cell = &noon_snap.cells[5][5];
-        let midnight_cell = &midnight_snap.cells[5][5];
+        // Compare brightness of a terrain cell in the map area (past the panel)
+        let noon_cell = &noon_snap.cells[5][35];
+        let midnight_cell = &midnight_snap.cells[5][35];
 
         let noon_brightness = noon_cell.fg.0 as u32 + noon_cell.fg.1 as u32 + noon_cell.fg.2 as u32;
         let midnight_brightness = midnight_cell.fg.0 as u32 + midnight_cell.fg.1 as u32 + midnight_cell.fg.2 as u32;
