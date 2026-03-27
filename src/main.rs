@@ -14,7 +14,14 @@ use std::time::{Duration, Instant};
 use crossterm_renderer::CrosstermRenderer;
 use game::{Game, GameInput};
 
-fn map_key(code: KeyCode, query_mode: bool, build_mode: bool) -> GameInput {
+fn map_key(code: KeyCode, query_mode: bool, build_mode: bool, game_over: bool) -> GameInput {
+    if game_over {
+        return match code {
+            KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
+            KeyCode::Char('r') => GameInput::Restart,
+            _ => GameInput::None,
+        };
+    }
     if query_mode {
         // In query mode: WASD moves cursor, arrows still scroll camera
         match code {
@@ -65,7 +72,8 @@ fn map_key(code: KeyCode, query_mode: bool, build_mode: bool) -> GameInput {
     }
 }
 
-fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<()> {
+/// Returns Ok(true) to restart, Ok(false) to quit.
+fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<bool> {
     let mut fps_timer = Instant::now();
     let mut frame_count = 0u32;
     let mut display_fps = 0u32;
@@ -78,7 +86,7 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         while event::poll(Duration::ZERO)? {
             match event::read()? {
                 Event::Key(KeyEvent { code, .. }) => {
-                    let mapped = map_key(code, game.query_mode, game.build_mode);
+                    let mapped = map_key(code, game.query_mode, game.build_mode, game.game_over);
                     // Prioritize quit; for movement, take the latest
                     if mapped == GameInput::Quit {
                         input = GameInput::Quit;
@@ -96,7 +104,10 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         }
 
         if input == GameInput::Quit {
-            return Ok(());
+            return Ok(false);
+        }
+        if input == GameInput::Restart {
+            return Ok(true);
         }
 
         game.step(input, renderer)?;
@@ -169,8 +180,15 @@ fn main() -> Result<()> {
     }
 
     let mut renderer = CrosstermRenderer::new()?;
-    let mut game = Game::new(60, 42);
-    run_interactive(&mut game, &mut renderer)?;
+    let mut seed = 42u32;
+    loop {
+        let mut game = Game::new(60, seed);
+        let restart = run_interactive(&mut game, &mut renderer)?;
+        if !restart {
+            break;
+        }
+        seed = seed.wrapping_add(1); // new seed each restart for variety
+    }
     Ok(())
 }
 

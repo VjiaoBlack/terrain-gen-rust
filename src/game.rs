@@ -81,6 +81,7 @@ pub enum GameInput {
     BuildLeft,
     BuildRight,
     Drain,
+    Restart,
     None,
 }
 
@@ -257,6 +258,24 @@ impl Game {
     }
 
     pub fn step(&mut self, input: GameInput, renderer: &mut dyn Renderer) -> Result<()> {
+        // In game-over state, only allow quit/restart
+        if self.game_over {
+            match input {
+                GameInput::Quit | GameInput::Restart | GameInput::None => {}
+                _ => {
+                    // Still render the game-over screen
+                    let (vw, vh) = renderer.size();
+                    let world_vw = (vw as i32 / CELL_ASPECT) as u16;
+                    self.camera.clamp(self.map.width, self.map.height, world_vw, vh);
+                    renderer.clear();
+                    self.draw(renderer);
+                    self.draw_game_over(renderer);
+                    renderer.flush()?;
+                    return Ok(());
+                }
+            }
+        }
+
         // input
         match input {
             GameInput::ScrollUp => self.camera.y -= self.scroll_speed,
@@ -306,7 +325,7 @@ impl Game {
                 self.try_place_building();
             },
             GameInput::Drain => self.water.drain(),
-            GameInput::Quit | GameInput::None => {}
+            GameInput::Quit | GameInput::Restart | GameInput::None => {}
         }
 
         let (vw, vh) = renderer.size();
@@ -1059,7 +1078,7 @@ impl Game {
             (&format!("Resources: {} food, {} wood, {} stone",
                 self.resources.food, self.resources.wood, self.resources.stone), dim),
             ("", dim),
-            ("Press [q] to quit", white),
+            ("Press [r] to restart, [q] to quit", white),
         ];
 
         let box_h = lines.len() as u16;

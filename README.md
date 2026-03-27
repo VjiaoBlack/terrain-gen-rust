@@ -2,7 +2,7 @@
 
 Terminal-based civ/DF hybrid game built in Rust. Features procedural terrain, real-time water/erosion, day/night lighting, AI-driven ecosystem, and a settlement system with villager AI, building placement, seasons, and resource management.
 
-Designed as an AI development harness: headless renderer, frame serialization, programmatic input injection, and 115+ automated tests enable rapid iteration with AI assistance.
+Designed as an AI development harness: headless renderer, frame serialization, programmatic input injection, and 117+ automated tests enable rapid iteration with AI assistance.
 
 ![Rust](https://img.shields.io/badge/Rust-2024_edition-orange)
 
@@ -88,7 +88,7 @@ cargo run --release
 cargo test
 ```
 
-115 tests cover terrain generation, water simulation, day/night lighting, ECS systems, collision, AI behavior, ecosystem interactions, building system, seasons, farming, breeding, influence maps, and the headless harness.
+117 tests cover terrain generation, water simulation, day/night lighting, ECS systems, collision, AI behavior, ecosystem interactions, building system, seasons, farming, breeding, influence maps, and the headless harness.
 
 ## Architecture
 
