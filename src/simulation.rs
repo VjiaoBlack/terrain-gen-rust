@@ -413,10 +413,10 @@ impl DayNightCycle {
     /// Get season-dependent modifiers for simulation systems.
     pub fn season_modifiers(&self) -> SeasonModifiers {
         match self.season {
-            Season::Spring => SeasonModifiers { rain_mult: 1.5, evap_mult: 1.0, veg_growth_mult: 2.0, hunger_mult: 1.0, wolf_aggression: 0.4 },
-            Season::Summer => SeasonModifiers { rain_mult: 0.5, evap_mult: 2.0, veg_growth_mult: 1.5, hunger_mult: 0.8, wolf_aggression: 0.4 },
-            Season::Autumn => SeasonModifiers { rain_mult: 1.0, evap_mult: 1.0, veg_growth_mult: 0.3, hunger_mult: 1.0, wolf_aggression: 0.5 },
-            Season::Winter => SeasonModifiers { rain_mult: 0.3, evap_mult: 0.5, veg_growth_mult: 0.0, hunger_mult: 1.8, wolf_aggression: 0.8 },
+            Season::Spring => SeasonModifiers { rain_mult: 1.5, evap_mult: 1.0, veg_growth_mult: 2.0, hunger_mult: 1.0, wolf_aggression: 0.95 },
+            Season::Summer => SeasonModifiers { rain_mult: 0.5, evap_mult: 2.0, veg_growth_mult: 1.5, hunger_mult: 0.8, wolf_aggression: 0.95 },
+            Season::Autumn => SeasonModifiers { rain_mult: 1.0, evap_mult: 1.0, veg_growth_mult: 0.3, hunger_mult: 1.0, wolf_aggression: 0.8 },
+            Season::Winter => SeasonModifiers { rain_mult: 0.3, evap_mult: 0.5, veg_growth_mult: 0.0, hunger_mult: 1.8, wolf_aggression: 0.6 },
         }
     }
 
@@ -1309,7 +1309,7 @@ mod tests {
         let mods = dn.season_modifiers();
         assert!(mods.hunger_mult > 1.0, "winter should increase hunger");
         assert_eq!(mods.veg_growth_mult, 0.0, "winter should stop vegetation growth");
-        assert!(mods.wolf_aggression > 0.5, "winter wolves should be more aggressive");
+        assert!(mods.wolf_aggression < 0.8, "winter wolves should attack villagers at lower hunger threshold");
     }
 
     #[test]

@@ -271,7 +271,7 @@ pub fn system_hunger(world: &mut World, hunger_mult: f64) {
         let rate = match creature.species {
             Species::Prey => 0.0005,
             Species::Predator => 0.0006, // predators burn slightly more
-            Species::Villager => 0.0004, // villagers burn slightly less than prey
+            Species::Villager => 0.00015, // villagers burn slowly — settlements need time to establish
         };
         creature.hunger = (creature.hunger + rate * hunger_mult).min(1.0);
     }
@@ -1009,8 +1009,8 @@ fn ai_villager(
                 return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
             }
 
-            // Eat: if hungry and near food
-            if hunger > 0.7 {
+            // Eat: if hungry and near food (eat early to avoid starvation)
+            if hunger > 0.4 {
                 let nearest_food = food.iter()
                     .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
@@ -1026,7 +1026,7 @@ fn ai_villager(
             }
 
             // Build: if not too hungry and there are unassigned build sites
-            if hunger < 0.5 {
+            if hunger < 0.4 {
                 let nearest_site = build_sites.iter()
                     .filter(|(_, _, _, assigned)| !assigned)
                     .map(|&(e, bx, by, _)| (e, bx, by, dist(pos.x, pos.y, bx, by)))
@@ -1044,7 +1044,7 @@ fn ai_villager(
             }
 
             // Gather wood: if not too hungry, find nearest Forest tile
-            if hunger < 0.5 {
+            if hunger < 0.4 {
                 if let Some((fx, fy)) = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range) {
                     let d = dist(pos.x, pos.y, fx, fy);
                     if d < 1.5 {
@@ -2099,5 +2099,67 @@ mod tests {
             let (_, sprite) = q.iter().next().unwrap();
             assert_eq!(sprite.ch, '"', "mature farm should show mature sprite, got '{}'", sprite.ch);
         }
+    }
+
+    #[test]
+    fn villager_settlement_survival() {
+        // Simulate a mini settlement: 3 villagers, 2 berry bushes, 1 stockpile, Forest tiles
+        let mut world = World::new();
+        let mut map = walkable_map(40, 40);
+        // Add some forest tiles for wood gathering
+        for y in 5..10 {
+            for x in 5..10 {
+                map.set(x, y, Terrain::Forest);
+            }
+        }
+
+        spawn_stockpile(&mut world, 20.0, 20.0);
+        spawn_berry_bush(&mut world, 19.0, 19.0);
+        spawn_berry_bush(&mut world, 21.0, 21.0);
+        let v1 = spawn_villager(&mut world, 20.0, 21.0);
+        let v2 = spawn_villager(&mut world, 21.0, 20.0);
+        let v3 = spawn_villager(&mut world, 19.0, 20.0);
+
+        let mut deposits = Vec::new();
+        let mut any_ate = false;
+
+        for tick in 0..3000 {
+            system_hunger(&mut world, 1.0);
+            let d = system_ai(&mut world, &map, 0.4);
+            deposits.extend(d);
+            system_movement(&mut world, &map);
+            system_death(&mut world);
+
+            // Track states
+            for (creature, behavior) in world.query::<(&Creature, &Behavior)>().iter() {
+                if creature.species == Species::Villager {
+                    if matches!(behavior.state, BehaviorState::Eating { .. }) {
+                        any_ate = true;
+                    }
+                }
+            }
+
+            if tick % 500 == 0 {
+                let alive = world.query::<&Creature>().iter()
+                    .filter(|c| c.species == Species::Villager).count();
+                let hungers: Vec<f64> = world.query::<&Creature>().iter()
+                    .filter(|c| c.species == Species::Villager)
+                    .map(|c| c.hunger)
+                    .collect();
+                let states: Vec<String> = world.query::<(&Creature, &Behavior)>().iter()
+                    .filter(|(c, _)| c.species == Species::Villager)
+                    .map(|(_, b)| format!("{:?}", b.state).split('{').next().unwrap_or("?").split('(').next().unwrap_or("?").trim().to_string())
+                    .collect();
+                eprintln!("tick {}: alive={} hunger={:?} states={:?} deposits={}",
+                    tick, alive, hungers, states, deposits.len());
+            }
+        }
+
+        let final_alive = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        eprintln!("Final: alive={}, total_deposits={}, any_ate={}", final_alive, deposits.len(), any_ate);
+        assert!(any_ate, "villagers should eat at berry bushes");
+        assert!(final_alive >= 2, "at least 2 villagers should survive 3000 ticks, got {}", final_alive);
     }
 }

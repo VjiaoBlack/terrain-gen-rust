@@ -189,9 +189,15 @@ impl Game {
             ecs::spawn_predator(&mut world, wx, wy);
         }
 
-        // Settlement: stockpile + villagers near center
+        // Settlement: stockpile + villagers near center, with nearby food
         let (sx, sy) = find_walkable(&map, 125, 125);
         ecs::spawn_stockpile(&mut world, sx, sy);
+
+        // Berry bushes near settlement so villagers have food access
+        for &(bsx, bsy) in &[(124, 124), (126, 127), (123, 126), (127, 124)] {
+            let (bx, by) = find_walkable(&map, bsx, bsy);
+            ecs::spawn_berry_bush(&mut world, bx, by);
+        }
 
         // Spawn 3 villagers near the stockpile
         for i in 0..3 {
