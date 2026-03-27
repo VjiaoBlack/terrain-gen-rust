@@ -3,6 +3,7 @@ mod crossterm_renderer;
 mod headless_renderer;
 mod game;
 mod ecs;
+mod tilemap;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};

@@ -17,7 +17,7 @@
 
 ## Engine Core
 - [x] ECS — hecs with Position, Velocity, Sprite components + movement/render systems
-- [ ] Terminal resize handling
+- [x] Terminal resize handling
 
 ## Game Systems
 - [ ] Tile map — 2D grid world, camera/viewport, scrolling
