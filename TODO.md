@@ -24,7 +24,7 @@
 - [x] Terrain generation — Perlin fBm with configurable octaves, 6 terrain types
 - [x] Entity rendering — entities drawn on map with camera offset
 - [x] Physics/collision — grid walkability, axis-separated slide+bounce
-- [ ] Planning/AI — entity behaviors
+- [x] Planning/AI — Wander/Seek/Idle state machine, terrain-aware direction picking
 
 ## Terrain Simulation
 - [x] Water flow — gradient descent, 8 neighbors, evaporation, pooling

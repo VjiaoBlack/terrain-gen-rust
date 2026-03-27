@@ -125,9 +125,11 @@ impl Game {
         ecs::spawn_entity(&mut world, px, py, 0.0, 0.0, '@', Color(255, 255, 0));
 
         let (n1x, n1y) = find_walkable(&map, 110, 105);
-        ecs::spawn_entity(&mut world, n1x, n1y, 0.1, 0.05, '☺', Color(200, 100, 50));
+        ecs::spawn_npc(&mut world, n1x, n1y, 0.15, '☺', Color(200, 100, 50));
         let (n2x, n2y) = find_walkable(&map, 130, 115);
-        ecs::spawn_entity(&mut world, n2x, n2y, -0.05, 0.1, '☺', Color(100, 200, 50));
+        ecs::spawn_npc(&mut world, n2x, n2y, 0.12, '☺', Color(100, 200, 50));
+        let (n3x, n3y) = find_walkable(&map, 120, 130);
+        ecs::spawn_npc(&mut world, n3x, n3y, 0.1, '☺', Color(50, 150, 200));
 
         Self {
             target_fps,
@@ -171,6 +173,7 @@ impl Game {
 
         // update simulation
         self.tick += 1;
+        ecs::system_ai(&mut self.world, &self.map);
         ecs::system_movement(&mut self.world, &self.map);
 
         if self.raining {
