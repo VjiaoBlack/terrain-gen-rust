@@ -360,7 +360,13 @@ impl Game {
         }
 
         // draw entities (offset by camera) — world→screen X is multiplied by aspect
-        for (pos, sprite) in self.world.query::<(&Position, &Sprite)>().iter() {
+        // Skip creatures that are AtHome (hidden inside den)
+        for (e, (pos, sprite)) in self.world.query::<(hecs::Entity, (&Position, &Sprite))>().iter() {
+            if let Ok(behavior) = self.world.get::<&Behavior>(e) {
+                if matches!(behavior.state, BehaviorState::AtHome { .. }) {
+                    continue;
+                }
+            }
             let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
             let sy = pos.y.round() as i32 - self.camera.y;
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
@@ -611,8 +617,13 @@ impl Game {
             }
         }
 
-        // Entities: bright yellow on red so they pop
-        for (pos, sprite) in self.world.query::<(&Position, &Sprite)>().iter() {
+        // Entities: bright yellow on red so they pop (skip AtHome creatures)
+        for (e, (pos, sprite)) in self.world.query::<(hecs::Entity, (&Position, &Sprite))>().iter() {
+            if let Ok(behavior) = self.world.get::<&Behavior>(e) {
+                if matches!(behavior.state, BehaviorState::AtHome { .. }) {
+                    continue;
+                }
+            }
             let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
             let sy = pos.y.round() as i32 - self.camera.y;
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
