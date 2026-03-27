@@ -656,12 +656,42 @@ impl Game {
         None
     }
 
+    /// Apply seasonal color tinting to vegetation-sensitive terrain.
+    fn season_tint(&self, color: Color, terrain: &Terrain) -> Color {
+        use crate::simulation::Season;
+        match terrain {
+            Terrain::Grass | Terrain::Forest => {
+                let Color(r, g, b) = color;
+                match self.day_night.season {
+                    Season::Spring => {
+                        // Slightly more vibrant green
+                        Color(r, (g as u16).min(255) as u8, b)
+                    }
+                    Season::Summer => color, // normal
+                    Season::Autumn => {
+                        // Shift green toward orange/brown
+                        let r2 = (r as u16 + 40).min(255) as u8;
+                        let g2 = (g as i16 - 20).max(0) as u8;
+                        Color(r2, g2, b)
+                    }
+                    Season::Winter => {
+                        // Desaturate and lighten — frost effect
+                        let avg = (r as u16 + g as u16 + b as u16) / 3;
+                        let blend = |c: u8| ((c as u16 + avg) / 2).min(255) as u8;
+                        Color(blend(r), blend(g), blend(b))
+                    }
+                }
+            }
+            _ => color,
+        }
+    }
+
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let status_h = 2u16; // reserve 2 lines for status
         let aspect = CELL_ASPECT;
 
-        // draw terrain with day/night lighting
+        // draw terrain with day/night lighting and seasonal tinting
         // Each world tile occupies `aspect` screen columns for square pixels.
         for sy in 0..h {
             for sx in 0..w {
@@ -673,8 +703,10 @@ impl Game {
                             // Water terrain: no day/night shading, constant appearance
                             renderer.draw(sx, sy, terrain.ch(), terrain.fg(), terrain.bg());
                         } else {
-                            let fg = self.day_night.apply_lighting(terrain.fg(), wx as usize, wy as usize);
-                            let bg = self.day_night.apply_lighting_bg(terrain.bg(), wx as usize, wy as usize);
+                            let fg = self.season_tint(terrain.fg(), terrain);
+                            let bg = terrain.bg().map(|c| self.season_tint(c, terrain));
+                            let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
+                            let bg = self.day_night.apply_lighting_bg(bg, wx as usize, wy as usize);
                             renderer.draw(sx, sy, terrain.ch(), fg, bg);
                         }
                     }
@@ -697,6 +729,7 @@ impl Game {
                         } else {
                             ('"', Color(40, 160, 40))
                         };
+                        let fg = self.season_tint(fg, &Terrain::Forest);
                         let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
                         // Keep terrain bg underneath vegetation
                         let bg = self.map.get(wx as usize, wy as usize)
