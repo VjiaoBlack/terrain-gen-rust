@@ -334,33 +334,28 @@ fn ai_predator(
                 (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, new_hunger, None)
             }
         }
-        BehaviorState::Hunting { target_x, target_y } => {
-            let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward(pos, *target_x, *target_y, speed * 1.3, &mut vel);
-
-            if d < 2.0 {
-                // Caught prey! Find nearest prey entity to kill
-                let killed = prey.iter()
-                    .filter(|(_, _, _, at_home)| !at_home)
-                    .map(|&(e, px, py, _)| (e, dist(pos.x, pos.y, px, py)))
-                    .filter(|(_, d)| *d < 3.5)
-                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-                    .map(|(e, _)| e);
-
-                return (
-                    BehaviorState::Eating { timer: rng.random_range(40..80) },
-                    0.0, 0.0, hunger, killed,
-                );
-            }
-            // Refresh target to nearest visible prey
+        BehaviorState::Hunting { .. } => {
+            // Find nearest visible prey to chase (refreshes target each tick)
             let nearest = prey.iter()
                 .filter(|(_, _, _, at_home)| !at_home)
-                .map(|&(_, px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
-                .filter(|(_, _, d)| *d < creature.sight_range)
-                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
-            if let Some((px, py, _)) = nearest {
+                .map(|&(e, px, py, _)| (e, px, py, dist(pos.x, pos.y, px, py)))
+                .filter(|(_, _, _, d)| *d < creature.sight_range)
+                .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap());
+
+            if let Some((prey_e, px, py, d)) = nearest {
+                if d < 2.0 {
+                    // Caught prey! Kill it and eat
+                    return (
+                        BehaviorState::Eating { timer: rng.random_range(40..80) },
+                        0.0, 0.0, hunger, Some(prey_e),
+                    );
+                }
+                // Keep chasing
+                let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                move_toward(pos, px, py, speed * 1.3, &mut vel);
                 (BehaviorState::Hunting { target_x: px, target_y: py }, vel.dx, vel.dy, hunger, None)
             } else {
+                // Lost sight of all prey — give up
                 (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, hunger, None)
             }
         }
@@ -916,6 +911,100 @@ mod tests {
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(!matches!(state, BehaviorState::Hunting { .. }),
             "predator should not hunt prey that is at home, got: {:?}", state);
+    }
+
+    #[test]
+    fn wolf_hunts_and_kills_rabbit() {
+        let mut world = World::new();
+        let map = walkable_map(50, 50);
+        // Wolf at (10,10), prey at (15,10) — prey's home far away at (40,40)
+        let wolf = spawn_predator(&mut world, 10.0, 10.0);
+        let rabbit = spawn_prey(&mut world, 15.0, 10.0, 40.0, 40.0);
+
+        // Make wolf hungry, rabbit wandering
+        {
+            let mut c = world.get::<&mut Creature>(wolf).unwrap();
+            c.hunger = 0.8;
+            let mut b = world.get::<&mut Behavior>(rabbit).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        let mut wolf_ate = false;
+        let mut rabbit_alive = true;
+
+        for tick in 0..300 {
+            system_ai(&mut world, &map);
+            system_movement(&mut world, &map);
+
+            let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
+            let rabbit_exists = world.get::<&Position>(rabbit).is_ok();
+
+            if matches!(wolf_state, BehaviorState::Eating { .. }) {
+                wolf_ate = true;
+            }
+            if !rabbit_exists {
+                rabbit_alive = false;
+                eprintln!("tick {}: rabbit despawned, wolf state: {:?}", tick, wolf_state);
+                break;
+            }
+
+            if tick < 5 || tick % 20 == 0 {
+                let wp = *world.get::<&Position>(wolf).unwrap();
+                let rp = *world.get::<&Position>(rabbit).unwrap();
+                let rs = world.get::<&Behavior>(rabbit).unwrap().state;
+                let d = ((wp.x - rp.x).powi(2) + (wp.y - rp.y).powi(2)).sqrt();
+                eprintln!("tick {}: wolf({:.1},{:.1}) {:?}  rabbit({:.1},{:.1}) {:?}  dist={:.1}",
+                    tick, wp.x, wp.y, wolf_state, rp.x, rp.y, rs, d);
+            }
+        }
+
+        assert!(wolf_ate, "wolf should have entered Eating state");
+        assert!(!rabbit_alive, "rabbit should have been killed");
+    }
+
+    #[test]
+    fn full_ecosystem_simulation() {
+        // Simulate the actual game ecosystem setup for 1000 ticks
+        let mut world = World::new();
+        let map = walkable_map(60, 60);
+
+        // Den at (10,10), prey starts near den, bush at (30,30), wolf at (25,25)
+        spawn_den(&mut world, 10.0, 10.0);
+        let rabbit = spawn_prey(&mut world, 11.0, 11.0, 10.0, 10.0);
+        spawn_berry_bush(&mut world, 30.0, 30.0);
+        let wolf = spawn_predator(&mut world, 25.0, 25.0);
+
+        // Make wolf hungry
+        {
+            let mut c = world.get::<&mut Creature>(wolf).unwrap();
+            c.hunger = 0.6;
+        }
+
+        let mut states_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for tick in 0..1000 {
+            system_hunger(&mut world);
+            system_ai(&mut world, &map);
+            system_movement(&mut world, &map);
+
+            let ws = world.get::<&Behavior>(wolf).unwrap().state;
+            let state_name = format!("{:?}", ws).split('{').next().unwrap_or("?").split('(').next().unwrap_or("?").trim().to_string();
+            states_seen.insert(format!("wolf:{}", state_name));
+
+            if let Ok(rb) = world.get::<&Behavior>(rabbit) {
+                let rstate = format!("{:?}", rb.state).split('{').next().unwrap_or("?").split('(').next().unwrap_or("?").trim().to_string();
+                states_seen.insert(format!("rabbit:{}", rstate));
+            }
+
+            if tick % 100 == 0 {
+                let wh = world.get::<&Creature>(wolf).unwrap().hunger;
+                let rabbit_alive = world.get::<&Position>(rabbit).is_ok();
+                eprintln!("tick {}: wolf hunger={:.2} state={:?} rabbit_alive={}",
+                    tick, wh, ws, rabbit_alive);
+            }
+        }
+
+        eprintln!("all states seen: {:?}", states_seen);
     }
 
     #[test]
