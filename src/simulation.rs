@@ -363,14 +363,32 @@ impl DayNightCycle {
     /// Sun direction as a 3D unit vector pointing TOWARD the sun.
     /// Proper spherical: azimuth sweeps east→south→west, elevation rises and falls.
     pub fn sun_direction_3d(&self) -> (f64, f64, f64) {
-        let elev = self.sun_elevation();
-        let azimuth = self.sun_azimuth();
+        Self::celestial_direction(self.sun_elevation(), self.sun_azimuth())
+    }
 
+    /// Moon elevation — rises at 6pm, peaks at midnight, sets at 6am.
+    pub fn moon_elevation(&self) -> f64 {
+        // Map: 18h→0 (rise), 0h→PI/2 (peak), 6h→PI (set)
+        let phase = ((self.hour - 18.0 + 24.0) % 24.0) / 12.0 * std::f64::consts::PI;
+        phase.sin() * (std::f64::consts::PI / 4.0) // max ~45 degrees
+    }
+
+    /// Moon azimuth — rises east at 6pm, south at midnight, west at 6am.
+    pub fn moon_azimuth(&self) -> f64 {
+        ((self.hour - 18.0 + 24.0) % 24.0) / 12.0 * std::f64::consts::PI
+    }
+
+    /// Moon direction as a 3D unit vector.
+    pub fn moon_direction_3d(&self) -> (f64, f64, f64) {
+        Self::celestial_direction(self.moon_elevation(), self.moon_azimuth())
+    }
+
+    /// Convert elevation + azimuth to a 3D unit direction vector.
+    fn celestial_direction(elev: f64, azimuth: f64) -> (f64, f64, f64) {
         let dz = elev.sin();
         let horiz = elev.cos();
-        // azimuth: 0=east(+x), PI/2=south(-y), PI=west(-x)
-        let dx = azimuth.cos() * horiz;   // east-west: + at sunrise, - at sunset
-        let dy = -azimuth.sin() * horiz;  // north-south: - (from south) peaking at noon
+        let dx = azimuth.cos() * horiz;
+        let dy = -azimuth.sin() * horiz;
 
         let len = (dx * dx + dy * dy + dz * dz).sqrt();
         if len < 0.001 {
@@ -417,9 +435,13 @@ impl DayNightCycle {
         vw: usize,
         vh: usize,
     ) {
-        let elev = self.sun_elevation();
-        if elev <= 0.0 {
-            // Night: mark viewport as unlit
+        let sun_elev = self.sun_elevation();
+        let moon_elev = self.moon_elevation();
+        let is_night = sun_elev <= 0.0;
+        let moon_up = moon_elev > 0.0;
+
+        if is_night && !moon_up {
+            // No sun, no moon: everything dark
             let x0 = vx.max(0) as usize;
             let y0 = vy.max(0) as usize;
             let x1 = ((vx + vw as i32) as usize).min(map_w);
@@ -432,9 +454,16 @@ impl DayNightCycle {
             return;
         }
 
-        let (sun_dx, sun_dy, sun_dz) = self.sun_direction_3d();
-        let tan_elev = elev.tan().max(0.01);
-        // How much shadow height decays per cell step (based on sun angle)
+        // Pick the active light source
+        let (light_dx, light_dy, light_dz, light_strength) = if is_night {
+            let (dx, dy, dz) = self.moon_direction_3d();
+            (dx, dy, dz, 0.25) // moon at 25% sun intensity
+        } else {
+            let (dx, dy, dz) = self.sun_direction_3d();
+            (dx, dy, dz, 1.0)
+        };
+        let active_elev = if is_night { moon_elev } else { sun_elev };
+        let tan_elev = active_elev.tan().max(0.01);
         let shadow_decay = tan_elev * 0.15;
 
         // Shadow sweep: single pass AGAINST the sun direction.
@@ -456,8 +485,8 @@ impl DayNightCycle {
 
         // Determine sweep order based on sun direction:
         // We sweep FROM the sun side (where light comes from) TO the shadow side.
-        let sweep_x_rev = sun_dx < 0.0; // sun from east = sweep left-to-right
-        let sweep_y_rev = sun_dy < 0.0; // sun from south = sweep top-to-bottom
+        let sweep_x_rev = light_dx < 0.0;
+        let sweep_y_rev = light_dy < 0.0;
 
         let xs: Vec<usize> = if sweep_x_rev {
             (x0..x1).rev().collect()
@@ -520,16 +549,16 @@ impl DayNightCycle {
                 // Terrain normal + Blinn-Phong
                 let (nx, ny, nz) = Self::terrain_normal(heights, map_w, map_h, x_pos, y_pos);
 
-                // Diffuse: L·N
-                let l_dot_n = (sun_dx * nx + sun_dy * ny + sun_dz * nz).max(0.0);
+                // Diffuse: L·N, scaled by light source strength
+                let l_dot_n = (light_dx * nx + light_dy * ny + light_dz * nz).max(0.0) * light_strength;
 
                 // Specular: (H·N)^k, view = straight down (0,0,1)
-                // Attenuate specular when sun is high to avoid uniform wash
-                let horiz_strength = (sun_dx * sun_dx + sun_dy * sun_dy).sqrt();
-                let spec_atten = horiz_strength.min(1.0); // 0 when overhead, 1 at horizon
-                let hx = sun_dx;
-                let hy = sun_dy;
-                let hz = sun_dz + 1.0;
+                // Attenuate when light is high to avoid uniform wash
+                let horiz_strength = (light_dx * light_dx + light_dy * light_dy).sqrt();
+                let spec_atten = horiz_strength.min(1.0) * light_strength;
+                let hx = light_dx;
+                let hy = light_dy;
+                let hz = light_dz + 1.0;
                 let h_len = (hx * hx + hy * hy + hz * hz).sqrt();
                 let h_dot_n = if h_len > 0.001 {
                     ((hx / h_len) * nx + (hy / h_len) * ny + (hz / h_len) * nz).max(0.0)
@@ -554,18 +583,27 @@ impl DayNightCycle {
 
     /// Get the ambient color tint for current time of day.
     pub fn ambient_tint(&self) -> (f64, f64, f64) {
-        let elev = self.sun_elevation();
+        let sun_elev = self.sun_elevation();
+        let moon_elev = self.moon_elevation();
 
-        if elev > 0.3 {
+        if sun_elev > 0.3 {
+            // Full day: neutral/slightly warm
             (1.0, 1.0, 0.95)
-        } else if elev > 0.0 {
-            let t = elev / 0.3;
+        } else if sun_elev > 0.0 {
+            // Sunrise/sunset: warm orange
+            let t = sun_elev / 0.3;
             (1.0, 0.6 + 0.4 * t, 0.4 + 0.55 * t)
-        } else if elev > -0.2 {
-            let t = (elev + 0.2) / 0.2;
+        } else if sun_elev > -0.2 {
+            // Twilight: blend toward blue
+            let t = (sun_elev + 0.2) / 0.2;
             (0.3 + 0.7 * t, 0.3 + 0.3 * t, 0.5)
+        } else if moon_elev > 0.1 {
+            // Moonlit night: cool blue-silver
+            let m = (moon_elev / 0.5).min(1.0); // brighter when moon is higher
+            (0.15 + 0.1 * m, 0.18 + 0.12 * m, 0.35 + 0.15 * m)
         } else {
-            (0.2, 0.2, 0.4)
+            // Dark night: deep blue
+            (0.12, 0.12, 0.25)
         }
     }
 
@@ -931,6 +969,39 @@ mod tests {
         let night_color = dn.apply_lighting(base, 5, 5);
 
         assert!(day_color.0 > night_color.0, "day should be brighter than night: day={:?} night={:?}", day_color, night_color);
+    }
+
+    #[test]
+    fn moon_provides_light_at_night() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.hour = 0.0; // midnight — moon should be up
+        dn.compute_lighting(&vec![0.5; 100], 10, 10, 0, 0, 10, 10);
+
+        // Moon should provide some directional light (not just 0.0)
+        let light = dn.get_light(5, 5);
+        assert!(light > 0.0, "moon should provide light at midnight: got {}", light);
+    }
+
+    #[test]
+    fn moonlit_night_brighter_than_dark_night() {
+        let mut dn = DayNightCycle::new(10, 10);
+        let base = Color(200, 200, 200);
+
+        // Midnight: moon is up
+        dn.hour = 0.0;
+        dn.compute_lighting(&vec![0.5; 100], 10, 10, 0, 0, 10, 10);
+        let moonlit = dn.apply_lighting(base, 5, 5);
+
+        // 3am-ish: moon is lower, less light
+        dn.hour = 4.0;
+        dn.compute_lighting(&vec![0.5; 100], 10, 10, 0, 0, 10, 10);
+        let dim = dn.apply_lighting(base, 5, 5);
+
+        // Moonlit midnight should be >= dimmer hours
+        let moonlit_b = moonlit.0 as u32 + moonlit.1 as u32 + moonlit.2 as u32;
+        let dim_b = dim.0 as u32 + dim.1 as u32 + dim.2 as u32;
+        assert!(moonlit_b >= dim_b,
+            "midnight should be >= 4am brightness: midnight={} 4am={}", moonlit_b, dim_b);
     }
 
     #[test]
