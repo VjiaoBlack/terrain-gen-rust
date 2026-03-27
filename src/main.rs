@@ -75,11 +75,18 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         }
         game.display_fps = Some(display_fps);
 
-        // sleep to hit target fps
+        // sleep to hit target fps — use sleep for bulk, spin-wait for precision
         let target = Duration::from_secs_f64(1.0 / game.target_fps as f64);
+        let sleep_margin = Duration::from_millis(2);
         let elapsed = frame_start.elapsed();
         if let Some(remaining) = target.checked_sub(elapsed) {
-            std::thread::sleep(remaining);
+            if remaining > sleep_margin {
+                std::thread::sleep(remaining - sleep_margin);
+            }
+            // spin-wait the last ~2ms for precise timing
+            while frame_start.elapsed() < target {
+                std::hint::spin_loop();
+            }
         }
     }
 }
