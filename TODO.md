@@ -43,8 +43,26 @@
 - [x] Predator AI — hungry→hunt visible prey (not at den)→eat
 - [x] Hunger cycle — increases over time, eating resets it
 
+## Settlement System [done]
+- [x] Villager AI — utility-based (flee > eat > build > gather > wander)
+- [x] Resource system — Food/Wood/Stone with HUD display
+- [x] Building system — build mode [b], Hut/Wall/Farm types, ghost preview
+- [x] Farm system — seasonal growth, 4 visual stages, auto-harvest
+- [x] Influence maps — organic territory from villagers/buildings
+- [x] Population growth — reproduction with food/housing requirements
+- [x] Seasonal calendar — Spring/Summer/Autumn/Winter with gameplay effects
+- [x] Ecosystem breeding — prey at dens, wolves in open, Spring/Summer only
+- [x] Wolf-villager combat — wolves attack villagers when desperate
+- [x] Stone deposits — mineable entities near settlement
+- [x] Event notifications — on-screen display for deaths, births, harvests
+- [x] Game over — detection + overlay with survival stats
+- [x] 117 tests
+
 ## Later
+- [ ] Save/load game state (serde in place, hecs World needs manual serialization)
 - [ ] Water cycle rework — slower accumulation, evaporation balance, seasonal floods
 - [ ] notcurses backend swap
 - [ ] rayon parallelism where needed
 - [ ] ratatui UI panels (inventory, stats, etc.)
+- [ ] Villager pathfinding improvements (currently re-targets every tick in Seek)
+- [ ] Difficulty scaling / game balance tuning
