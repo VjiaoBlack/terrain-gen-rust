@@ -165,4 +165,66 @@ mod tests {
         }
         assert_eq!(snap.text, from_cells);
     }
+
+    #[test]
+    fn run_script_returns_all_snapshots() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = Game::new(30);
+        let script = vec![GameInput::None, GameInput::FpsUp, GameInput::None];
+        let snaps = game.run_script(&script, &mut r).unwrap();
+
+        assert_eq!(snaps.len(), 3);
+        assert_eq!(snaps[0].tick, 1);
+        assert_eq!(snaps[1].tick, 2);
+        assert_eq!(snaps[2].tick, 3);
+    }
+
+    #[test]
+    fn run_script_applies_inputs() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = Game::new(30);
+        let script = vec![GameInput::FpsUp, GameInput::FpsUp, GameInput::FpsDown];
+        game.run_script(&script, &mut r).unwrap();
+
+        assert_eq!(game.target_fps, 35); // 30 +5 +5 -5
+    }
+
+    #[test]
+    fn frame_diff_detects_changes() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = Game::new(30);
+
+        let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
+        let snap2 = game.step_headless(GameInput::None, &mut r).unwrap();
+
+        let diff = snap1.diff(&snap2);
+        assert_eq!(diff.from_tick, 1);
+        assert_eq!(diff.to_tick, 2);
+        assert!(!diff.changes.is_empty(), "block moved, so there should be changes");
+    }
+
+    #[test]
+    fn frame_diff_is_empty_for_identical_frames() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = Game::new(30);
+
+        let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
+        let diff = snap1.diff(&snap1);
+        assert!(diff.changes.is_empty(), "diffing a frame against itself should be empty");
+    }
+
+    #[test]
+    fn frame_diff_serializes_to_json() {
+        let mut r = HeadlessRenderer::new(20, 10);
+        let mut game = Game::new(30);
+
+        let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
+        let snap2 = game.step_headless(GameInput::None, &mut r).unwrap();
+
+        let diff = snap1.diff(&snap2);
+        let json = serde_json::to_string(&diff).unwrap();
+        assert!(json.contains("\"from_tick\":1"));
+        assert!(json.contains("\"to_tick\":2"));
+        assert!(json.contains("\"changes\""));
+    }
 }

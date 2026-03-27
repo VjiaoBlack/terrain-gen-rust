@@ -13,6 +13,44 @@ pub struct FrameSnapshot {
     pub cells: Vec<Vec<Cell>>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct CellChange {
+    pub x: u16,
+    pub y: u16,
+    pub old: Cell,
+    pub new: Cell,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FrameDiff {
+    pub from_tick: u64,
+    pub to_tick: u64,
+    pub changes: Vec<CellChange>,
+}
+
+impl FrameSnapshot {
+    pub fn diff(&self, next: &FrameSnapshot) -> FrameDiff {
+        let mut changes = Vec::new();
+        for (y, (old_row, new_row)) in self.cells.iter().zip(next.cells.iter()).enumerate() {
+            for (x, (old_cell, new_cell)) in old_row.iter().zip(new_row.iter()).enumerate() {
+                if old_cell != new_cell {
+                    changes.push(CellChange {
+                        x: x as u16,
+                        y: y as u16,
+                        old: *old_cell,
+                        new: *new_cell,
+                    });
+                }
+            }
+        }
+        FrameDiff {
+            from_tick: self.tick,
+            to_tick: next.tick,
+            changes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameInput {
     Quit,
@@ -85,6 +123,15 @@ impl Game {
                 renderer.draw(i as u16, h - 1, ch, Color(0, 0, 0), Some(Color(200, 200, 200)));
             }
         }
+    }
+
+    /// Run a sequence of inputs headlessly, returning a snapshot after each tick.
+    pub fn run_script(&mut self, inputs: &[GameInput], renderer: &mut HeadlessRenderer) -> Result<Vec<FrameSnapshot>> {
+        let mut snapshots = Vec::with_capacity(inputs.len());
+        for &input in inputs {
+            snapshots.push(self.step_headless(input, renderer)?);
+        }
+        Ok(snapshots)
     }
 
     fn snapshot(&self, renderer: &HeadlessRenderer) -> FrameSnapshot {
