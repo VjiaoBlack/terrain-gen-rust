@@ -2,6 +2,7 @@ mod renderer;
 mod crossterm_renderer;
 mod headless_renderer;
 mod game;
+mod ecs;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
