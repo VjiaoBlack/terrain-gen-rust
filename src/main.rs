@@ -111,6 +111,46 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
 }
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--screenshot") {
+        // Render a single frame as ANSI to stdout and exit
+        let w: u16 = args.iter().position(|a| a == "--width")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120);
+        let h: u16 = args.iter().position(|a| a == "--height")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(40);
+        let ticks: u64 = args.iter().position(|a| a == "--ticks")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60);
+
+        let mut r = headless_renderer::HeadlessRenderer::new(w, h);
+        let mut game = Game::new(60, 42);
+        for _ in 0..ticks {
+            game.step(GameInput::None, &mut r)?;
+        }
+
+        // Emit ANSI-colored output
+        use crate::renderer::Renderer;
+        for y in 0..h {
+            for x in 0..w {
+                if let Some(cell) = r.get_cell(x, y) {
+                    let fg = format!("\x1b[38;2;{};{};{}m", cell.fg.0, cell.fg.1, cell.fg.2);
+                    let bg = match cell.bg {
+                        Some(c) => format!("\x1b[48;2;{};{};{}m", c.0, c.1, c.2),
+                        None => String::new(),
+                    };
+                    print!("{}{}{}", fg, bg, cell.ch);
+                }
+            }
+            println!("\x1b[0m");
+        }
+        return Ok(());
+    }
+
     let mut renderer = CrosstermRenderer::new()?;
     let mut game = Game::new(60, 42);
     run_interactive(&mut game, &mut renderer)?;
