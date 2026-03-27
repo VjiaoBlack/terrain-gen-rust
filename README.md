@@ -6,6 +6,8 @@ Designed as an AI development harness: headless renderer, frame serialization, p
 
 ![Rust](https://img.shields.io/badge/Rust-2024_edition-orange)
 
+![screenshot](screenshot.png)
+
 ## Features
 
 **Terrain & Simulation**
