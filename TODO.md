@@ -6,17 +6,17 @@
 - [x] Input handling
 - [x] Optional background color (None = terminal default)
 
-## AI Harness [next]
-- [ ] Headless renderer — no-op `Renderer` impl for max-speed sim and testing
-- [ ] Frame serialization — serde snapshot of rendered frame for AI/subagent consumption
-- [ ] Step mode — advance one tick at a time, return frame
-- [ ] Programmatic input injection — feed actions via stdin or API
-- [ ] Frame diffing — what changed between ticks
-- [ ] Test harness — `cargo test` runs headless game scenarios
+## AI Harness [done]
+- [x] Headless renderer — no-op `Renderer` impl for max-speed sim and testing
+- [x] Frame serialization — serde FrameSnapshot (tick, size, text, cells) → JSON
+- [x] Step mode — `Game::step()` and `Game::step_headless()` for single-tick advance
+- [x] Input abstraction — `GameInput` enum decoupled from crossterm
+- [x] Test harness — `cargo test` runs headless game scenarios (19 tests)
+- [x] Programmatic input injection — `run_script()` feeds action sequences, returns snapshots
+- [x] Frame diffing — `FrameSnapshot::diff()` returns cell-level `FrameDiff`
 
 ## Engine Core
 - [ ] ECS — hecs or custom, entity/component storage
-- [ ] Input abstraction — decouple from crossterm events so AI can inject inputs
 - [ ] Terminal resize handling
 
 ## Game Systems
