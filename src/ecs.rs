@@ -156,11 +156,11 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         .map(|(pos, _)| (pos.x, pos.y))
         .collect();
 
-    let prey_positions: Vec<(f64, f64, bool)> = world
-        .query::<(&Position, &Creature, &Behavior)>()
+    let prey_positions: Vec<(Entity, f64, f64, bool)> = world
+        .query::<(Entity, &Position, &Creature, &Behavior)>()
         .iter()
-        .filter(|(_, c, _)| c.species == Species::Prey)
-        .map(|(p, _, b)| (p.x, p.y, matches!(b.state, BehaviorState::AtHome { .. })))
+        .filter(|(_, _, c, _)| c.species == Species::Prey)
+        .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::AtHome { .. })))
         .collect();
 
     let predator_positions: Vec<(f64, f64)> = world
@@ -178,6 +178,7 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         .collect();
 
     // Phase 3: process each entity
+    let mut to_despawn: Vec<Entity> = Vec::new();
     for e in entities {
         // Read position (copy) and check if it's a creature
         let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else { continue };
@@ -199,16 +200,17 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         let speed = world.get::<&Behavior>(e).unwrap().speed;
 
         // Decide the new state and velocity
-        let (new_state, new_vx, new_vy, new_hunger) = match creature.species {
+        let (new_state, new_vx, new_vy, new_hunger, kill) = match creature.species {
             Species::Prey => {
                 let predator_nearby = predator_positions
                     .iter()
                     .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
 
-                ai_prey(
+                let (s, vx, vy, h) = ai_prey(
                     &pos, &creature, &behavior_state, speed, predator_nearby,
                     &food_positions, map, &mut rng,
-                )
+                );
+                (s, vx, vy, h, None)
             }
             Species::Predator => {
                 ai_predator(
@@ -229,6 +231,14 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         if let Ok(mut c) = world.get::<&mut Creature>(e) {
             c.hunger = new_hunger;
         }
+        if let Some(prey_e) = kill {
+            to_despawn.push(prey_e);
+        }
+    }
+
+    // Despawn killed prey
+    for e in to_despawn {
+        let _ = world.despawn(e);
     }
 }
 
@@ -302,61 +312,76 @@ fn ai_prey(
 }
 
 /// Predator AI: hunt visible prey, wander when not hungry.
+/// Returns (new_state, vx, vy, hunger, Option<killed_prey_entity>).
 fn ai_predator(
     pos: &Position,
     creature: &Creature,
     state: &BehaviorState,
     speed: f64,
-    prey: &[(f64, f64, bool)],
+    prey: &[(Entity, f64, f64, bool)],
     map: &TileMap,
     rng: &mut impl rand::RngExt,
-) -> (BehaviorState, f64, f64, f64) {
+) -> (BehaviorState, f64, f64, f64, Option<Entity>) {
     let hunger = creature.hunger;
     let pos_copy = *pos;
 
     match state {
+        BehaviorState::Eating { timer } => {
+            let new_hunger = (hunger - 0.01).max(0.0);
+            if *timer == 0 || new_hunger <= 0.0 {
+                (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, new_hunger, None)
+            } else {
+                (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, new_hunger, None)
+            }
+        }
         BehaviorState::Hunting { target_x, target_y } => {
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let d = move_toward(pos, *target_x, *target_y, speed * 1.3, &mut vel);
 
             if d < 1.5 {
-                // Caught prey!
+                // Caught prey! Find nearest prey entity to kill
+                let killed = prey.iter()
+                    .filter(|(_, _, _, at_home)| !at_home)
+                    .map(|&(e, px, py, _)| (e, dist(pos.x, pos.y, px, py)))
+                    .filter(|(_, d)| *d < 2.0)
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                    .map(|(e, _)| e);
+
                 return (
-                    BehaviorState::Idle { timer: rng.random_range(60..120) },
-                    0.0, 0.0,
-                    (hunger - 0.5).max(0.0),
+                    BehaviorState::Eating { timer: rng.random_range(40..80) },
+                    0.0, 0.0, hunger, killed,
                 );
             }
             // Refresh target to nearest visible prey
             let nearest = prey.iter()
-                .filter(|(_, _, at_home)| !at_home)
-                .map(|&(px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
+                .filter(|(_, _, _, at_home)| !at_home)
+                .map(|&(_, px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
                 .filter(|(_, _, d)| *d < creature.sight_range)
                 .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
             if let Some((px, py, _)) = nearest {
-                (BehaviorState::Hunting { target_x: px, target_y: py }, vel.dx, vel.dy, hunger)
+                (BehaviorState::Hunting { target_x: px, target_y: py }, vel.dx, vel.dy, hunger, None)
             } else {
-                (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, hunger)
+                (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, hunger, None)
             }
         }
         _ => {
             if hunger > 0.4 {
                 let nearest = prey.iter()
-                    .filter(|(_, _, at_home)| !at_home)
-                    .map(|&(px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
+                    .filter(|(_, _, _, at_home)| !at_home)
+                    .map(|&(_, px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
                     .filter(|(_, _, d)| *d < creature.sight_range)
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
                 if let Some((px, py, _)) = nearest {
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                     move_toward(pos, px, py, speed * 1.3, &mut vel);
-                    return (BehaviorState::Hunting { target_x: px, target_y: py }, vel.dx, vel.dy, hunger);
+                    return (BehaviorState::Hunting { target_x: px, target_y: py }, vel.dx, vel.dy, hunger, None);
                 }
             }
             // Default: wander
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let mut bhv = Behavior { state: *state, speed };
             do_wander_tick(&pos_copy, &mut vel, &mut bhv, map, rng);
-            (bhv.state, vel.dx, vel.dy, hunger)
+            (bhv.state, vel.dx, vel.dy, hunger, None)
         }
     }
 }
