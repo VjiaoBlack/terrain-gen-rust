@@ -2,7 +2,7 @@
 
 Terminal-based civ/DF hybrid game built in Rust. Features procedural terrain, real-time water/erosion, day/night lighting, AI-driven ecosystem, and a settlement system with villager AI, building placement, seasons, and resource management.
 
-Designed as an AI development harness: headless renderer, frame serialization, programmatic input injection, and 117+ automated tests enable rapid iteration with AI assistance.
+Designed as an AI development harness: headless renderer, frame serialization, programmatic input injection, and 118+ automated tests enable rapid iteration with AI assistance.
 
 ![Rust](https://img.shields.io/badge/Rust-2024_edition-orange)
 
@@ -26,6 +26,9 @@ Designed as an AI development harness: headless renderer, frame serialization, p
 - Farms grow food seasonally with 4 visual growth stages
 - Influence map creates organic, diffusion-based territory (blue tint)
 - Population growth when food surplus and housing available
+- Stone deposits near settlement for reliable stone gathering
+- Villagers eat from food stockpile when no berry bushes nearby
+- Game over detection with survival stats overlay; press 'r' to restart
 
 **Ecosystem AI**
 - Prey (rabbits) seek berry bushes when hungry, eat, then flee home to dens
@@ -37,10 +40,10 @@ Designed as an AI development harness: headless renderer, frame serialization, p
 
 **Seasons**
 - 10-day seasons, 40-day years (1 day = 1200 ticks)
-- Spring: high vegetation growth, rain, animal breeding
+- Spring: high vegetation growth, rain, animal breeding, vibrant greens
 - Summer: peak food, low rain, fast farm growth
-- Autumn: vegetation decays, shorter days
-- Winter: no growth, 1.8x hunger, wolves target villagers, farms dormant
+- Autumn: vegetation decays, shorter days, warm orange-brown terrain tint
+- Winter: no growth, 1.8x hunger, wolves target villagers, farms dormant, frost-desaturated palette
 
 **Engine**
 - ECS architecture (hecs) with Position, Velocity, Sprite, Behavior, Creature components
@@ -88,7 +91,7 @@ cargo run --release
 cargo test
 ```
 
-117 tests cover terrain generation, water simulation, day/night lighting, ECS systems, collision, AI behavior, ecosystem interactions, building system, seasons, farming, breeding, influence maps, and the headless harness.
+118 tests cover terrain generation, water simulation, day/night lighting, ECS systems, collision, AI behavior, ecosystem interactions, building system, seasons, farming, breeding, influence maps, and the headless harness.
 
 ## Architecture
 
