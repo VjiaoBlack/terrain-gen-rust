@@ -797,6 +797,66 @@ impl VegetationMap {
     }
 }
 
+/// Influence map for territory visualization. Each villager and building emits
+/// influence that diffuses outward, creating an organic territory boundary.
+pub struct InfluenceMap {
+    pub width: usize,
+    pub height: usize,
+    influence: Vec<f64>,
+}
+
+impl InfluenceMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            influence: vec![0.0; width * height],
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.influence[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Update: decay all cells slightly, then add influence from sources, then diffuse.
+    /// sources: (x, y, strength) — villagers emit 1.0, buildings emit 0.5
+    pub fn update(&mut self, sources: &[(f64, f64, f64)]) {
+        // Decay existing influence
+        for v in self.influence.iter_mut() {
+            *v *= 0.98;
+        }
+
+        // Add from sources
+        for &(sx, sy, strength) in sources {
+            let ix = sx.round() as usize;
+            let iy = sy.round() as usize;
+            if ix < self.width && iy < self.height {
+                self.influence[iy * self.width + ix] += strength;
+            }
+        }
+
+        // Simple diffusion: average with neighbors
+        let mut temp = self.influence.clone();
+        for y in 1..self.height.saturating_sub(1) {
+            for x in 1..self.width.saturating_sub(1) {
+                let idx = y * self.width + x;
+                let avg = (self.influence[idx] * 4.0
+                    + self.influence[idx - 1]
+                    + self.influence[idx + 1]
+                    + self.influence[(y - 1) * self.width + x]
+                    + self.influence[(y + 1) * self.width + x])
+                    / 8.0;
+                temp[idx] = avg;
+            }
+        }
+        self.influence = temp;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1260,6 +1320,48 @@ mod tests {
         dn.season = Season::Winter;
         dn.year = 2;
         assert_eq!(dn.date_string(), "Y3 Winter D6");
+    }
+
+    #[test]
+    fn influence_map_diffuses() {
+        let mut im = InfluenceMap::new(10, 10);
+        // Add a source at center
+        im.update(&[(5.0, 5.0, 5.0)]);
+
+        // Center should have influence
+        assert!(im.get(5, 5) > 0.0, "center should have influence after source: got {}", im.get(5, 5));
+
+        // Run more ticks to let it diffuse
+        for _ in 0..20 {
+            im.update(&[(5.0, 5.0, 1.0)]);
+        }
+
+        // Neighbors should have picked up some influence via diffusion
+        assert!(im.get(4, 5) > 0.0, "left neighbor should have influence via diffusion: got {}", im.get(4, 5));
+        assert!(im.get(6, 5) > 0.0, "right neighbor should have influence via diffusion: got {}", im.get(6, 5));
+        assert!(im.get(5, 4) > 0.0, "top neighbor should have influence via diffusion: got {}", im.get(5, 4));
+        assert!(im.get(5, 6) > 0.0, "bottom neighbor should have influence via diffusion: got {}", im.get(5, 6));
+
+        // Center should be stronger than edges
+        assert!(im.get(5, 5) > im.get(1, 1), "center should be stronger than corner");
+    }
+
+    #[test]
+    fn influence_map_decays() {
+        let mut im = InfluenceMap::new(10, 10);
+        // Add strong source once
+        im.update(&[(5.0, 5.0, 10.0)]);
+        let initial = im.get(5, 5);
+        assert!(initial > 0.0);
+
+        // Update many times with no sources — should decay
+        for _ in 0..200 {
+            im.update(&[]);
+        }
+
+        let after = im.get(5, 5);
+        assert!(after < initial * 0.1,
+            "influence should decay significantly without sources: initial={} after={}", initial, after);
     }
 
     #[test]

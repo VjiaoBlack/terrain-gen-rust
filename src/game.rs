@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
-use crate::simulation::{DayNightCycle, MoistureMap, SimConfig, VegetationMap, WaterMap};
+use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
 
@@ -121,6 +121,8 @@ pub struct Game {
     pub build_cursor_x: i32,
     pub build_cursor_y: i32,
     pub selected_building: BuildingType,
+    pub influence: InfluenceMap,
+    pub last_birth_tick: u64,
 }
 
 impl Game {
@@ -223,6 +225,8 @@ impl Game {
             build_cursor_x: 128,
             build_cursor_y: 128,
             selected_building: BuildingType::Wall,
+            influence: InfluenceMap::new(256, 256),
+            last_birth_tick: 0,
         }
     }
 
@@ -305,6 +309,12 @@ impl Game {
 
             // Check for completed buildings
             self.check_build_completion();
+
+            // Update influence map: villagers emit 1.0, active build sites emit 0.5
+            self.update_influence();
+
+            // Population growth check
+            self.try_population_growth();
 
             // Seasonal config for rain/water
             let mut tick_config = self.sim_config.clone();
@@ -427,6 +437,74 @@ impl Game {
         }
     }
 
+    /// Collect influence sources from villagers and active build sites, then update.
+    fn update_influence(&mut self) {
+        let mut sources: Vec<(f64, f64, f64)> = Vec::new();
+
+        // Villagers emit influence at strength 1.0
+        for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+            if creature.species == Species::Villager {
+                sources.push((pos.x, pos.y, 1.0));
+            }
+        }
+
+        // Active build sites emit influence at strength 0.5
+        for (pos, _site) in self.world.query::<(&Position, &BuildSite)>().iter() {
+            sources.push((pos.x, pos.y, 0.5));
+        }
+
+        self.influence.update(&sources);
+    }
+
+    /// Check conditions and spawn a new villager if met.
+    fn try_population_growth(&mut self) {
+        if self.tick - self.last_birth_tick <= 500 {
+            return;
+        }
+
+        let villager_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager)
+            .count();
+
+        if villager_count < 2 || self.resources.food < 5 {
+            return;
+        }
+
+        self.resources.food -= 5;
+
+        // Collect villager positions to find a spawn point nearby
+        let villager_pos: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+
+        if let Some(&(vx, vy)) = villager_pos.first() {
+            if let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5) {
+                ecs::spawn_villager(&mut self.world, nx, ny);
+                self.last_birth_tick = self.tick;
+            }
+        }
+    }
+
+    /// Find a walkable tile within `radius` of (cx, cy).
+    fn find_nearby_walkable(&self, cx: f64, cy: f64, radius: i32) -> Option<(f64, f64)> {
+        for r in 0..=radius {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue; // only check perimeter of each ring
+                    }
+                    let nx = cx + dx as f64;
+                    let ny = cy + dy as f64;
+                    if self.map.is_walkable(nx, ny) {
+                        return Some((nx, ny));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let status_h = 2u16; // reserve 2 lines for status
@@ -502,6 +580,29 @@ impl Game {
                             wx as usize, wy as usize,
                         );
                         renderer.draw(sx, sy, ch, fg, bg);
+                    }
+                }
+            }
+        }
+
+        // Territory tint: subtle blue where influence > 0.1
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in 0..w {
+                let wx = self.camera.x + sx as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 && (wx as usize) < self.influence.width && (wy as usize) < self.influence.height {
+                    let inf = self.influence.get(wx as usize, wy as usize);
+                    if inf > 0.1 {
+                        let alpha = (inf * 0.3).min(0.3);
+                        if let Some(cell) = renderer.get_cell(sx, sy) {
+                            let bg = cell.bg.unwrap_or(Color(0, 0, 0));
+                            let tinted = Color(
+                                (bg.0 as f64 * (1.0 - alpha) + 80.0 * alpha) as u8,
+                                (bg.1 as f64 * (1.0 - alpha) + 100.0 * alpha) as u8,
+                                (bg.2 as f64 * (1.0 - alpha) + 200.0 * alpha) as u8,
+                            );
+                            renderer.draw(sx, sy, cell.ch, cell.fg, Some(tinted));
+                        }
                     }
                 }
             }
@@ -673,6 +774,12 @@ impl Game {
                 } else { 0.0 };
                 if veg > 0.01 {
                     lines.push(format!("vegetation: {:.2}", veg));
+                }
+                let inf = if ux < self.influence.width && uy < self.influence.height {
+                    self.influence.get(ux, uy)
+                } else { 0.0 };
+                if inf > 0.01 {
+                    lines.push(format!("influence: {:.2}", inf));
                 }
             } else {
                 lines.push(format!("({},{}) out of bounds", wx, wy));
@@ -920,5 +1027,64 @@ impl Game {
             text: renderer.frame_as_string(),
             cells,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::{self, Creature, Species};
+    use crate::tilemap::{Terrain, TileMap};
+    use hecs::World;
+
+    #[test]
+    fn population_growth_spawns_villager() {
+        let map = TileMap::new(20, 20, Terrain::Grass);
+        let mut world = World::new();
+
+        // Spawn 2 villagers (minimum for reproduction)
+        ecs::spawn_villager(&mut world, 10.0, 10.0);
+        ecs::spawn_villager(&mut world, 11.0, 10.0);
+
+        let initial_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager)
+            .count();
+        assert_eq!(initial_count, 2);
+
+        let mut resources = Resources { food: 10, wood: 0, stone: 0 };
+
+        let villager_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager)
+            .count();
+
+        if villager_count >= 2 && resources.food >= 5 {
+            resources.food -= 5;
+            let villager_pos: Vec<(f64, f64)> = world.query::<(&Position, &Creature)>().iter()
+                .filter(|(_, c)| c.species == Species::Villager)
+                .map(|(p, _)| (p.x, p.y))
+                .collect();
+            if let Some(&(vx, vy)) = villager_pos.first() {
+                let mut spawned = false;
+                for r in 0..5i32 {
+                    for dy in -r..=r {
+                        for dx in -r..=r {
+                            if spawned { continue; }
+                            let nx = vx + dx as f64;
+                            let ny = vy + dy as f64;
+                            if map.is_walkable(nx, ny) {
+                                ecs::spawn_villager(&mut world, nx, ny);
+                                spawned = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let final_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager)
+            .count();
+        assert_eq!(final_count, 3, "should have spawned one new villager");
+        assert_eq!(resources.food, 5, "should have consumed 5 food");
     }
 }
