@@ -14,19 +14,36 @@ use std::time::{Duration, Instant};
 use crossterm_renderer::CrosstermRenderer;
 use game::{Game, GameInput};
 
-fn map_key(code: KeyCode) -> GameInput {
-    match code {
-        KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
-        KeyCode::Up => GameInput::ScrollUp,
-        KeyCode::Down => GameInput::ScrollDown,
-        KeyCode::Left => GameInput::ScrollLeft,
-        KeyCode::Right => GameInput::ScrollRight,
-        KeyCode::Char('r') => GameInput::ToggleRain,
-        KeyCode::Char('e') => GameInput::ToggleErosion,
-        KeyCode::Char('t') => GameInput::ToggleDayNight,
-        KeyCode::Char('v') => GameInput::ToggleDebugView,
-        KeyCode::Char('d') => GameInput::Drain,
-        _ => GameInput::None,
+fn map_key(code: KeyCode, query_mode: bool) -> GameInput {
+    if query_mode {
+        // In query mode: WASD moves cursor, arrows still scroll camera
+        match code {
+            KeyCode::Char('q') | KeyCode::Esc => GameInput::ToggleQueryMode, // exit query mode
+            KeyCode::Char('w') => GameInput::QueryUp,
+            KeyCode::Char('s') => GameInput::QueryDown,
+            KeyCode::Char('a') => GameInput::QueryLeft,
+            KeyCode::Char('d') => GameInput::QueryRight,
+            KeyCode::Up => GameInput::ScrollUp,
+            KeyCode::Down => GameInput::ScrollDown,
+            KeyCode::Left => GameInput::ScrollLeft,
+            KeyCode::Right => GameInput::ScrollRight,
+            _ => GameInput::None,
+        }
+    } else {
+        match code {
+            KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
+            KeyCode::Up => GameInput::ScrollUp,
+            KeyCode::Down => GameInput::ScrollDown,
+            KeyCode::Left => GameInput::ScrollLeft,
+            KeyCode::Right => GameInput::ScrollRight,
+            KeyCode::Char('r') => GameInput::ToggleRain,
+            KeyCode::Char('e') => GameInput::ToggleErosion,
+            KeyCode::Char('t') => GameInput::ToggleDayNight,
+            KeyCode::Char('v') => GameInput::ToggleDebugView,
+            KeyCode::Char('k') => GameInput::ToggleQueryMode,
+            KeyCode::Char('d') => GameInput::Drain,
+            _ => GameInput::None,
+        }
     }
 }
 
@@ -43,7 +60,7 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         while event::poll(Duration::ZERO)? {
             match event::read()? {
                 Event::Key(KeyEvent { code, .. }) => {
-                    let mapped = map_key(code);
+                    let mapped = map_key(code, game.query_mode);
                     // Prioritize quit; for movement, take the latest
                     if mapped == GameInput::Quit {
                         input = GameInput::Quit;

@@ -133,9 +133,15 @@ fn wander(pos: &Position, vel: &mut Velocity, speed: f64, map: &TileMap, rng: &m
 }
 
 /// Hunger increases each tick.
+/// Rate: 0.0005/tick → full hunger in ~2000 ticks (~1.7 in-game days at 0.02h/tick).
+/// Creatures should eat roughly once per day.
 pub fn system_hunger(world: &mut World) {
     for creature in world.query_mut::<&mut Creature>() {
-        creature.hunger = (creature.hunger + 0.001).min(1.0);
+        let rate = match creature.species {
+            Species::Prey => 0.0005,
+            Species::Predator => 0.0006, // predators burn slightly more
+        };
+        creature.hunger = (creature.hunger + rate).min(1.0);
     }
 }
 
@@ -242,14 +248,14 @@ fn ai_prey(
 
     match state {
         BehaviorState::AtHome { timer } => {
-            if hunger > 0.6 || *timer == 0 {
+            if hunger > 0.5 || *timer == 0 {
                 (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, hunger)
             } else {
                 (BehaviorState::AtHome { timer: timer - 1 }, 0.0, 0.0, hunger)
             }
         }
         BehaviorState::Eating { timer } => {
-            hunger = (hunger - 0.02).max(0.0);
+            hunger = (hunger - 0.01).max(0.0);
             if predator_nearby {
                 (BehaviorState::FleeHome, 0.0, 0.0, hunger)
             } else if *timer == 0 || hunger <= 0.0 {
@@ -272,7 +278,7 @@ fn ai_prey(
             if predator_nearby {
                 return (BehaviorState::FleeHome, 0.0, 0.0, hunger);
             }
-            if hunger > 0.4 {
+            if hunger > 0.5 {
                 let nearest = food.iter()
                     .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
@@ -334,7 +340,7 @@ fn ai_predator(
             }
         }
         _ => {
-            if hunger > 0.3 {
+            if hunger > 0.4 {
                 let nearest = prey.iter()
                     .filter(|(_, _, at_home)| !at_home)
                     .map(|&(px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
@@ -772,7 +778,8 @@ mod tests {
 
         let end_hunger = world.get::<&Creature>(e).unwrap().hunger;
         assert!(end_hunger > start_hunger, "hunger should increase: {} -> {}", start_hunger, end_hunger);
-        assert!((end_hunger - start_hunger - 0.1).abs() < 0.001, "hunger should increase by 0.001/tick");
+        let expected = 0.0005 * 100.0; // prey rate * ticks
+        assert!((end_hunger - start_hunger - expected).abs() < 0.001, "hunger should increase by 0.0005/tick for prey");
     }
 
     #[test]

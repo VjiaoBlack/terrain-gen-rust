@@ -20,6 +20,7 @@ impl Cell {
 pub trait Renderer {
     fn size(&self) -> (u16, u16);
     fn draw(&mut self, x: u16, y: u16, ch: char, fg: Color, bg: Option<Color>);
+    fn get_cell(&self, x: u16, y: u16) -> Option<&Cell>;
     fn clear(&mut self);
     fn flush(&mut self) -> Result<()>;
 }

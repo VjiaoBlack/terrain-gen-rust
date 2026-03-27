@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Position, Sprite};
+use crate::ecs::{self, Behavior, BehaviorState, Creature, Position, Species, Sprite, FoodSource, Den};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -67,6 +67,11 @@ pub enum GameInput {
     ToggleErosion,
     ToggleDayNight,
     ToggleDebugView,
+    ToggleQueryMode,
+    QueryUp,
+    QueryDown,
+    QueryLeft,
+    QueryRight,
     Drain,
     None,
 }
@@ -91,6 +96,9 @@ pub struct Game {
     pub scroll_speed: i32,
     pub raining: bool,
     pub debug_view: bool,
+    pub query_mode: bool,
+    pub query_cx: i32, // cursor world X
+    pub query_cy: i32, // cursor world Y
     pub display_fps: Option<u32>,
 }
 
@@ -174,6 +182,9 @@ impl Game {
             scroll_speed: 2,
             raining: false,
             debug_view: false,
+            query_mode: false,
+            query_cx: 128,
+            query_cy: 128,
             display_fps: None,
         }
     }
@@ -189,6 +200,20 @@ impl Game {
             GameInput::ToggleErosion => self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled,
             GameInput::ToggleDayNight => self.day_night.enabled = !self.day_night.enabled,
             GameInput::ToggleDebugView => self.debug_view = !self.debug_view,
+            GameInput::ToggleQueryMode => {
+                self.query_mode = !self.query_mode;
+                if self.query_mode {
+                    // Center cursor on screen
+                    let (vw, vh) = renderer.size();
+                    let world_vw = vw as i32 / CELL_ASPECT;
+                    self.query_cx = self.camera.x + world_vw / 2;
+                    self.query_cy = self.camera.y + vh as i32 / 2;
+                }
+            }
+            GameInput::QueryUp => if self.query_mode { self.query_cy -= 1; },
+            GameInput::QueryDown => if self.query_mode { self.query_cy += 1; },
+            GameInput::QueryLeft => if self.query_mode { self.query_cx -= 1; },
+            GameInput::QueryRight => if self.query_mode { self.query_cx += 1; },
             GameInput::Drain => self.water.drain(),
             GameInput::Quit | GameInput::None => {}
         }
@@ -344,7 +369,151 @@ impl Game {
             }
         }
 
+        if self.query_mode {
+            self.draw_query_cursor(renderer);
+            self.draw_query_panel(renderer);
+        }
+
         self.draw_status(renderer);
+    }
+
+    fn draw_query_cursor(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 2u16;
+        let aspect = CELL_ASPECT;
+
+        let sx = (self.query_cx - self.camera.x) * aspect;
+        let sy = self.query_cy - self.camera.y;
+
+        // Draw cursor bracket across aspect-width cells
+        if sy >= 0 && (sy as u16) < h.saturating_sub(status_h) {
+            for dx in 0..aspect {
+                let cx = sx + dx;
+                if cx >= 0 && (cx as u16) < w {
+                    // Draw a highlight — bright magenta border
+                    let cell = renderer.get_cell(cx as u16, sy as u16);
+                    let ch = cell.map(|c| c.ch).unwrap_or(' ');
+                    renderer.draw(cx as u16, sy as u16, ch, Color(255, 255, 255), Some(Color(180, 0, 180)));
+                }
+            }
+        }
+    }
+
+    fn draw_query_panel(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 2u16;
+
+        // Gather info about the tile and any entities at cursor
+        let wx = self.query_cx;
+        let wy = self.query_cy;
+
+        let mut lines: Vec<String> = Vec::new();
+
+        // Tile info
+        if wx >= 0 && wy >= 0 {
+            let ux = wx as usize;
+            let uy = wy as usize;
+            if let Some(terrain) = self.map.get(ux, uy) {
+                lines.push(format!("({},{}) {:?}", wx, wy, terrain));
+                if ux < self.map.width && uy < self.map.height {
+                    let height = self.heights[uy * self.map.width + ux];
+                    lines.push(format!("height: {:.3}", height));
+                }
+                let water_depth = if ux < self.water.width && uy < self.water.height {
+                    self.water.get_avg(ux, uy)
+                } else { 0.0 };
+                if water_depth > 0.0001 {
+                    lines.push(format!("water: {:.4}", water_depth));
+                }
+                let moisture = if ux < self.moisture.width && uy < self.moisture.height {
+                    self.moisture.get(ux, uy)
+                } else { 0.0 };
+                if moisture > 0.01 {
+                    lines.push(format!("moisture: {:.2}", moisture));
+                }
+                let veg = if ux < self.vegetation.width && uy < self.vegetation.height {
+                    self.vegetation.get(ux, uy)
+                } else { 0.0 };
+                if veg > 0.01 {
+                    lines.push(format!("vegetation: {:.2}", veg));
+                }
+            } else {
+                lines.push(format!("({},{}) out of bounds", wx, wy));
+            }
+        }
+
+        // Entity info — find all entities at this world position
+        for (e, (pos, sprite)) in self.world.query::<(hecs::Entity, (&Position, &Sprite))>().iter() {
+            let ex = pos.x.round() as i32;
+            let ey = pos.y.round() as i32;
+            if ex == wx && ey == wy {
+                lines.push(format!("---"));
+                lines.push(format!("'{}' at ({:.1},{:.1})", sprite.ch, pos.x, pos.y));
+
+                if let Ok(creature) = self.world.get::<&Creature>(e) {
+                    let species_str = match creature.species {
+                        Species::Prey => "Prey",
+                        Species::Predator => "Predator",
+                    };
+                    lines.push(format!("{}", species_str));
+                    lines.push(format!("hunger: {:.1}%", creature.hunger * 100.0));
+                    lines.push(format!("sight: {:.0}", creature.sight_range));
+                    lines.push(format!("home: ({:.0},{:.0})", creature.home_x, creature.home_y));
+                }
+                if let Ok(behavior) = self.world.get::<&Behavior>(e) {
+                    let state_str = match &behavior.state {
+                        BehaviorState::Wander { timer } => format!("Wander ({})", timer),
+                        BehaviorState::Seek { target_x, target_y } => format!("Seek ({:.0},{:.0})", target_x, target_y),
+                        BehaviorState::Idle { timer } => format!("Idle ({})", timer),
+                        BehaviorState::Eating { timer } => format!("Eating ({})", timer),
+                        BehaviorState::FleeHome => "Fleeing home!".to_string(),
+                        BehaviorState::AtHome { timer } => format!("At home ({})", timer),
+                        BehaviorState::Hunting { target_x, target_y } => format!("Hunting ({:.0},{:.0})", target_x, target_y),
+                    };
+                    lines.push(format!("state: {}", state_str));
+                    lines.push(format!("speed: {:.2}", behavior.speed));
+                }
+                if self.world.get::<&FoodSource>(e).is_ok() {
+                    lines.push("Food Source".to_string());
+                }
+                if self.world.get::<&Den>(e).is_ok() {
+                    lines.push("Den (safe zone)".to_string());
+                }
+            }
+        }
+
+        // Draw panel in top-right corner
+        let panel_w = lines.iter().map(|l| l.len()).max().unwrap_or(0) + 2;
+        let panel_h = lines.len();
+        let panel_x = w.saturating_sub(panel_w as u16 + 1);
+        let panel_y = 1u16;
+
+        let bg = Color(20, 20, 40);
+        let fg = Color(220, 220, 220);
+
+        // Draw background
+        for dy in 0..panel_h {
+            let sy = panel_y + dy as u16;
+            if sy >= h.saturating_sub(status_h) { break; }
+            for dx in 0..panel_w {
+                let sx = panel_x + dx as u16;
+                if sx < w {
+                    renderer.draw(sx, sy, ' ', fg, Some(bg));
+                }
+            }
+        }
+
+        // Draw text
+        for (dy, line) in lines.iter().enumerate() {
+            let sy = panel_y + dy as u16;
+            if sy >= h.saturating_sub(status_h) { break; }
+            for (dx, ch) in line.chars().enumerate() {
+                let sx = panel_x + 1 + dx as u16;
+                if sx < w {
+                    renderer.draw(sx, sy, ch, fg, Some(bg));
+                }
+            }
+        }
     }
 
     fn draw_status(&self, renderer: &mut dyn Renderer) {
@@ -361,9 +530,10 @@ impl Game {
             Some(fps) => format!("{}", fps),
             None => "---".to_string(),
         };
+        let query_str = if self.query_mode { "ON (wasd, q:exit)" } else { "off" };
         let status1 = format!(
-            " tick: {}  cam: ({},{})  fps: {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  drain: [d]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, fps_str, rain_str, erosion_str, dn_str, view_str,
+            " tick: {}  cam: ({},{})  fps: {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  drain: [d]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, fps_str, rain_str, erosion_str, dn_str, view_str, query_str,
         );
         let status2 = format!(
             " arrows: scroll  ",
@@ -441,6 +611,11 @@ impl Game {
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
                 renderer.draw(sx as u16, sy as u16, sprite.ch, Color(255, 255, 0), Some(Color(180, 0, 0)));
             }
+        }
+
+        if self.query_mode {
+            self.draw_query_cursor(renderer);
+            self.draw_query_panel(renderer);
         }
 
         // Status bar (shared with normal draw)

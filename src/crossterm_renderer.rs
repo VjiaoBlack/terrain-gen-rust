@@ -73,6 +73,14 @@ impl Renderer for CrosstermRenderer {
         }
     }
 
+    fn get_cell(&self, x: u16, y: u16) -> Option<&Cell> {
+        if x < self.width && y < self.height {
+            Some(&self.front[(y * self.width + x) as usize])
+        } else {
+            None
+        }
+    }
+
     fn clear(&mut self) {
         let blank = Cell::blank();
         self.front.fill(blank);
