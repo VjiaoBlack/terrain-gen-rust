@@ -483,8 +483,12 @@ impl DayNightCycle {
         let sh = y1 - y0;
         let mut shadow = vec![0.0f64; sw * sh];
 
-        // Determine sweep order based on sun direction:
-        // We sweep FROM the sun side (where light comes from) TO the shadow side.
+        // Determine sweep order: sweep FROM the sun side TO the shadow side.
+        // Weight neighbor contributions by how much light comes from each axis.
+        let horiz_len = (light_dx * light_dx + light_dy * light_dy).sqrt().max(0.001);
+        let wx = (light_dx.abs() / horiz_len).min(1.0); // weight of x-neighbor
+        let wy = (light_dy.abs() / horiz_len).min(1.0); // weight of y-neighbor
+
         let sweep_x_rev = light_dx < 0.0;
         let sweep_y_rev = light_dy < 0.0;
 
@@ -504,24 +508,35 @@ impl DayNightCycle {
                 let si = (y_pos - y0) * sw + (x_pos - x0);
                 let terrain_h = heights[y_pos * map_w + x_pos];
 
-                // Incoming shadow from the sun-side neighbor
+                // Incoming shadow from sun-side neighbors, weighted by light direction
                 let mut max_shadow = 0.0f64;
 
-                // Check the neighbor that the sun shines through (opposite of sun dir)
-                // Cardinal neighbor in sun's x-direction
-                let prev_x = if sweep_x_rev { x_pos + 1 } else { x_pos.wrapping_sub(1) };
-                if prev_x >= x0 && prev_x < x1 {
-                    let prev_si = (y_pos - y0) * sw + (prev_x - x0);
-                    max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay);
+                // X-neighbor (only if light has meaningful x-component)
+                if wx > 0.1 {
+                    let prev_x = if sweep_x_rev { x_pos + 1 } else { x_pos.wrapping_sub(1) };
+                    if prev_x >= x0 && prev_x < x1 {
+                        let prev_si = (y_pos - y0) * sw + (prev_x - x0);
+                        max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay / wx);
+                    }
                 }
-                // Cardinal neighbor in sun's y-direction
-                let prev_y = if sweep_y_rev { y_pos + 1 } else { y_pos.wrapping_sub(1) };
-                if prev_y >= y0 && prev_y < y1 {
-                    let prev_si = (prev_y - y0) * sw + (x_pos - x0);
-                    max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay);
+                // Y-neighbor (only if light has meaningful y-component)
+                if wy > 0.1 {
+                    let prev_y = if sweep_y_rev { y_pos + 1 } else { y_pos.wrapping_sub(1) };
+                    if prev_y >= y0 && prev_y < y1 {
+                        let prev_si = (prev_y - y0) * sw + (x_pos - x0);
+                        max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay / wy);
+                    }
+                }
+                // Diagonal neighbor (when light comes from both directions)
+                if wx > 0.3 && wy > 0.3 {
+                    let prev_x = if sweep_x_rev { x_pos + 1 } else { x_pos.wrapping_sub(1) };
+                    let prev_y = if sweep_y_rev { y_pos + 1 } else { y_pos.wrapping_sub(1) };
+                    if prev_x >= x0 && prev_x < x1 && prev_y >= y0 && prev_y < y1 {
+                        let prev_si = (prev_y - y0) * sw + (prev_x - x0);
+                        max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay * 1.414);
+                    }
                 }
 
-                // Shadow height = max of incoming shadow or this cell's own height
                 shadow[si] = terrain_h.max(max_shadow);
             }
         }
@@ -1026,6 +1041,49 @@ mod tests {
         let base = Color(100, 150, 200);
         let result = dn.apply_lighting(base, 0, 0);
         assert_eq!(result, base, "disabled day/night should pass colors through");
+    }
+
+    #[test]
+    fn dawn_dusk_shadows_are_consistent() {
+        // At dawn/dusk, shadows should still be directional and not produce
+        // random artifacts from near-zero light direction components.
+        let mut dn = DayNightCycle::new(20, 20);
+        let mut heights = vec![0.1; 400];
+        // A ridge running north-south at x=10
+        for y in 0..20 {
+            heights[y * 20 + 10] = 0.8;
+        }
+
+        // Test at sunrise (6:30) and sunset (17:30) — low sun angles
+        for hour in [6.5, 17.5] {
+            dn.hour = hour;
+            dn.compute_lighting(&heights, 20, 20, 0, 0, 20, 20);
+
+            // All cells on the same side of the ridge should have similar lighting
+            // (not randomly bright/dark due to sweep artifacts)
+            let mut lights_east: Vec<f64> = Vec::new();
+            let mut lights_west: Vec<f64> = Vec::new();
+            for y in 5..15 {
+                lights_west.push(dn.get_light(5, y));
+                lights_east.push(dn.get_light(15, y));
+            }
+
+            // Within each side, lighting should be fairly uniform (not wildly varying)
+            let west_min = lights_west.iter().cloned().fold(f64::INFINITY, f64::min);
+            let west_max = lights_west.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let east_min = lights_east.iter().cloned().fold(f64::INFINITY, f64::min);
+            let east_max = lights_east.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+            assert!(west_max - west_min < 0.3,
+                "hour={}: west side lighting should be consistent: min={} max={}", hour, west_min, west_max);
+            assert!(east_max - east_min < 0.3,
+                "hour={}: east side lighting should be consistent: min={} max={}", hour, east_min, east_max);
+
+            // The ridge itself should be well-lit (faces the light)
+            let ridge_light = dn.get_light(10, 10);
+            assert!(ridge_light > 0.05,
+                "hour={}: ridge should receive light: got {}", hour, ridge_light);
+        }
     }
 
     #[test]
