@@ -123,6 +123,7 @@ pub struct Game {
     pub selected_building: BuildingType,
     pub influence: InfluenceMap,
     pub last_birth_tick: u64,
+    pub notifications: Vec<(u64, String)>,
 }
 
 impl Game {
@@ -233,6 +234,15 @@ impl Game {
             selected_building: BuildingType::Wall,
             influence: InfluenceMap::new(256, 256),
             last_birth_tick: 0,
+            notifications: Vec::new(),
+        }
+    }
+
+    pub fn notify(&mut self, msg: String) {
+        self.notifications.push((self.tick, msg));
+        // Keep only last 5 notifications
+        if self.notifications.len() > 5 {
+            self.notifications.remove(0);
         }
     }
 
@@ -298,25 +308,91 @@ impl Game {
         if !self.paused {
             self.tick += 1;
 
+            // Clean up old notifications
+            self.notifications.retain(|(t, _)| self.tick - t < 200);
+
             // Apply seasonal modifiers
             let mods = self.day_night.season_modifiers();
 
             ecs::system_hunger(&mut self.world, mods.hunger_mult);
             let deposits = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression);
+            let mut deposited_food = 0u32;
+            let mut deposited_wood = 0u32;
+            let mut deposited_stone = 0u32;
             for res in deposits {
                 match res {
-                    ResourceType::Food => self.resources.food += 1,
-                    ResourceType::Wood => self.resources.wood += 1,
-                    ResourceType::Stone => self.resources.stone += 1,
+                    ResourceType::Food => { self.resources.food += 1; deposited_food += 1; },
+                    ResourceType::Wood => { self.resources.wood += 1; deposited_wood += 1; },
+                    ResourceType::Stone => { self.resources.stone += 1; deposited_stone += 1; },
                 }
             }
+            if deposited_food > 0 {
+                self.notify(format!("Resource deposited: +{} food", deposited_food));
+            }
+            if deposited_wood > 0 {
+                self.notify(format!("Resource deposited: +{} wood", deposited_wood));
+            }
+            if deposited_stone > 0 {
+                self.notify(format!("Resource deposited: +{} stone", deposited_stone));
+            }
+
             ecs::system_movement(&mut self.world, &self.map);
+
+            // Count creatures before breeding to detect new spawns
+            let prey_before = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Prey).count();
+            let wolf_before = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Predator).count();
+
             ecs::system_breeding(&mut self.world, self.day_night.season);
+
+            let prey_after = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Prey).count();
+            let wolf_after = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Predator).count();
+            if prey_after > prey_before {
+                self.notify(format!("New rabbit born!"));
+            }
+            if wolf_after > wolf_before {
+                self.notify(format!("New wolf born!"));
+            }
+
+            // Count species before death to detect who died
+            let villagers_before = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Villager).count();
+            let prey_before_death = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Prey).count();
+            let wolves_before_death = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Predator).count();
+
             ecs::system_death(&mut self.world);
+
+            let villagers_after = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Villager).count();
+            let prey_after_death = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Prey).count();
+            let wolves_after_death = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Predator).count();
+
+            let villager_deaths = villagers_before.saturating_sub(villagers_after);
+            let prey_deaths = prey_before_death.saturating_sub(prey_after_death);
+            let wolf_deaths = wolves_before_death.saturating_sub(wolves_after_death);
+            if villager_deaths > 0 {
+                self.notify(format!("Villager died!"));
+            }
+            if prey_deaths > 0 {
+                self.notify(format!("A rabbit was killed!"));
+            }
+            if wolf_deaths > 0 {
+                self.notify(format!("A wolf died!"));
+            }
 
             // Farm growth and harvest
             let farm_food = ecs::system_farms(&mut self.world, self.day_night.season);
             self.resources.food += farm_food;
+            if farm_food > 0 {
+                self.notify(format!("Farm harvested: +{} food", farm_food));
+            }
 
             // Check for completed buildings
             self.check_build_completion();
@@ -350,7 +426,11 @@ impl Game {
             }
 
             // advance day/night cycle and compute Blinn-Phong lighting + shadows (viewport only)
+            let prev_season = self.day_night.season;
             self.day_night.tick();
+            if self.day_night.season != prev_season {
+                self.notify(format!("Season changed: {}", self.day_night.season.name()));
+            }
         }
         if self.day_night.enabled {
             self.day_night.compute_lighting(
@@ -436,7 +516,7 @@ impl Game {
                 completed.push((e, *pos, *site));
             }
         }
-        for (e, pos, site) in completed {
+        for &(e, pos, site) in &completed {
             for (dx, dy, terrain) in site.building_type.tiles() {
                 let tx = pos.x as i32 + dx;
                 let ty = pos.y as i32 + dy;
@@ -452,6 +532,9 @@ impl Game {
                 ecs::spawn_farm_plot(&mut self.world, cx, cy);
             }
             self.world.despawn(e).ok();
+        }
+        for &(_, _, site) in &completed {
+            self.notify(format!("Building complete: {}", site.building_type.name()));
         }
     }
 
@@ -500,6 +583,7 @@ impl Game {
             if let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5) {
                 ecs::spawn_villager(&mut self.world, nx, ny);
                 self.last_birth_tick = self.tick;
+                self.notify("New villager born!".to_string());
             }
         }
     }
@@ -671,6 +755,7 @@ impl Game {
             self.draw_build_mode(renderer);
         }
 
+        self.draw_notifications(renderer);
         self.draw_status(renderer);
     }
 
@@ -905,6 +990,32 @@ impl Game {
         }
     }
 
+    fn draw_notifications(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 2u16;
+        let base_y = h.saturating_sub(status_h + 1);
+
+        let now = self.tick;
+        let visible: Vec<&(u64, String)> = self.notifications.iter()
+            .filter(|(t, _)| now.saturating_sub(*t) < 120)
+            .collect();
+
+        for (i, (tick, msg)) in visible.iter().rev().enumerate() {
+            let y = base_y.saturating_sub(i as u16);
+            if y == 0 { break; }
+
+            let age = now.saturating_sub(*tick);
+            let alpha = if age < 60 { 1.0 } else { 1.0 - (age - 60) as f64 / 60.0 };
+            let brightness = (220.0 * alpha) as u8;
+
+            for (x, ch) in msg.chars().enumerate() {
+                if (x as u16) < w {
+                    renderer.draw(x as u16, y, ch, Color(brightness, brightness, brightness.min(180)), None);
+                }
+            }
+        }
+    }
+
     fn draw_status(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let rain_str = if self.raining { "ON" } else { "off" };
@@ -1029,7 +1140,8 @@ impl Game {
             self.draw_build_mode(renderer);
         }
 
-        // Status bar (shared with normal draw)
+        // Notifications and status bar (shared with normal draw)
+        self.draw_notifications(renderer);
         self.draw_status(renderer);
     }
 
