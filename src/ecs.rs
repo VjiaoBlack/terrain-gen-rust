@@ -2,7 +2,7 @@ use hecs::{Entity, World};
 use serde::Serialize;
 
 use crate::renderer::{Color, Renderer};
-use crate::tilemap::TileMap;
+use crate::tilemap::{TileMap, Terrain};
 
 // --- Components ---
 
@@ -28,6 +28,22 @@ pub struct Sprite {
 pub enum Species {
     Prey,
     Predator,
+    Villager,
+}
+
+// Resource types
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum ResourceType { Food, Wood, Stone }
+
+/// Marker for stockpile location (where villagers deposit resources).
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Stockpile;
+
+/// Resource carried by a villager or stored at stockpile.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct CarriedResource {
+    pub resource_type: ResourceType,
+    pub amount: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -48,6 +64,12 @@ pub enum BehaviorState {
     Hunting { target_x: f64, target_y: f64 },
     /// Prey: captured by a predator, frozen in place until consumed.
     Captured,
+    /// Villager: gathering a resource at a location.
+    Gathering { timer: u32, resource_type: ResourceType },
+    /// Villager: hauling gathered resource back to stockpile.
+    Hauling { target_x: f64, target_y: f64, resource_type: ResourceType },
+    /// Villager: sleeping at night.
+    Sleeping { timer: u32 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -142,16 +164,18 @@ pub fn system_hunger(world: &mut World) {
         let rate = match creature.species {
             Species::Prey => 0.0005,
             Species::Predator => 0.0006, // predators burn slightly more
+            Species::Villager => 0.0004, // villagers burn slightly less than prey
         };
         creature.hunger = (creature.hunger + rate).min(1.0);
     }
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap) {
+pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
     let mut rng = rand::rng();
+    let mut deposited_resources: Vec<ResourceType> = Vec::new();
 
-    // Phase 1: snapshot world state (positions of food, prey, predators)
+    // Phase 1: snapshot world state (positions of food, prey, predators, stockpiles)
     let food_positions: Vec<(f64, f64)> = world
         .query::<(&Position, &FoodSource)>()
         .iter()
@@ -170,6 +194,12 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         .iter()
         .filter(|(_, c)| c.species == Species::Predator)
         .map(|(p, _)| (p.x, p.y))
+        .collect();
+
+    let stockpile_positions: Vec<(f64, f64)> = world
+        .query::<(&Position, &Stockpile)>()
+        .iter()
+        .map(|(pos, _)| (pos.x, pos.y))
         .collect();
 
     // Phase 2: collect entity IDs with Behavior
@@ -208,7 +238,7 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         }
 
         // Decide the new state and velocity
-        let (new_state, new_vx, new_vy, new_hunger, kill) = match creature.species {
+        let (new_state, new_vx, new_vy, new_hunger, kill, deposited) = match creature.species {
             Species::Prey => {
                 let predator_nearby = predator_positions
                     .iter()
@@ -218,15 +248,31 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
                     &pos, &creature, &behavior_state, speed, predator_nearby,
                     &food_positions, map, &mut rng,
                 );
-                (s, vx, vy, h, None)
+                (s, vx, vy, h, None, None)
             }
             Species::Predator => {
-                ai_predator(
+                let (s, vx, vy, h, k) = ai_predator(
                     &pos, &creature, &behavior_state, speed,
                     &prey_positions, map, &mut rng,
-                )
+                );
+                (s, vx, vy, h, k, None)
+            }
+            Species::Villager => {
+                let predator_nearby = predator_positions
+                    .iter()
+                    .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
+
+                let (s, vx, vy, h, dep) = ai_villager(
+                    &pos, &creature, &behavior_state, speed, predator_nearby,
+                    &food_positions, &stockpile_positions, map, &mut rng,
+                );
+                (s, vx, vy, h, None, dep)
             }
         };
+
+        if let Some(resource) = deposited {
+            deposited_resources.push(resource);
+        }
 
         // Write back
         if let Ok(mut vel) = world.get::<&mut Velocity>(e) {
@@ -267,6 +313,8 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
     for e in to_despawn {
         let _ = world.despawn(e);
     }
+
+    deposited_resources
 }
 
 /// Prey AI: eat berries, flee predators, return home.
@@ -461,6 +509,11 @@ fn do_wander_tick(
             vel.dx = 0.0;
             vel.dy = 0.0;
         }
+        BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. } | BehaviorState::Sleeping { .. } => {
+            // Handled by creature-specific code
+            vel.dx = 0.0;
+            vel.dy = 0.0;
+        }
         _ => {
             // Other states (Eating, FleeHome, etc.) handled by creature-specific code
             behavior.state = BehaviorState::Wander { timer: 0 };
@@ -552,6 +605,212 @@ pub fn spawn_den(world: &mut World, x: f64, y: f64) -> Entity {
         Sprite { ch: 'O', fg: Color(140, 100, 60) }, // burrow
         Den,
     ))
+}
+
+pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Velocity { dx: 0.0, dy: 0.0 },
+        Sprite { ch: 'V', fg: Color(100, 200, 255) }, // villager: light blue
+        Behavior {
+            state: BehaviorState::Idle { timer: 10 },
+            speed: 0.15,
+        },
+        Creature {
+            species: Species::Villager,
+            hunger: 0.1,
+            home_x: x,
+            home_y: y,
+            sight_range: 15.0,
+        },
+    ))
+}
+
+pub fn spawn_stockpile(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '■', fg: Color(180, 140, 60) }, // wooden stockpile
+        Stockpile,
+    ))
+}
+
+/// Find the nearest tile of a given terrain type within a radius.
+/// For walkable terrain (e.g. Forest), returns the tile position directly.
+/// For non-walkable terrain (e.g. Mountain), returns an adjacent walkable tile.
+fn find_nearest_terrain(pos: &Position, map: &TileMap, terrain: Terrain, radius: f64) -> Option<(f64, f64)> {
+    let cx = pos.x.round() as i32;
+    let cy = pos.y.round() as i32;
+    let r = radius as i32;
+    let mut best: Option<(f64, f64, f64)> = None;
+
+    let terrain_walkable = terrain.is_walkable();
+
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let tx = cx + dx;
+            let ty = cy + dy;
+            if tx >= 0 && ty >= 0 {
+                if let Some(t) = map.get(tx as usize, ty as usize) {
+                    if *t == terrain {
+                        if terrain_walkable {
+                            // Walkable terrain (e.g. Forest): stand on the tile directly
+                            let d = dist(pos.x, pos.y, tx as f64, ty as f64);
+                            if best.is_none() || d < best.unwrap().2 {
+                                best = Some((tx as f64, ty as f64, d));
+                            }
+                        } else {
+                            // Non-walkable terrain (e.g. Mountain): find adjacent walkable tile
+                            for &(ax, ay) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+                                let wx = tx + ax;
+                                let wy = ty + ay;
+                                if map.is_walkable(wx as f64, wy as f64) {
+                                    let d = dist(pos.x, pos.y, wx as f64, wy as f64);
+                                    if best.is_none() || d < best.unwrap().2 {
+                                        best = Some((wx as f64, wy as f64, d));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(x, y, _)| (x, y))
+}
+
+/// Villager AI: gather resources, eat when hungry, flee predators.
+/// Returns (new_state, vx, vy, hunger, Option<ResourceType> deposited).
+fn ai_villager(
+    pos: &Position,
+    creature: &Creature,
+    state: &BehaviorState,
+    speed: f64,
+    predator_nearby: bool,
+    food: &[(f64, f64)],
+    stockpile: &[(f64, f64)],
+    map: &TileMap,
+    rng: &mut impl rand::RngExt,
+) -> (BehaviorState, f64, f64, f64, Option<ResourceType>) {
+    let mut hunger = creature.hunger;
+    let pos_copy = *pos;
+
+    match state {
+        BehaviorState::Eating { timer } => {
+            hunger = (hunger - 0.01).max(0.0);
+            if predator_nearby {
+                (BehaviorState::FleeHome, 0.0, 0.0, hunger, None)
+            } else if *timer == 0 || hunger <= 0.0 {
+                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None)
+            } else {
+                (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, hunger, None)
+            }
+        }
+        BehaviorState::FleeHome => {
+            // Flee toward nearest stockpile (or home)
+            let (hx, hy) = stockpile.iter()
+                .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
+                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+                .map(|(sx, sy, _)| (sx, sy))
+                .unwrap_or((creature.home_x, creature.home_y));
+
+            let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+            let d = move_toward(pos, hx, hy, speed * 1.5, &mut vel);
+            if d < 1.5 {
+                (BehaviorState::Idle { timer: rng.random_range(30..90) }, 0.0, 0.0, hunger, None)
+            } else {
+                (BehaviorState::FleeHome, vel.dx, vel.dy, hunger, None)
+            }
+        }
+        BehaviorState::Gathering { timer, resource_type } => {
+            if predator_nearby {
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None);
+            }
+            if *timer == 0 {
+                // Done gathering — haul to nearest stockpile
+                let (hx, hy) = stockpile.iter()
+                    .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
+                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+                    .map(|(sx, sy, _)| (sx, sy))
+                    .unwrap_or((creature.home_x, creature.home_y));
+                let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                move_toward(pos, hx, hy, speed, &mut vel);
+                (BehaviorState::Hauling { target_x: hx, target_y: hy, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None)
+            } else {
+                (BehaviorState::Gathering { timer: timer - 1, resource_type: *resource_type }, 0.0, 0.0, hunger, None)
+            }
+        }
+        BehaviorState::Hauling { target_x, target_y, resource_type } => {
+            let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+            let d = move_toward(pos, *target_x, *target_y, speed, &mut vel);
+            if d < 1.5 {
+                // Deposited resource at stockpile
+                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, Some(*resource_type))
+            } else {
+                (BehaviorState::Hauling { target_x: *target_x, target_y: *target_y, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None)
+            }
+        }
+        BehaviorState::Sleeping { timer } => {
+            if *timer == 0 {
+                (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None)
+            } else {
+                (BehaviorState::Sleeping { timer: timer - 1 }, 0.0, 0.0, hunger, None)
+            }
+        }
+        _ => {
+            // Wander/Seek/Idle — check for threats, food, and gathering
+            if predator_nearby {
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None);
+            }
+
+            // Eat: if hungry and near food
+            if hunger > 0.7 {
+                let nearest_food = food.iter()
+                    .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
+                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                if let Some((fx, fy, d)) = nearest_food {
+                    if d < 1.5 {
+                        return (BehaviorState::Eating { timer: rng.random_range(30..60) }, 0.0, 0.0, hunger, None);
+                    } else {
+                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        move_toward(pos, fx, fy, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None);
+                    }
+                }
+            }
+
+            // Gather wood: if not too hungry, find nearest Forest tile
+            if hunger < 0.5 {
+                if let Some((fx, fy)) = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range) {
+                    let d = dist(pos.x, pos.y, fx, fy);
+                    if d < 1.5 {
+                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Wood }, 0.0, 0.0, hunger, None);
+                    } else {
+                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        move_toward(pos, fx, fy, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None);
+                    }
+                }
+                // Gather stone: find nearest Mountain-adjacent tile
+                if let Some((mx, my)) = find_nearest_terrain(pos, map, Terrain::Mountain, creature.sight_range) {
+                    let d = dist(pos.x, pos.y, mx, my);
+                    if d < 1.5 {
+                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None);
+                    } else {
+                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        move_toward(pos, mx, my, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: mx, target_y: my }, vel.dx, vel.dy, hunger, None);
+                    }
+                }
+            }
+
+            // Default: wander
+            let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+            let mut bhv = Behavior { state: *state, speed };
+            do_wander_tick(&pos_copy, &mut vel, &mut bhv, map, rng);
+            (bhv.state, vel.dx, vel.dy, hunger, None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1064,5 +1323,129 @@ mod tests {
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
+    }
+
+    #[test]
+    fn villager_seeks_food_when_hungry() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        let _bush = spawn_berry_bush(&mut world, 20.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Make villager hungry and wandering
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.8;
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        system_ai(&mut world, &map);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        match state {
+            BehaviorState::Seek { target_x, target_y } => {
+                assert!((target_x - 20.0).abs() < 0.1, "should seek food x");
+                assert!((target_y - 10.0).abs() < 0.1, "should seek food y");
+            }
+            _ => panic!("hungry villager should seek food, got: {:?}", state),
+        }
+    }
+
+    #[test]
+    fn villager_flees_predator() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        let _predator = spawn_predator(&mut world, 12.0, 10.0); // within sight range
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Put villager in wander state
+        {
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        system_ai(&mut world, &map);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        assert!(matches!(state, BehaviorState::FleeHome),
+            "villager should flee when predator nearby, got: {:?}", state);
+    }
+
+    #[test]
+    fn villager_gathers_wood() {
+        let mut world = World::new();
+        // Map with forest tiles nearby
+        let mut map = walkable_map(30, 30);
+        map.set(12, 10, Terrain::Forest);
+        map.set(13, 10, Terrain::Forest);
+
+        let villager = spawn_villager(&mut world, 12.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Low hunger, wandering — should gather wood
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.2;
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        system_ai(&mut world, &map);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
+            "villager near forest with low hunger should gather wood, got: {:?}", state);
+    }
+
+    #[test]
+    fn villager_hauls_to_stockpile() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Set villager to Gathering with timer about to expire
+        {
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
+        }
+
+        system_ai(&mut world, &map);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        match state {
+            BehaviorState::Hauling { target_x, target_y, resource_type } => {
+                assert!((target_x - 5.0).abs() < 0.1, "should haul toward stockpile x");
+                assert!((target_y - 5.0).abs() < 0.1, "should haul toward stockpile y");
+                assert_eq!(resource_type, ResourceType::Wood, "should haul wood");
+            }
+            _ => panic!("villager after gathering should haul to stockpile, got: {:?}", state),
+        }
+    }
+
+    #[test]
+    fn villager_deposits_resource() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let villager = spawn_villager(&mut world, 5.0, 5.0); // at stockpile position
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Set villager to hauling toward stockpile (already there)
+        {
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
+        }
+
+        let deposited = system_ai(&mut world, &map);
+
+        assert_eq!(deposited.len(), 1, "should deposit one resource");
+        assert_eq!(deposited[0], ResourceType::Wood, "should deposit wood");
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        assert!(matches!(state, BehaviorState::Idle { .. }),
+            "villager should be idle after depositing, got: {:?}", state);
     }
 }

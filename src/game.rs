@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Behavior, BehaviorState, Creature, Position, Species, Sprite, FoodSource, Den};
+use crate::ecs::{self, Behavior, BehaviorState, Creature, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -77,6 +77,13 @@ pub enum GameInput {
     None,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Resources {
+    pub food: u32,
+    pub wood: u32,
+    pub stone: u32,
+}
+
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
 /// screen columns so the grid looks square.
 const CELL_ASPECT: i32 = 2;
@@ -102,6 +109,7 @@ pub struct Game {
     pub query_cx: i32, // cursor world X
     pub query_cy: i32, // cursor world Y
     pub display_fps: Option<u32>,
+    pub resources: Resources,
 }
 
 impl Game {
@@ -168,6 +176,16 @@ impl Game {
             ecs::spawn_predator(&mut world, wx, wy);
         }
 
+        // Settlement: stockpile + villagers near center
+        let (sx, sy) = find_walkable(&map, 125, 125);
+        ecs::spawn_stockpile(&mut world, sx, sy);
+
+        // Spawn 3 villagers near the stockpile
+        for i in 0..3 {
+            let (vx, vy) = find_walkable(&map, 125 + i * 2, 126);
+            ecs::spawn_villager(&mut world, vx, vy);
+        }
+
         Self {
             target_fps,
             tick: 0,
@@ -189,6 +207,7 @@ impl Game {
             query_cx: 128,
             query_cy: 128,
             display_fps: None,
+            resources: Resources::default(),
         }
     }
 
@@ -231,7 +250,14 @@ impl Game {
         if !self.paused {
             self.tick += 1;
             ecs::system_hunger(&mut self.world);
-            ecs::system_ai(&mut self.world, &self.map);
+            let deposits = ecs::system_ai(&mut self.world, &self.map);
+            for res in deposits {
+                match res {
+                    ResourceType::Food => self.resources.food += 1,
+                    ResourceType::Wood => self.resources.wood += 1,
+                    ResourceType::Stone => self.resources.stone += 1,
+                }
+            }
             ecs::system_movement(&mut self.world, &self.map);
 
             if self.raining {
@@ -377,6 +403,13 @@ impl Game {
                         (30.0 * tg).clamp(0.0, 255.0) as u8,
                         (30.0 * tb).clamp(0.0, 255.0) as u8,
                     )
+                } else if matches!(bstate, Some(BehaviorState::Sleeping { .. })) {
+                    // Sleeping villagers rendered dimmer
+                    Color(
+                        (sprite.fg.0 as f64 * tr * 0.5).clamp(0.0, 255.0) as u8,
+                        (sprite.fg.1 as f64 * tg * 0.5).clamp(0.0, 255.0) as u8,
+                        (sprite.fg.2 as f64 * tb * 0.5).clamp(0.0, 255.0) as u8,
+                    )
                 } else {
                     Color(
                         (sprite.fg.0 as f64 * tr).clamp(0.0, 255.0) as u8,
@@ -473,6 +506,7 @@ impl Game {
                     let species_str = match creature.species {
                         Species::Prey => "Prey",
                         Species::Predator => "Predator",
+                        Species::Villager => "Villager",
                     };
                     lines.push(format!("{}", species_str));
                     lines.push(format!("hunger: {:.1}%", creature.hunger * 100.0));
@@ -489,15 +523,29 @@ impl Game {
                         BehaviorState::AtHome { timer } => format!("At home ({})", timer),
                         BehaviorState::Hunting { target_x, target_y } => format!("Hunting ({:.0},{:.0})", target_x, target_y),
                         BehaviorState::Captured => "CAPTURED!".to_string(),
+                        BehaviorState::Gathering { timer, resource_type } => format!("Gathering {:?} ({})", resource_type, timer),
+                        BehaviorState::Hauling { target_x, target_y, resource_type } => format!("Hauling {:?} ({:.0},{:.0})", resource_type, target_x, target_y),
+                        BehaviorState::Sleeping { timer } => format!("Sleeping ({})", timer),
                     };
                     lines.push(format!("state: {}", state_str));
                     lines.push(format!("speed: {:.2}", behavior.speed));
+                    match &behavior.state {
+                        BehaviorState::Gathering { resource_type, .. } |
+                        BehaviorState::Hauling { resource_type, .. } => {
+                            lines.push(format!("resource: {:?}", resource_type));
+                        }
+                        _ => {}
+                    }
                 }
                 if self.world.get::<&FoodSource>(e).is_ok() {
                     lines.push("Food Source".to_string());
                 }
                 if self.world.get::<&Den>(e).is_ok() {
                     lines.push("Den (safe zone)".to_string());
+                }
+                if self.world.get::<&Stockpile>(e).is_ok() {
+                    lines.push(format!("Stockpile (F:{} W:{} S:{})",
+                        self.resources.food, self.resources.wood, self.resources.stone));
                 }
             }
         }
@@ -557,7 +605,8 @@ impl Game {
             self.tick, self.camera.x, self.camera.y, fps_str, pause_str, rain_str, erosion_str, dn_str, view_str, query_str,
         );
         let status2 = format!(
-            " arrows: scroll  ",
+            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}",
+            self.resources.food, self.resources.wood, self.resources.stone,
         );
 
         for (i, ch) in status1.chars().enumerate() {
