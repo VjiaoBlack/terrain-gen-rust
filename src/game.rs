@@ -215,7 +215,7 @@ impl Game {
             ecs::spawn_villager(&mut world, vx, vy);
         }
 
-        Self {
+        let mut g = Self {
             target_fps,
             tick: 0,
             map,
@@ -246,7 +246,9 @@ impl Game {
             notifications: Vec::new(),
             game_over: false,
             peak_population: 3,
-        }
+        };
+        g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
+        g
     }
 
     pub fn notify(&mut self, msg: String) {
