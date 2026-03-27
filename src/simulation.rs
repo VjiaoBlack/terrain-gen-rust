@@ -346,30 +346,37 @@ impl DayNightCycle {
         }
     }
 
-    /// Sun elevation angle in radians. Peaks at noon (pi/2), below 0 at night.
+    /// Sun elevation angle in radians. Peaks at noon, below 0 at night.
+    /// Max ~60 degrees — keeps the sun from going truly overhead so there's
+    /// always a meaningful horizontal component for shadows and directional shading.
     pub fn sun_elevation(&self) -> f64 {
         let angle = (self.hour - 6.0) / 12.0 * std::f64::consts::PI;
-        angle.sin() * (std::f64::consts::PI / 2.2) // max ~80 degrees
+        angle.sin() * (std::f64::consts::PI / 3.0) // max ~60 degrees
     }
 
-    /// Sun direction as a 3D unit vector (dx, dy, dz) pointing TOWARD the sun.
+    /// Sun azimuth in radians. Traces east (6am) → south (noon) → west (6pm).
+    pub fn sun_azimuth(&self) -> f64 {
+        // 6am = east = 0, noon = south = PI/2, 6pm = west = PI
+        (self.hour - 6.0) / 12.0 * std::f64::consts::PI
+    }
+
+    /// Sun direction as a 3D unit vector pointing TOWARD the sun.
+    /// Proper spherical: azimuth sweeps east→south→west, elevation rises and falls.
     pub fn sun_direction_3d(&self) -> (f64, f64, f64) {
         let elev = self.sun_elevation();
-        let azimuth = (self.hour - 6.0) / 12.0 * std::f64::consts::PI;
-        // Sun arcs east→south→west; dz = sin(elevation)
+        let azimuth = self.sun_azimuth();
+
         let dz = elev.sin();
         let horiz = elev.cos();
-        let dx = azimuth.cos() * horiz;
-        let dy = -0.5 * horiz; // slightly from the south
-        let len = (dx * dx + dy * dy + dz * dz).sqrt();
-        (dx / len, dy / len, dz / len)
-    }
+        // azimuth: 0=east(+x), PI/2=south(-y), PI=west(-x)
+        let dx = azimuth.cos() * horiz;   // east-west: + at sunrise, - at sunset
+        let dy = -azimuth.sin() * horiz;  // north-south: - (from south) peaking at noon
 
-    /// Sun direction projected onto 2D for shadow raymarching.
-    fn sun_direction_2d(&self) -> (f64, f64) {
-        let (dx, dy, _) = self.sun_direction_3d();
-        let len = (dx * dx + dy * dy).sqrt().max(0.001);
-        (dx / len, dy / len)
+        let len = (dx * dx + dy * dy + dz * dz).sqrt();
+        if len < 0.001 {
+            return (0.0, 0.0, 1.0);
+        }
+        (dx / len, dy / len, dz / len)
     }
 
     /// Compute terrain normal at (x, y) from height finite differences.
@@ -517,6 +524,9 @@ impl DayNightCycle {
                 let l_dot_n = (sun_dx * nx + sun_dy * ny + sun_dz * nz).max(0.0);
 
                 // Specular: (H·N)^k, view = straight down (0,0,1)
+                // Attenuate specular when sun is high to avoid uniform wash
+                let horiz_strength = (sun_dx * sun_dx + sun_dy * sun_dy).sqrt();
+                let spec_atten = horiz_strength.min(1.0); // 0 when overhead, 1 at horizon
                 let hx = sun_dx;
                 let hy = sun_dy;
                 let hz = sun_dz + 1.0;
@@ -526,7 +536,7 @@ impl DayNightCycle {
                 } else {
                     0.0
                 };
-                let specular = h_dot_n.powi(16) * 0.3;
+                let specular = h_dot_n.powi(16) * 0.4 * spec_atten;
 
                 self.light_map[i] = (l_dot_n + specular).min(1.0);
             }
