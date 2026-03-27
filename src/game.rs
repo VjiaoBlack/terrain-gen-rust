@@ -271,7 +271,11 @@ impl Game {
                             ('"', Color(40, 160, 40))
                         };
                         let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
-                        renderer.draw(sx, sy, ch, fg, None);
+                        // Keep terrain bg underneath vegetation
+                        let bg = self.map.get(wx as usize, wy as usize)
+                            .and_then(|t| t.bg())
+                            .map(|c| self.day_night.apply_lighting(c, wx as usize, wy as usize));
+                        renderer.draw(sx, sy, ch, fg, bg);
                     }
                 }
             }
