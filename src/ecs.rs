@@ -46,6 +46,8 @@ pub enum BehaviorState {
     AtHome { timer: u32 },
     /// Predator: chasing a prey it spotted.
     Hunting { target_x: f64, target_y: f64 },
+    /// Prey: captured by a predator, frozen in place until consumed.
+    Captured,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -160,7 +162,7 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         .query::<(Entity, &Position, &Creature, &Behavior)>()
         .iter()
         .filter(|(_, _, c, _)| c.species == Species::Prey)
-        .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::AtHome { .. })))
+        .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::AtHome { .. } | BehaviorState::Captured)))
         .collect();
 
     let predator_positions: Vec<(f64, f64)> = world
@@ -178,6 +180,7 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         .collect();
 
     // Phase 3: process each entity
+    let mut to_capture: Vec<Entity> = Vec::new();
     let mut to_despawn: Vec<Entity> = Vec::new();
     for e in entities {
         // Read position (copy) and check if it's a creature
@@ -198,6 +201,11 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
         let creature = *world.get::<&Creature>(e).unwrap();
         let behavior_state = world.get::<&Behavior>(e).unwrap().state;
         let speed = world.get::<&Behavior>(e).unwrap().speed;
+
+        // Captured prey: frozen, no AI — wait for predator to finish eating
+        if matches!(behavior_state, BehaviorState::Captured) {
+            continue;
+        }
 
         // Decide the new state and velocity
         let (new_state, new_vx, new_vy, new_hunger, kill) = match creature.species {
@@ -232,11 +240,30 @@ pub fn system_ai(world: &mut World, map: &TileMap) {
             c.hunger = new_hunger;
         }
         if let Some(prey_e) = kill {
-            to_despawn.push(prey_e);
+            // If wolf just caught prey (entering Eating), mark prey as Captured
+            // If wolf finished eating (leaving Eating), despawn the prey
+            if matches!(new_state, BehaviorState::Eating { .. }) {
+                // Capture: freeze the prey in place
+                to_capture.push(prey_e);
+            } else {
+                // Done eating: remove the carcass
+                to_despawn.push(prey_e);
+            }
         }
     }
 
-    // Despawn killed prey
+    // Mark captured prey
+    for e in to_capture {
+        if let Ok(mut behavior) = world.get::<&mut Behavior>(e) {
+            behavior.state = BehaviorState::Captured;
+        }
+        if let Ok(mut vel) = world.get::<&mut Velocity>(e) {
+            vel.dx = 0.0;
+            vel.dy = 0.0;
+        }
+    }
+
+    // Despawn consumed prey
     for e in to_despawn {
         let _ = world.despawn(e);
     }
@@ -329,7 +356,13 @@ fn ai_predator(
         BehaviorState::Eating { timer } => {
             let new_hunger = (hunger - 0.01).max(0.0);
             if *timer == 0 || new_hunger <= 0.0 {
-                (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, new_hunger, None)
+                // Done eating — signal to despawn the captured prey nearby
+                let victim = prey.iter()
+                    .map(|&(e, px, py, _)| (e, dist(pos.x, pos.y, px, py)))
+                    .filter(|(_, d)| *d < 3.0)
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                    .map(|(e, _)| e);
+                (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, new_hunger, victim)
             } else {
                 (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, new_hunger, None)
             }
@@ -344,7 +377,7 @@ fn ai_predator(
 
             if let Some((prey_e, px, py, d)) = nearest {
                 if d < 2.0 {
-                    // Caught prey! Kill it and eat
+                    // Caught prey! Mark it as captured, start eating
                     return (
                         BehaviorState::Eating { timer: rng.random_range(40..80) },
                         0.0, 0.0, hunger, Some(prey_e),
@@ -422,6 +455,11 @@ fn do_wander_tick(
             } else {
                 *timer -= 1;
             }
+        }
+        BehaviorState::Captured => {
+            // Frozen — do nothing
+            vel.dx = 0.0;
+            vel.dy = 0.0;
         }
         _ => {
             // Other states (Eating, FleeHome, etc.) handled by creature-specific code

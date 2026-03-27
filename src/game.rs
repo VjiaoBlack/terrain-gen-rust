@@ -360,23 +360,30 @@ impl Game {
         }
 
         // draw entities (offset by camera) — world→screen X is multiplied by aspect
-        // Skip creatures that are AtHome (hidden inside den)
+        // Skip AtHome (hidden in den), dim Captured (being eaten)
         for (e, (pos, sprite)) in self.world.query::<(hecs::Entity, (&Position, &Sprite))>().iter() {
-            if let Ok(behavior) = self.world.get::<&Behavior>(e) {
-                if matches!(behavior.state, BehaviorState::AtHome { .. }) {
-                    continue;
-                }
+            let bstate = self.world.get::<&Behavior>(e).ok().map(|b| b.state);
+            if matches!(bstate, Some(BehaviorState::AtHome { .. })) {
+                continue;
             }
             let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
             let sy = pos.y.round() as i32 - self.camera.y;
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
-                // Entities get tinted but not shadowed (they're above terrain)
                 let (tr, tg, tb) = self.day_night.ambient_tint();
-                let fg = Color(
-                    (sprite.fg.0 as f64 * tr).clamp(0.0, 255.0) as u8,
-                    (sprite.fg.1 as f64 * tg).clamp(0.0, 255.0) as u8,
-                    (sprite.fg.2 as f64 * tb).clamp(0.0, 255.0) as u8,
-                );
+                let fg = if matches!(bstate, Some(BehaviorState::Captured)) {
+                    // Captured prey rendered dim red
+                    Color(
+                        (120.0 * tr).clamp(0.0, 255.0) as u8,
+                        (30.0 * tg).clamp(0.0, 255.0) as u8,
+                        (30.0 * tb).clamp(0.0, 255.0) as u8,
+                    )
+                } else {
+                    Color(
+                        (sprite.fg.0 as f64 * tr).clamp(0.0, 255.0) as u8,
+                        (sprite.fg.1 as f64 * tg).clamp(0.0, 255.0) as u8,
+                        (sprite.fg.2 as f64 * tb).clamp(0.0, 255.0) as u8,
+                    )
+                };
                 renderer.draw(sx as u16, sy as u16, sprite.ch, fg, None);
             }
         }
@@ -481,6 +488,7 @@ impl Game {
                         BehaviorState::FleeHome => "Fleeing home!".to_string(),
                         BehaviorState::AtHome { timer } => format!("At home ({})", timer),
                         BehaviorState::Hunting { target_x, target_y } => format!("Hunting ({:.0},{:.0})", target_x, target_y),
+                        BehaviorState::Captured => "CAPTURED!".to_string(),
                     };
                     lines.push(format!("state: {}", state_str));
                     lines.push(format!("speed: {:.2}", behavior.speed));
