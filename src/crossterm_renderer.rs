@@ -49,6 +49,19 @@ fn to_ccolor(c: Color) -> CColor {
     CColor::Rgb { r: c.0, g: c.1, b: c.2 }
 }
 
+impl CrosstermRenderer {
+    pub fn resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+        let blank = Cell::blank();
+        let buf = vec![blank; (width * height) as usize];
+        self.back = buf.clone();
+        self.front = buf;
+        // force full redraw
+        let _ = execute!(self.stdout, ResetColor, terminal::Clear(terminal::ClearType::All));
+    }
+}
+
 impl Renderer for CrosstermRenderer {
     fn size(&self) -> (u16, u16) {
         (self.width, self.height)

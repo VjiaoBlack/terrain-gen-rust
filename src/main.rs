@@ -17,15 +17,18 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
 
         // input
         let input = if event::poll(Duration::ZERO)? {
-            if let Event::Key(KeyEvent { code, .. }) = event::read()? {
-                match code {
+            match event::read()? {
+                Event::Key(KeyEvent { code, .. }) => match code {
                     KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
                     KeyCode::Up => GameInput::FpsUp,
                     KeyCode::Down => GameInput::FpsDown,
                     _ => GameInput::None,
+                },
+                Event::Resize(w, h) => {
+                    renderer.resize(w, h);
+                    GameInput::None
                 }
-            } else {
-                GameInput::None
+                _ => GameInput::None,
             }
         } else {
             GameInput::None
