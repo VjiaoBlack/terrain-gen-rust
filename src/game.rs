@@ -277,12 +277,16 @@ impl Game {
             }
         }
 
-        // draw water on top of terrain
+        // draw water on top of terrain (skip Water terrain — already rendered as ocean)
         for sy in 0..h.saturating_sub(status_h) {
             for sx in 0..w {
                 let wx = self.camera.x + sx as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
+                    // Skip ocean tiles — they already have their own water appearance
+                    if matches!(self.map.get(wx as usize, wy as usize), Some(Terrain::Water)) {
+                        continue;
+                    }
                     let depth = self.water.get_avg(wx as usize, wy as usize);
                     if depth > 0.0005 {
                         let intensity = (depth * 500.0).min(1.0);

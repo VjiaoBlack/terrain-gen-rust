@@ -248,9 +248,15 @@ impl MoistureMap {
     /// Also updates vegetation based on moisture bands.
     pub fn update(&mut self, water: &WaterMap, vegetation: &mut VegetationMap, map: &crate::tilemap::TileMap) {
         // Step 1: moisture from water — gentle contribution, faster decay
+        // Skip Water terrain tiles (permanent oceans) — only rain water drives moisture
         for y in 0..self.height {
             for x in 0..self.width {
                 let i = y * self.width + x;
+                let is_ocean = matches!(map.get(x, y), Some(crate::tilemap::Terrain::Water));
+                if is_ocean {
+                    self.moisture[i] = 0.0; // oceans don't generate land moisture
+                    continue;
+                }
                 let w = water.get(x, y);
                 if w > 0.01 {
                     // Standing water: high moisture, but blend don't slam to 1.0
