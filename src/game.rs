@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
+use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -198,6 +198,12 @@ impl Game {
         for &(bsx, bsy) in &[(124, 124), (126, 127), (123, 126), (127, 124)] {
             let (bx, by) = find_walkable(&map, bsx, bsy);
             ecs::spawn_berry_bush(&mut world, bx, by);
+        }
+
+        // Stone deposits near settlement so villagers can gather stone
+        for &(dsx, dsy) in &[(122, 125), (128, 126)] {
+            let (dx, dy) = find_walkable(&map, dsx, dsy);
+            ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
         // Spawn 3 villagers near the stockpile
@@ -938,6 +944,9 @@ impl Game {
                 }
                 if self.world.get::<&Den>(e).is_ok() {
                     lines.push("Den (safe zone)".to_string());
+                }
+                if self.world.get::<&StoneDeposit>(e).is_ok() {
+                    lines.push("Stone Deposit".to_string());
                 }
                 if let Ok(site) = self.world.get::<&ecs::BuildSite>(e) {
                     lines.push(format!("BuildSite: {}", site.building_type.name()));

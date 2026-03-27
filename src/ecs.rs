@@ -198,6 +198,10 @@ pub struct FarmPlot {
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct FoodSource;
 
+/// Marker component for stone deposits (mineable by villagers).
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct StoneDeposit;
+
 /// Marker component for dens (safe home for prey).
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Den;
@@ -336,6 +340,12 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64) -> Vec<
         .map(|(e, pos, site)| (e, pos.x, pos.y, site.assigned))
         .collect();
 
+    let stone_deposit_positions: Vec<(f64, f64)> = world
+        .query::<(&Position, &StoneDeposit)>()
+        .iter()
+        .map(|(pos, _)| (pos.x, pos.y))
+        .collect();
+
     // Phase 2: collect entity IDs with Behavior
     let entities: Vec<Entity> = world
         .query::<(Entity, &Behavior)>()
@@ -401,7 +411,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64) -> Vec<
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos, &creature, &behavior_state, speed, predator_nearby,
                     &food_positions, &stockpile_positions, &build_site_positions,
-                    map, &mut rng,
+                    &stone_deposit_positions, map, &mut rng,
                 );
                 // If villager claims a build site, mark it assigned
                 if let Some(site_entity) = claim_site {
@@ -773,6 +783,14 @@ pub fn spawn_den(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
+pub fn spawn_stone_deposit(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '●', fg: Color(150, 140, 130) }, // grey stone
+        StoneDeposit,
+    ))
+}
+
 pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
     world.spawn((
         Position { x, y },
@@ -924,6 +942,7 @@ fn ai_villager(
     food: &[(f64, f64)],
     stockpile: &[(f64, f64)],
     build_sites: &[(Entity, f64, f64, bool)],
+    stone_deposits: &[(f64, f64)],
     map: &TileMap,
     rng: &mut impl rand::RngExt,
 ) -> (BehaviorState, f64, f64, f64, Option<ResourceType>, Option<Entity>) {
@@ -1055,15 +1074,21 @@ fn ai_villager(
                         return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
-                // Gather stone: find nearest Mountain-adjacent tile
-                if let Some((mx, my)) = find_nearest_terrain(pos, map, Terrain::Mountain, creature.sight_range) {
-                    let d = dist(pos.x, pos.y, mx, my);
+                // Gather stone: prefer nearby StoneDeposit entities, fall back to Mountain-adjacent tiles
+                let nearest_deposit = stone_deposits.iter()
+                    .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
+                    .filter(|(_, _, d)| *d < creature.sight_range)
+                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                let stone_target = nearest_deposit.map(|(dx, dy, d)| (dx, dy, d))
+                    .or_else(|| find_nearest_terrain(pos, map, Terrain::Mountain, creature.sight_range)
+                        .map(|(mx, my)| (mx, my, dist(pos.x, pos.y, mx, my))));
+                if let Some((sx, sy, d)) = stone_target {
                     if d < 1.5 {
                         return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, mx, my, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: mx, target_y: my }, vel.dx, vel.dy, hunger, None, None);
+                        move_toward(pos, sx, sy, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: sx, target_y: sy }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
             }
@@ -2161,5 +2186,30 @@ mod tests {
         eprintln!("Final: alive={}, total_deposits={}, any_ate={}", final_alive, deposits.len(), any_ate);
         assert!(any_ate, "villagers should eat at berry bushes");
         assert!(final_alive >= 2, "at least 2 villagers should survive 3000 ticks, got {}", final_alive);
+    }
+
+    #[test]
+    fn villager_gathers_stone_from_deposit() {
+        let mut world = World::new();
+        // Map with no mountain tiles — only stone deposits available
+        let map = walkable_map(30, 30);
+
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+        spawn_stone_deposit(&mut world, 11.0, 10.0);
+
+        // Low hunger, wandering — no forest nearby, should seek stone deposit
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.2;
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        system_ai(&mut world, &map, 0.4);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),
+            "villager near stone deposit with low hunger should gather stone, got: {:?}", state);
     }
 }
