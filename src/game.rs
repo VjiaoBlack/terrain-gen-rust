@@ -67,6 +67,7 @@ pub enum GameInput {
     ToggleErosion,
     ToggleDayNight,
     ToggleDebugView,
+    TogglePause,
     ToggleQueryMode,
     QueryUp,
     QueryDown,
@@ -96,6 +97,7 @@ pub struct Game {
     pub scroll_speed: i32,
     pub raining: bool,
     pub debug_view: bool,
+    pub paused: bool,
     pub query_mode: bool,
     pub query_cx: i32, // cursor world X
     pub query_cy: i32, // cursor world Y
@@ -181,6 +183,7 @@ impl Game {
             day_night: DayNightCycle::new(256, 256),
             scroll_speed: 2,
             raining: false,
+            paused: false,
             debug_view: false,
             query_mode: false,
             query_cx: 128,
@@ -200,6 +203,7 @@ impl Game {
             GameInput::ToggleErosion => self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled,
             GameInput::ToggleDayNight => self.day_night.enabled = !self.day_night.enabled,
             GameInput::ToggleDebugView => self.debug_view = !self.debug_view,
+            GameInput::TogglePause => self.paused = !self.paused,
             GameInput::ToggleQueryMode => {
                 self.query_mode = !self.query_mode;
                 if self.query_mode {
@@ -223,28 +227,30 @@ impl Game {
         let world_vw = (vw as i32 / CELL_ASPECT) as u16;
         self.camera.clamp(self.map.width, self.map.height, world_vw, vh);
 
-        // update simulation
-        self.tick += 1;
-        ecs::system_hunger(&mut self.world);
-        ecs::system_ai(&mut self.world, &self.map);
-        ecs::system_movement(&mut self.world, &self.map);
+        // update simulation (skip when paused)
+        if !self.paused {
+            self.tick += 1;
+            ecs::system_hunger(&mut self.world);
+            ecs::system_ai(&mut self.world, &self.map);
+            ecs::system_movement(&mut self.world, &self.map);
 
-        if self.raining {
-            self.water.rain(&self.sim_config);
-        }
-        // Only run expensive water sim when there's actually water
-        if self.raining || self.water.has_water() {
-            self.water.update(&mut self.heights, &self.sim_config);
-            self.moisture.update(&self.water, &mut self.vegetation, &self.map);
-        }
+            if self.raining {
+                self.water.rain(&self.sim_config);
+            }
+            // Only run expensive water sim when there's actually water
+            if self.raining || self.water.has_water() {
+                self.water.update(&mut self.heights, &self.sim_config);
+                self.moisture.update(&self.water, &mut self.vegetation, &self.map);
+            }
 
-        // rebuild tiles if erosion changed heights
-        if self.sim_config.erosion_enabled {
-            terrain_gen::rebuild_tiles(&mut self.map, &self.heights, &self.terrain_config);
-        }
+            // rebuild tiles if erosion changed heights
+            if self.sim_config.erosion_enabled {
+                terrain_gen::rebuild_tiles(&mut self.map, &self.heights, &self.terrain_config);
+            }
 
-        // advance day/night cycle and compute Blinn-Phong lighting + shadows (viewport only)
-        self.day_night.tick();
+            // advance day/night cycle and compute Blinn-Phong lighting + shadows (viewport only)
+            self.day_night.tick();
+        }
         if self.day_night.enabled {
             self.day_night.compute_lighting(
                 &self.heights,
@@ -531,9 +537,10 @@ impl Game {
             None => "---".to_string(),
         };
         let query_str = if self.query_mode { "ON (wasd, q:exit)" } else { "off" };
+        let pause_str = if self.paused { "PAUSED" } else { "" };
         let status1 = format!(
-            " tick: {}  cam: ({},{})  fps: {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  drain: [d]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, fps_str, rain_str, erosion_str, dn_str, view_str, query_str,
+            " tick: {}  cam: ({},{})  fps: {}  {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  pause: [space]  drain: [d]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, fps_str, pause_str, rain_str, erosion_str, dn_str, view_str, query_str,
         );
         let status2 = format!(
             " arrows: scroll  ",

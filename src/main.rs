@@ -41,6 +41,7 @@ fn map_key(code: KeyCode, query_mode: bool) -> GameInput {
             KeyCode::Char('t') => GameInput::ToggleDayNight,
             KeyCode::Char('v') => GameInput::ToggleDebugView,
             KeyCode::Char('k') => GameInput::ToggleQueryMode,
+            KeyCode::Char(' ') => GameInput::TogglePause,
             KeyCode::Char('d') => GameInput::Drain,
             _ => GameInput::None,
         }
