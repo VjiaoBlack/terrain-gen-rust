@@ -305,6 +305,7 @@ impl Game {
                 }
             }
             ecs::system_movement(&mut self.world, &self.map);
+            ecs::system_breeding(&mut self.world, self.day_night.season);
             ecs::system_death(&mut self.world);
 
             // Check for completed buildings

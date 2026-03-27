@@ -1,7 +1,10 @@
 use hecs::{Entity, World};
 use serde::Serialize;
 
+use rand::RngExt;
+
 use crate::renderer::{Color, Renderer};
+use crate::simulation::Season;
 use crate::tilemap::{TileMap, Terrain};
 
 // --- Components ---
@@ -1012,6 +1015,93 @@ fn ai_villager(
     }
 }
 
+/// Breeding system: prey breed at dens in spring/summer, wolves breed when well-fed.
+pub fn system_breeding(world: &mut World, season: Season) {
+    let mut rng = rand::rng();
+
+    // Only breed in Spring and Summer
+    if !matches!(season, Season::Spring | Season::Summer) {
+        return;
+    }
+
+    // Count prey per den
+    let mut den_prey_count: std::collections::HashMap<(i32, i32), u32> =
+        std::collections::HashMap::new();
+    for creature in world.query::<&Creature>().iter() {
+        if creature.species == Species::Prey {
+            let key = (creature.home_x.round() as i32, creature.home_y.round() as i32);
+            *den_prey_count.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    // Find prey breeding candidates: at home with low hunger, den not full
+    let candidates: Vec<(f64, f64)> = world
+        .query::<(&Creature, &Behavior)>()
+        .iter()
+        .filter(|(c, b)| {
+            c.species == Species::Prey
+                && c.hunger < 0.3
+                && matches!(b.state, BehaviorState::AtHome { .. })
+        })
+        .filter_map(|(c, _)| {
+            let key = (c.home_x.round() as i32, c.home_y.round() as i32);
+            let count = den_prey_count.get(&key).copied().unwrap_or(0);
+            if count < 3 {
+                Some((c.home_x, c.home_y))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Spawn prey with probability
+    let mut prey_to_spawn: Vec<(f64, f64)> = Vec::new();
+    for (hx, hy) in candidates {
+        if rng.random_range(0u32..500) == 0 {
+            prey_to_spawn.push((hx, hy));
+        }
+    }
+
+    for (hx, hy) in prey_to_spawn {
+        let ox = rng.random_range(-2i32..3) as f64;
+        let oy = rng.random_range(-2i32..3) as f64;
+        spawn_prey(world, hx + ox, hy + oy, hx, hy);
+    }
+
+    // Wolf breeding
+    let wolf_count = world
+        .query::<&Creature>()
+        .iter()
+        .filter(|c| c.species == Species::Predator)
+        .count();
+
+    if wolf_count < 6 {
+        let wolf_candidates: Vec<(f64, f64)> = world
+            .query::<(&Position, &Creature, &Behavior)>()
+            .iter()
+            .filter(|(_, c, b)| {
+                c.species == Species::Predator
+                    && c.hunger < 0.2
+                    && matches!(
+                        b.state,
+                        BehaviorState::Wander { .. } | BehaviorState::Idle { .. }
+                    )
+            })
+            .map(|(p, _, _)| (p.x, p.y))
+            .collect();
+
+        for (px, py) in wolf_candidates {
+            if rng.random_range(0u32..1000) == 0 {
+                spawn_predator(
+                    world,
+                    px + rng.random_range(-3i32..4) as f64,
+                    py + rng.random_range(-3i32..4) as f64,
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1811,5 +1901,82 @@ mod tests {
         let dead = system_death(&mut world);
         assert_eq!(dead.len(), 1, "one creature should die");
         assert!(world.get::<&Creature>(e).is_err(), "dead creature should be despawned");
+    }
+
+    #[test]
+    fn prey_breeds_in_spring() {
+        let mut world = World::new();
+        // Spawn 1 prey at home with low hunger
+        let e = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
+        world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
+        world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::AtHome { timer: 100 };
+
+        let initial_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Prey).count();
+        assert_eq!(initial_count, 1);
+
+        // Run many ticks to overcome 1/500 probability
+        for _ in 0..5000 {
+            system_breeding(&mut world, Season::Spring);
+        }
+
+        let final_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Prey).count();
+        assert!(final_count > 1, "prey should have bred in spring, count={}", final_count);
+    }
+
+    #[test]
+    fn predator_breeds_when_fed() {
+        let mut world = World::new();
+        let e = spawn_predator(&mut world, 15.0, 15.0);
+        world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
+        world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::Wander { timer: 50 };
+
+        let initial_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        assert_eq!(initial_count, 1);
+
+        for _ in 0..10000 {
+            system_breeding(&mut world, Season::Summer);
+        }
+
+        let final_count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        assert!(final_count > 1, "wolf should have bred when well-fed, count={}", final_count);
+    }
+
+    #[test]
+    fn no_breeding_in_winter() {
+        let mut world = World::new();
+        let e = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
+        world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
+        world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::AtHome { timer: 100 };
+
+        for _ in 0..5000 {
+            system_breeding(&mut world, Season::Winter);
+        }
+
+        let count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Prey).count();
+        assert_eq!(count, 1, "no breeding should occur in winter");
+    }
+
+    #[test]
+    fn prey_population_capped_per_den() {
+        let mut world = World::new();
+        // Spawn 3 prey at the same den (already at cap)
+        for _ in 0..3 {
+            let e = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
+            world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
+            world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::AtHome { timer: 100 };
+        }
+
+        for _ in 0..5000 {
+            system_breeding(&mut world, Season::Spring);
+        }
+
+        let count = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Prey).count();
+        assert_eq!(count, 3, "prey should be capped at 3 per den, got {}", count);
     }
 }
