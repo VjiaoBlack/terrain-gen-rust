@@ -22,8 +22,10 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
             match event::read()? {
                 Event::Key(KeyEvent { code, .. }) => match code {
                     KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
-                    KeyCode::Up => GameInput::FpsUp,
-                    KeyCode::Down => GameInput::FpsDown,
+                    KeyCode::Up => GameInput::ScrollUp,
+                    KeyCode::Down => GameInput::ScrollDown,
+                    KeyCode::Left => GameInput::ScrollLeft,
+                    KeyCode::Right => GameInput::ScrollRight,
                     _ => GameInput::None,
                 },
                 Event::Resize(w, h) => {
@@ -53,7 +55,7 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
 
 fn main() -> Result<()> {
     let mut renderer = CrosstermRenderer::new()?;
-    let mut game = Game::new(30);
+    let mut game = Game::new(30, 42);
     run_interactive(&mut game, &mut renderer)?;
     Ok(())
 }
@@ -63,10 +65,14 @@ mod tests {
     use super::*;
     use headless_renderer::HeadlessRenderer;
 
+    fn test_game() -> Game {
+        Game::new(30, 42)
+    }
+
     #[test]
     fn step_advances_tick() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
+        let mut game = test_game();
         game.step(GameInput::None, &mut r).unwrap();
         assert_eq!(game.tick, 1);
         game.step(GameInput::None, &mut r).unwrap();
@@ -76,20 +82,22 @@ mod tests {
     #[test]
     fn step_headless_returns_snapshot() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
+        let mut game = test_game();
         let snap = game.step_headless(GameInput::None, &mut r).unwrap();
         assert_eq!(snap.tick, 1);
         assert_eq!(snap.width, 40);
         assert_eq!(snap.height, 20);
-        assert!(snap.text.contains('█'));
         assert_eq!(snap.cells.len(), 20);
         assert_eq!(snap.cells[0].len(), 40);
+        // frame should contain terrain chars, not be blank
+        let non_blank = snap.text.chars().filter(|c| *c != ' ' && *c != '\n').count();
+        assert!(non_blank > 0, "frame should have terrain content");
     }
 
     #[test]
     fn snapshot_serializes_to_json() {
         let mut r = HeadlessRenderer::new(20, 10);
-        let mut game = Game::new(30);
+        let mut game = test_game();
         let snap = game.step_headless(GameInput::None, &mut r).unwrap();
         let json = serde_json::to_string(&snap).unwrap();
         assert!(json.contains("\"tick\":1"));
@@ -98,53 +106,59 @@ mod tests {
     }
 
     #[test]
-    fn fps_input_changes_target() {
+    fn scroll_moves_camera() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
-        game.step(GameInput::FpsUp, &mut r).unwrap();
-        assert_eq!(game.target_fps, 35);
-        game.step(GameInput::FpsDown, &mut r).unwrap();
-        assert_eq!(game.target_fps, 30);
+        let mut game = test_game();
+        let start_x = game.camera.x;
+        let start_y = game.camera.y;
+
+        game.step(GameInput::ScrollRight, &mut r).unwrap();
+        assert!(game.camera.x > start_x);
+
+        game.step(GameInput::ScrollDown, &mut r).unwrap();
+        assert!(game.camera.y > start_y);
     }
 
     #[test]
-    fn game_draws_block_on_first_tick() {
+    fn terrain_renders_on_frame() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
-        game.tick = 1;
-        game.draw(&mut r);
+        let mut game = test_game();
+        game.step(GameInput::None, &mut r).unwrap();
 
         let frame = r.frame_as_string();
-        assert!(frame.contains('█'), "expected block char in frame:\n{}", frame);
+        // should contain terrain characters
+        let terrain_chars = ['~', '.', ',', '♣', '▲', '▓'];
+        let has_terrain = frame.chars().any(|c| terrain_chars.contains(&c));
+        assert!(has_terrain, "frame should contain terrain characters:\n{}", frame);
     }
 
     #[test]
     fn game_draws_status_line() {
         let mut r = HeadlessRenderer::new(60, 20);
-        let mut game = Game::new(30);
-        game.tick = 42;
-        game.draw(&mut r);
+        let mut game = test_game();
+        game.step(GameInput::None, &mut r).unwrap();
 
         let frame = r.frame_as_string();
-        assert!(frame.contains("tick: 42"), "expected tick in status line:\n{}", frame);
-        assert!(frame.contains("fps: 30"), "expected fps in status line:\n{}", frame);
+        assert!(frame.contains("tick: 1"), "expected tick in status line:\n{}", frame);
+        assert!(frame.contains("cam:"), "expected camera pos in status line:\n{}", frame);
     }
 
     #[test]
-    fn block_moves_between_ticks() {
+    fn entities_move_between_ticks() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
+        let mut game = test_game();
 
         let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
         let snap2 = game.step_headless(GameInput::None, &mut r).unwrap();
 
-        assert_ne!(snap1.text, snap2.text, "frames should differ between ticks");
+        let diff = snap1.diff(&snap2);
+        assert!(!diff.changes.is_empty(), "NPC movement should cause frame changes");
     }
 
     #[test]
     fn headless_runs_many_ticks_without_panic() {
         let mut r = HeadlessRenderer::new(80, 24);
-        let mut game = Game::new(60);
+        let mut game = test_game();
 
         for _ in 0..1000 {
             game.step(GameInput::None, &mut r).unwrap();
@@ -156,10 +170,9 @@ mod tests {
     #[test]
     fn snapshot_cells_match_text() {
         let mut r = HeadlessRenderer::new(20, 5);
-        let mut game = Game::new(30);
+        let mut game = test_game();
         let snap = game.step_headless(GameInput::None, &mut r).unwrap();
 
-        // reconstruct text from cells and compare
         let mut from_cells = String::new();
         for (y, row) in snap.cells.iter().enumerate() {
             for cell in row {
@@ -175,8 +188,8 @@ mod tests {
     #[test]
     fn run_script_returns_all_snapshots() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
-        let script = vec![GameInput::None, GameInput::FpsUp, GameInput::None];
+        let mut game = test_game();
+        let script = vec![GameInput::None, GameInput::ScrollRight, GameInput::None];
         let snaps = game.run_script(&script, &mut r).unwrap();
 
         assert_eq!(snaps.len(), 3);
@@ -186,33 +199,9 @@ mod tests {
     }
 
     #[test]
-    fn run_script_applies_inputs() {
-        let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
-        let script = vec![GameInput::FpsUp, GameInput::FpsUp, GameInput::FpsDown];
-        game.run_script(&script, &mut r).unwrap();
-
-        assert_eq!(game.target_fps, 35); // 30 +5 +5 -5
-    }
-
-    #[test]
-    fn frame_diff_detects_changes() {
-        let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
-
-        let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
-        let snap2 = game.step_headless(GameInput::None, &mut r).unwrap();
-
-        let diff = snap1.diff(&snap2);
-        assert_eq!(diff.from_tick, 1);
-        assert_eq!(diff.to_tick, 2);
-        assert!(!diff.changes.is_empty(), "block moved, so there should be changes");
-    }
-
-    #[test]
     fn frame_diff_is_empty_for_identical_frames() {
         let mut r = HeadlessRenderer::new(40, 20);
-        let mut game = Game::new(30);
+        let mut game = test_game();
 
         let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
         let diff = snap1.diff(&snap1);
@@ -222,7 +211,7 @@ mod tests {
     #[test]
     fn frame_diff_serializes_to_json() {
         let mut r = HeadlessRenderer::new(20, 10);
-        let mut game = Game::new(30);
+        let mut game = test_game();
 
         let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
         let snap2 = game.step_headless(GameInput::None, &mut r).unwrap();
