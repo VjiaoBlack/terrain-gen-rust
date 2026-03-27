@@ -338,12 +338,12 @@ fn ai_predator(
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let d = move_toward(pos, *target_x, *target_y, speed * 1.3, &mut vel);
 
-            if d < 1.5 {
+            if d < 2.0 {
                 // Caught prey! Find nearest prey entity to kill
                 let killed = prey.iter()
                     .filter(|(_, _, _, at_home)| !at_home)
                     .map(|&(e, px, py, _)| (e, dist(pos.x, pos.y, px, py)))
-                    .filter(|(_, d)| *d < 2.0)
+                    .filter(|(_, d)| *d < 3.5)
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
                     .map(|(e, _)| e);
 
@@ -493,14 +493,14 @@ pub fn spawn_predator(world: &mut World, x: f64, y: f64) -> Entity {
         Sprite { ch: 'W', fg: Color(160, 50, 50) }, // wolf-colored
         Behavior {
             state: BehaviorState::Wander { timer: 0 },
-            speed: 0.14,
+            speed: 0.22,
         },
         Creature {
             species: Species::Predator,
             hunger: 0.3,
             home_x: x,
             home_y: y,
-            sight_range: 15.0,
+            sight_range: 18.0,
         },
     ))
 }
