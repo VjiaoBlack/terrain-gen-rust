@@ -85,6 +85,7 @@ pub struct Game {
     pub day_night: DayNightCycle,
     pub scroll_speed: i32,
     pub raining: bool,
+    pub display_fps: Option<u32>,
 }
 
 impl Game {
@@ -119,6 +120,7 @@ impl Game {
             day_night: DayNightCycle::new(256, 256),
             scroll_speed: 2,
             raining: false,
+            display_fps: None,
         }
     }
 
@@ -273,9 +275,13 @@ impl Game {
         } else {
             "off".to_string()
         };
+        let fps_str = match self.display_fps {
+            Some(fps) => format!("{}", fps),
+            None => "---".to_string(),
+        };
         let status1 = format!(
-            " tick: {}  cam: ({},{})  rain: [r] {}  erosion: [e] {}  time: [t] {}  drain: [d]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, rain_str, erosion_str, dn_str,
+            " tick: {}  cam: ({},{})  fps: {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  drain: [d]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, fps_str, rain_str, erosion_str, dn_str,
         );
         let status2 = format!(
             " arrows: scroll  ",

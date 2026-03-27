@@ -14,40 +14,66 @@ use std::time::{Duration, Instant};
 use crossterm_renderer::CrosstermRenderer;
 use game::{Game, GameInput};
 
+fn map_key(code: KeyCode) -> GameInput {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
+        KeyCode::Up => GameInput::ScrollUp,
+        KeyCode::Down => GameInput::ScrollDown,
+        KeyCode::Left => GameInput::ScrollLeft,
+        KeyCode::Right => GameInput::ScrollRight,
+        KeyCode::Char('r') => GameInput::ToggleRain,
+        KeyCode::Char('e') => GameInput::ToggleErosion,
+        KeyCode::Char('t') => GameInput::ToggleDayNight,
+        KeyCode::Char('d') => GameInput::Drain,
+        _ => GameInput::None,
+    }
+}
+
 fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<()> {
+    let mut fps_timer = Instant::now();
+    let mut frame_count = 0u32;
+    let mut display_fps = 0u32;
+
     loop {
         let frame_start = Instant::now();
 
-        // input
-        let input = if event::poll(Duration::ZERO)? {
+        // Drain all pending events — handles key repeat and avoids input lag
+        let mut input = GameInput::None;
+        while event::poll(Duration::ZERO)? {
             match event::read()? {
-                Event::Key(KeyEvent { code, .. }) => match code {
-                    KeyCode::Char('q') | KeyCode::Esc => GameInput::Quit,
-                    KeyCode::Up => GameInput::ScrollUp,
-                    KeyCode::Down => GameInput::ScrollDown,
-                    KeyCode::Left => GameInput::ScrollLeft,
-                    KeyCode::Right => GameInput::ScrollRight,
-                    KeyCode::Char('r') => GameInput::ToggleRain,
-                    KeyCode::Char('e') => GameInput::ToggleErosion,
-                    KeyCode::Char('t') => GameInput::ToggleDayNight,
-                    KeyCode::Char('d') => GameInput::Drain,
-                    _ => GameInput::None,
-                },
+                Event::Key(KeyEvent { code, .. }) => {
+                    let mapped = map_key(code);
+                    // Prioritize quit; for movement, take the latest
+                    if mapped == GameInput::Quit {
+                        input = GameInput::Quit;
+                        break;
+                    }
+                    if mapped != GameInput::None {
+                        input = mapped;
+                    }
+                }
                 Event::Resize(w, h) => {
                     renderer.resize(w, h);
-                    GameInput::None
                 }
-                _ => GameInput::None,
+                _ => {}
             }
-        } else {
-            GameInput::None
-        };
+        }
 
         if input == GameInput::Quit {
             return Ok(());
         }
 
         game.step(input, renderer)?;
+
+        // FPS counter
+        frame_count += 1;
+        let fps_elapsed = fps_timer.elapsed();
+        if fps_elapsed >= Duration::from_secs(1) {
+            display_fps = frame_count;
+            frame_count = 0;
+            fps_timer = Instant::now();
+        }
+        game.display_fps = Some(display_fps);
 
         // sleep to hit target fps
         let target = Duration::from_secs_f64(1.0 / game.target_fps as f64);
@@ -60,7 +86,7 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
 
 fn main() -> Result<()> {
     let mut renderer = CrosstermRenderer::new()?;
-    let mut game = Game::new(30, 42);
+    let mut game = Game::new(60, 42);
     run_interactive(&mut game, &mut renderer)?;
     Ok(())
 }
