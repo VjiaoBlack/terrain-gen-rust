@@ -287,8 +287,12 @@ impl Game {
         // update simulation (skip when paused)
         if !self.paused {
             self.tick += 1;
-            ecs::system_hunger(&mut self.world);
-            let deposits = ecs::system_ai(&mut self.world, &self.map);
+
+            // Apply seasonal modifiers
+            let mods = self.day_night.season_modifiers();
+
+            ecs::system_hunger(&mut self.world, mods.hunger_mult);
+            let deposits = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression);
             for res in deposits {
                 match res {
                     ResourceType::Food => self.resources.food += 1,
@@ -297,18 +301,27 @@ impl Game {
                 }
             }
             ecs::system_movement(&mut self.world, &self.map);
+            ecs::system_death(&mut self.world);
 
             // Check for completed buildings
             self.check_build_completion();
 
+            // Seasonal config for rain/water
+            let mut tick_config = self.sim_config.clone();
+            tick_config.rain_rate *= mods.rain_mult;
+            tick_config.evaporation *= mods.evap_mult;
+
             if self.raining {
-                self.water.rain(&self.sim_config);
+                self.water.rain(&tick_config);
             }
             // Only run expensive water sim when there's actually water
             if self.raining || self.water.has_water() {
-                self.water.update(&mut self.heights, &self.sim_config);
+                self.water.update(&mut self.heights, &tick_config);
                 self.moisture.update(&self.water, &mut self.vegetation, &self.map);
             }
+
+            // Seasonal vegetation decay (winter/autumn)
+            self.vegetation.apply_season(mods.veg_growth_mult);
 
             // rebuild tiles if erosion changed heights
             if self.sim_config.erosion_enabled {
@@ -767,7 +780,7 @@ impl Game {
         let rain_str = if self.raining { "ON" } else { "off" };
         let erosion_str = if self.sim_config.erosion_enabled { "ON" } else { "off" };
         let dn_str = if self.day_night.enabled {
-            format!("ON {}", self.day_night.time_string())
+            format!("ON {} {}", self.day_night.time_string(), self.day_night.date_string())
         } else {
             "off".to_string()
         };

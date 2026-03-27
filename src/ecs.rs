@@ -256,19 +256,33 @@ fn wander(pos: &Position, vel: &mut Velocity, speed: f64, map: &TileMap, rng: &m
 /// Hunger increases each tick.
 /// Rate: 0.0005/tick → full hunger in ~2000 ticks (~1.7 in-game days at 0.02h/tick).
 /// Creatures should eat roughly once per day.
-pub fn system_hunger(world: &mut World) {
+pub fn system_hunger(world: &mut World, hunger_mult: f64) {
     for creature in world.query_mut::<&mut Creature>() {
         let rate = match creature.species {
             Species::Prey => 0.0005,
             Species::Predator => 0.0006, // predators burn slightly more
             Species::Villager => 0.0004, // villagers burn slightly less than prey
         };
-        creature.hunger = (creature.hunger + rate).min(1.0);
+        creature.hunger = (creature.hunger + rate * hunger_mult).min(1.0);
     }
 }
 
+/// Despawn any creature that has starved (hunger >= 1.0).
+pub fn system_death(world: &mut World) -> Vec<Entity> {
+    let starved: Vec<Entity> = world
+        .query::<(Entity, &Creature)>()
+        .iter()
+        .filter(|(_, c)| c.hunger >= 1.0)
+        .map(|(e, _)| e)
+        .collect();
+    for &e in &starved {
+        let _ = world.despawn(e);
+    }
+    starved
+}
+
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
+pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64) -> Vec<ResourceType> {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
 
@@ -284,6 +298,13 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
         .iter()
         .filter(|(_, _, c, _)| c.species == Species::Prey)
         .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::AtHome { .. } | BehaviorState::Captured)))
+        .collect();
+
+    let villager_positions: Vec<(Entity, f64, f64, bool)> = world
+        .query::<(Entity, &Position, &Creature, &Behavior)>()
+        .iter()
+        .filter(|(_, _, c, _)| c.species == Species::Villager)
+        .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::Captured)))
         .collect();
 
     let predator_positions: Vec<(f64, f64)> = world
@@ -357,7 +378,8 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
             Species::Predator => {
                 let (s, vx, vy, h, k) = ai_predator(
                     &pos, &creature, &behavior_state, speed,
-                    &prey_positions, map, &mut rng,
+                    &prey_positions, &villager_positions, wolf_aggression,
+                    map, &mut rng,
                 );
                 (s, vx, vy, h, k, None)
             }
@@ -519,18 +541,27 @@ fn ai_predator(
     state: &BehaviorState,
     speed: f64,
     prey: &[(Entity, f64, f64, bool)],
+    villagers: &[(Entity, f64, f64, bool)],
+    wolf_aggression: f64,
     map: &TileMap,
     rng: &mut impl rand::RngExt,
 ) -> (BehaviorState, f64, f64, f64, Option<Entity>) {
     let hunger = creature.hunger;
     let pos_copy = *pos;
 
+    // Build combined target list: always include prey, add villagers when desperate
+    let targets: Vec<(Entity, f64, f64, bool)> = if hunger > wolf_aggression {
+        prey.iter().chain(villagers.iter()).copied().collect()
+    } else {
+        prey.to_vec()
+    };
+
     match state {
         BehaviorState::Eating { timer } => {
             let new_hunger = (hunger - 0.01).max(0.0);
             if *timer == 0 || new_hunger <= 0.0 {
-                // Done eating — signal to despawn the captured prey nearby
-                let victim = prey.iter()
+                // Done eating — signal to despawn the captured prey/villager nearby
+                let victim = targets.iter()
                     .map(|&(e, px, py, _)| (e, dist(pos.x, pos.y, px, py)))
                     .filter(|(_, d)| *d < 3.0)
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
@@ -541,19 +572,19 @@ fn ai_predator(
             }
         }
         BehaviorState::Hunting { .. } => {
-            // Find nearest visible prey to chase (refreshes target each tick)
-            let nearest = prey.iter()
+            // Find nearest visible target to chase (refreshes target each tick)
+            let nearest = targets.iter()
                 .filter(|(_, _, _, at_home)| !at_home)
                 .map(|&(e, px, py, _)| (e, px, py, dist(pos.x, pos.y, px, py)))
                 .filter(|(_, _, _, d)| *d < creature.sight_range)
                 .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap());
 
-            if let Some((prey_e, px, py, d)) = nearest {
+            if let Some((target_e, px, py, d)) = nearest {
                 if d < 2.0 {
-                    // Caught prey! Mark it as captured, start eating
+                    // Caught target! Mark it as captured, start eating
                     return (
                         BehaviorState::Eating { timer: rng.random_range(40..80) },
-                        0.0, 0.0, hunger, Some(prey_e),
+                        0.0, 0.0, hunger, Some(target_e),
                     );
                 }
                 // Keep chasing
@@ -561,13 +592,13 @@ fn ai_predator(
                 move_toward(pos, px, py, speed * 1.3, &mut vel);
                 (BehaviorState::Hunting { target_x: px, target_y: py }, vel.dx, vel.dy, hunger, None)
             } else {
-                // Lost sight of all prey — give up
+                // Lost sight of all targets — give up
                 (BehaviorState::Wander { timer: 0 }, 0.0, 0.0, hunger, None)
             }
         }
         _ => {
             if hunger > 0.4 {
-                let nearest = prey.iter()
+                let nearest = targets.iter()
                     .filter(|(_, _, _, at_home)| !at_home)
                     .map(|&(_, px, py, _)| (px, py, dist(pos.x, pos.y, px, py)))
                     .filter(|(_, _, d)| *d < creature.sight_range)
@@ -1171,7 +1202,7 @@ mod tests {
 
         // Run AI + movement for many ticks — NPC will wander eventually
         for _ in 0..500 {
-            system_ai(&mut world, &map);
+            system_ai(&mut world, &map, 0.4);
             system_movement(&mut world, &map);
         }
 
@@ -1193,7 +1224,7 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
-            system_ai(&mut world, &map);
+            system_ai(&mut world, &map, 0.4);
             system_movement(&mut world, &map);
         }
 
@@ -1217,7 +1248,7 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
-            system_ai(&mut world, &map);
+            system_ai(&mut world, &map, 0.4);
             system_movement(&mut world, &map);
         }
 
@@ -1241,7 +1272,7 @@ mod tests {
         // Check position each tick; NPC should get close before transitioning to Idle
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
-            system_ai(&mut world, &map);
+            system_ai(&mut world, &map, 0.4);
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
             let dist = ((pos.x - 15.0).powi(2) + (pos.y - 15.0).powi(2)).sqrt();
@@ -1258,7 +1289,7 @@ mod tests {
         let start_hunger = world.get::<&Creature>(e).unwrap().hunger;
 
         for _ in 0..100 {
-            system_hunger(&mut world);
+            system_hunger(&mut world, 1.0);
         }
 
         let end_hunger = world.get::<&Creature>(e).unwrap().hunger;
@@ -1283,7 +1314,7 @@ mod tests {
         }
 
         // Run AI — should start seeking food
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
@@ -1308,7 +1339,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1327,7 +1358,7 @@ mod tests {
             b.state = BehaviorState::FleeHome;
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::AtHome { .. }),
@@ -1349,7 +1380,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(matches!(state, BehaviorState::Hunting { .. }),
@@ -1371,7 +1402,7 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(!matches!(state, BehaviorState::Hunting { .. }),
@@ -1398,7 +1429,7 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
-            system_ai(&mut world, &map);
+            system_ai(&mut world, &map, 0.4);
             system_movement(&mut world, &map);
 
             let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1448,8 +1479,8 @@ mod tests {
         let mut states_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for tick in 0..1000 {
-            system_hunger(&mut world);
-            system_ai(&mut world, &map);
+            system_hunger(&mut world, 1.0);
+            system_ai(&mut world, &map, 0.4);
             system_movement(&mut world, &map);
 
             let ws = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1487,7 +1518,7 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
@@ -1509,7 +1540,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -1535,7 +1566,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1561,7 +1592,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
@@ -1581,7 +1612,7 @@ mod tests {
             b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -1607,7 +1638,7 @@ mod tests {
             b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
         }
 
-        let deposited = system_ai(&mut world, &map);
+        let deposited = system_ai(&mut world, &map, 0.4);
 
         assert_eq!(deposited.len(), 1, "should deposit one resource");
         assert_eq!(deposited[0], ResourceType::Wood, "should deposit wood");
@@ -1659,7 +1690,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Building { .. }),
@@ -1688,7 +1719,7 @@ mod tests {
             b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
         }
 
-        system_ai(&mut world, &map);
+        system_ai(&mut world, &map, 0.4);
 
         // Build site should now be complete (progress >= required)
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1724,5 +1755,61 @@ mod tests {
         let floor_count = hut_tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingFloor).count();
         assert!(wall_count > 0, "hut should have wall tiles");
         assert!(floor_count > 0, "hut should have floor tiles");
+    }
+
+    #[test]
+    fn winter_increases_hunger() {
+        let mut world = World::new();
+        let e = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
+        let start = world.get::<&Creature>(e).unwrap().hunger;
+
+        // Normal hunger rate (mult=1.0)
+        system_hunger(&mut world, 1.0);
+        let normal_hunger = world.get::<&Creature>(e).unwrap().hunger;
+        let normal_increase = normal_hunger - start;
+
+        // Reset and test with winter multiplier (1.8)
+        world.get::<&mut Creature>(e).unwrap().hunger = start;
+        system_hunger(&mut world, 1.8);
+        let winter_hunger = world.get::<&Creature>(e).unwrap().hunger;
+        let winter_increase = winter_hunger - start;
+
+        assert!(winter_increase > normal_increase,
+            "winter hunger increase ({}) should exceed normal ({})", winter_increase, normal_increase);
+    }
+
+    #[test]
+    fn wolf_attacks_villager_in_winter() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let wolf = spawn_predator(&mut world, 10.0, 10.0);
+        let _villager = spawn_villager(&mut world, 15.0, 10.0);
+
+        // Set wolf to very hungry
+        world.get::<&mut Creature>(wolf).unwrap().hunger = 0.9;
+
+        // With low aggression threshold (winter: 0.8), wolf should target villagers
+        // since hunger (0.9) > threshold (0.8)
+        for _ in 0..5 {
+            system_ai(&mut world, &map, 0.8);
+            system_movement(&mut world, &map);
+        }
+
+        let state = world.get::<&Behavior>(wolf).unwrap().state;
+        assert!(matches!(state, BehaviorState::Hunting { .. }),
+            "hungry wolf should hunt villager in winter, got {:?}", state);
+    }
+
+    #[test]
+    fn starvation_kills_creature() {
+        let mut world = World::new();
+        let e = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
+
+        // Set hunger to max
+        world.get::<&mut Creature>(e).unwrap().hunger = 1.0;
+
+        let dead = system_death(&mut world);
+        assert_eq!(dead.len(), 1, "one creature should die");
+        assert!(world.get::<&Creature>(e).is_err(), "dead creature should be despawned");
     }
 }

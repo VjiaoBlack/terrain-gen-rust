@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn toggle_debug_view() {
-        let mut r = HeadlessRenderer::new(120, 20);
+        let mut r = HeadlessRenderer::new(140, 20);
         let mut game = test_game();
         assert!(!game.debug_view);
 

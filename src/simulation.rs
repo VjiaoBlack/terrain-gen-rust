@@ -1,4 +1,5 @@
 use rand::RngExt;
+use serde::Serialize;
 
 use crate::renderer::Color;
 
@@ -12,6 +13,7 @@ pub struct WaterMap {
     water_avg: Vec<f64>,    // smoothed for rendering
 }
 
+#[derive(Clone)]
 pub struct SimConfig {
     pub rain_rate: f64,        // fraction of tiles that get rain per tick
     pub rain_amount: f64,      // water added per raindrop
@@ -332,11 +334,41 @@ impl MoistureMap {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+impl Season {
+    pub fn name(&self) -> &str {
+        match self {
+            Season::Spring => "Spring",
+            Season::Summer => "Summer",
+            Season::Autumn => "Autumn",
+            Season::Winter => "Winter",
+        }
+    }
+}
+
+pub struct SeasonModifiers {
+    pub rain_mult: f64,
+    pub evap_mult: f64,
+    pub veg_growth_mult: f64,
+    pub hunger_mult: f64,
+    pub wolf_aggression: f64,
+}
+
 /// Day/night cycle with Blinn-Phong lighting, terrain normals, and shadow raytracing.
 pub struct DayNightCycle {
     pub hour: f64,           // 0.0 - 24.0
     pub tick_rate: f64,      // hours per tick
     pub enabled: bool,
+    pub day: u32,            // current day (0-indexed within season)
+    pub season: Season,
+    pub year: u32,
     light_map: Vec<f64>,     // per-tile total lighting intensity (combined diffuse + shadow)
     light_w: usize,
     light_h: usize,
@@ -348,6 +380,9 @@ impl DayNightCycle {
             hour: 10.0, // start at 10am
             tick_rate: 0.02, // ~8 minutes per real second at 30fps
             enabled: true,
+            day: 0,
+            season: Season::Spring,
+            year: 0,
             light_map: vec![1.0; width * height],
             light_w: width,
             light_h: height,
@@ -362,7 +397,32 @@ impl DayNightCycle {
         self.hour += self.tick_rate;
         if self.hour >= 24.0 {
             self.hour -= 24.0;
+            self.day += 1;
+            if self.day >= 10 {
+                self.day = 0;
+                self.season = match self.season {
+                    Season::Spring => Season::Summer,
+                    Season::Summer => Season::Autumn,
+                    Season::Autumn => Season::Winter,
+                    Season::Winter => { self.year += 1; Season::Spring },
+                };
+            }
         }
+    }
+
+    /// Get season-dependent modifiers for simulation systems.
+    pub fn season_modifiers(&self) -> SeasonModifiers {
+        match self.season {
+            Season::Spring => SeasonModifiers { rain_mult: 1.5, evap_mult: 1.0, veg_growth_mult: 2.0, hunger_mult: 1.0, wolf_aggression: 0.4 },
+            Season::Summer => SeasonModifiers { rain_mult: 0.5, evap_mult: 2.0, veg_growth_mult: 1.5, hunger_mult: 0.8, wolf_aggression: 0.4 },
+            Season::Autumn => SeasonModifiers { rain_mult: 1.0, evap_mult: 1.0, veg_growth_mult: 0.3, hunger_mult: 1.0, wolf_aggression: 0.5 },
+            Season::Winter => SeasonModifiers { rain_mult: 0.3, evap_mult: 0.5, veg_growth_mult: 0.0, hunger_mult: 1.8, wolf_aggression: 0.8 },
+        }
+    }
+
+    /// Format date as "Y1 Spring D1".
+    pub fn date_string(&self) -> String {
+        format!("Y{} {} D{}", self.year + 1, self.season.name(), self.day + 1)
     }
 
     /// Sun elevation angle in radians. Peaks at noon, below 0 at night.
@@ -702,6 +762,14 @@ impl VegetationMap {
         }
     }
 
+    pub fn get_mut(&mut self, x: usize, y: usize) -> Option<&mut f64> {
+        if x < self.width && y < self.height {
+            Some(&mut self.vegetation[y * self.width + x])
+        } else {
+            None
+        }
+    }
+
     pub fn grow(&mut self, x: usize, y: usize) {
         if x < self.width && y < self.height {
             let i = y * self.width + x;
@@ -713,6 +781,18 @@ impl VegetationMap {
         if x < self.width && y < self.height {
             let i = y * self.width + x;
             self.vegetation[i] = (self.vegetation[i] - 0.003).max(0.0);
+        }
+    }
+
+    /// Apply seasonal vegetation modifier. Values < 1.0 cause decay, > 1.0 boost growth.
+    pub fn apply_season(&mut self, veg_growth_mult: f64) {
+        if veg_growth_mult >= 1.0 {
+            return; // no decay needed when growth is normal or boosted
+        }
+        // Scale factor: at mult=0.0 (winter), decay ~0.1% per tick; at mult=0.3 (autumn), decay ~0.07%
+        let factor = 0.999 + 0.001 * veg_growth_mult;
+        for v in &mut self.vegetation {
+            *v *= factor;
         }
     }
 }
@@ -1130,5 +1210,66 @@ mod tests {
         // avg should be changing (approaching actual water level)
         assert!(avg1 > 0.0, "avg should respond to water presence");
         assert_ne!(avg1, avg2, "avg should change between ticks");
+    }
+
+    #[test]
+    fn calendar_advances_days_and_seasons() {
+        let mut dn = DayNightCycle::new(10, 10);
+        assert_eq!(dn.day, 0);
+        assert_eq!(dn.season, Season::Spring);
+        assert_eq!(dn.year, 0);
+
+        // One day = 24 hours / 0.02 hrs/tick = 1200 ticks
+        for _ in 0..1200 {
+            dn.tick();
+        }
+        assert_eq!(dn.day, 1, "should advance to day 1 after 1200 ticks");
+        assert_eq!(dn.season, Season::Spring);
+
+        // Advance to end of spring (10 days total = 12000 ticks from start)
+        // We already did 1200, so 10800 more
+        for _ in 0..10800 {
+            dn.tick();
+        }
+        assert_eq!(dn.season, Season::Summer, "should be summer after 10 days");
+        assert_eq!(dn.day, 0);
+
+        // Full year = 40 days = 48000 ticks from start; we did 12000, so 36000 more
+        for _ in 0..36000 {
+            dn.tick();
+        }
+        assert_eq!(dn.year, 1, "should be year 1 after 48000 ticks");
+        assert_eq!(dn.season, Season::Spring);
+    }
+
+    #[test]
+    fn winter_season_modifiers() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.season = Season::Winter;
+        let mods = dn.season_modifiers();
+        assert!(mods.hunger_mult > 1.0, "winter should increase hunger");
+        assert_eq!(mods.veg_growth_mult, 0.0, "winter should stop vegetation growth");
+        assert!(mods.wolf_aggression > 0.5, "winter wolves should be more aggressive");
+    }
+
+    #[test]
+    fn date_string_format() {
+        let mut dn = DayNightCycle::new(10, 10);
+        assert_eq!(dn.date_string(), "Y1 Spring D1");
+        dn.day = 5;
+        dn.season = Season::Winter;
+        dn.year = 2;
+        assert_eq!(dn.date_string(), "Y3 Winter D6");
+    }
+
+    #[test]
+    fn vegetation_seasonal_decay() {
+        let mut vm = VegetationMap::new(5, 5);
+        vm.vegetation[12] = 0.5; // center tile
+        // Winter: veg_growth_mult = 0.0
+        for _ in 0..1000 {
+            vm.apply_season(0.0);
+        }
+        assert!(vm.get(2, 2) < 0.3, "vegetation should decay in winter: got {}", vm.get(2, 2));
     }
 }
