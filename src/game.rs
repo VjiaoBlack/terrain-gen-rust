@@ -98,7 +98,16 @@ impl Game {
     pub fn new(target_fps: u32, seed: u32) -> Self {
         let terrain_config = TerrainGenConfig { seed, ..Default::default() };
         let (map, heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
-        let water = WaterMap::new(256, 256);
+        let mut water = WaterMap::new(256, 256);
+        // Seed water at terrain-Water tiles so ocean/lake areas have actual water
+        for y in 0..256 {
+            for x in 0..256 {
+                if let Some(Terrain::Water) = map.get(x, y) {
+                    let depth = (terrain_config.water_level - heights[y * 256 + x]).max(0.01);
+                    water.set(x, y, depth);
+                }
+            }
+        }
         let moisture = MoistureMap::new(256, 256);
         let vegetation = VegetationMap::new(256, 256);
         let camera = Camera::new(100, 100);
@@ -182,7 +191,7 @@ impl Game {
         // Only run expensive water sim when there's actually water
         if self.raining || self.water.has_water() {
             self.water.update(&mut self.heights, &self.sim_config);
-            self.moisture.update(&self.water, &mut self.vegetation);
+            self.moisture.update(&self.water, &mut self.vegetation, &self.map);
         }
 
         // rebuild tiles if erosion changed heights
@@ -233,9 +242,14 @@ impl Game {
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        let fg = self.day_night.apply_lighting(terrain.fg(), wx as usize, wy as usize);
-                        let bg = self.day_night.apply_lighting_bg(terrain.bg(), wx as usize, wy as usize);
-                        renderer.draw(sx, sy, terrain.ch(), fg, bg);
+                        if *terrain == Terrain::Water {
+                            // Water terrain: no day/night shading, constant appearance
+                            renderer.draw(sx, sy, terrain.ch(), terrain.fg(), terrain.bg());
+                        } else {
+                            let fg = self.day_night.apply_lighting(terrain.fg(), wx as usize, wy as usize);
+                            let bg = self.day_night.apply_lighting_bg(terrain.bg(), wx as usize, wy as usize);
+                            renderer.draw(sx, sy, terrain.ch(), fg, bg);
+                        }
                     }
                 }
             }

@@ -56,6 +56,13 @@ impl WaterMap {
         }
     }
 
+    pub fn set(&mut self, x: usize, y: usize, val: f64) {
+        if x < self.width && y < self.height {
+            self.water[y * self.width + x] = val;
+            self.water_avg[y * self.width + x] = val;
+        }
+    }
+
     pub fn get_avg(&self, x: usize, y: usize) -> f64 {
         if x < self.width && y < self.height {
             self.water_avg[y * self.width + x]
@@ -239,7 +246,7 @@ impl MoistureMap {
 
     /// Update moisture from water presence and propagate.
     /// Also updates vegetation based on moisture bands.
-    pub fn update(&mut self, water: &WaterMap, vegetation: &mut VegetationMap) {
+    pub fn update(&mut self, water: &WaterMap, vegetation: &mut VegetationMap, map: &crate::tilemap::TileMap) {
         // Step 1: moisture from water — gentle contribution, faster decay
         for y in 0..self.height {
             for x in 0..self.width {
@@ -283,10 +290,16 @@ impl MoistureMap {
         self.box_blur();
 
         // Step 4: vegetation responds to moisture (after blur for stable values)
+        // No vegetation on sand or water terrain
         for y in 0..self.height {
             for x in 0..self.width {
+                let terrain = map.get(x, y);
+                let can_grow = match terrain {
+                    Some(crate::tilemap::Terrain::Sand) | Some(crate::tilemap::Terrain::Water) => false,
+                    _ => true,
+                };
                 let m = self.moisture[y * self.width + x];
-                if m > 0.1 && m < 0.5 {
+                if can_grow && m > 0.1 && m < 0.5 {
                     vegetation.grow(x, y);
                 } else {
                     vegetation.decay(x, y);
@@ -701,9 +714,14 @@ impl VegetationMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tilemap::{Terrain, TileMap};
 
     fn flat_heights(w: usize, h: usize, val: f64) -> Vec<f64> {
         vec![val; w * h]
+    }
+
+    fn grass_map(w: usize, h: usize) -> TileMap {
+        TileMap::new(w, h, Terrain::Grass)
     }
 
     #[test]
@@ -815,9 +833,10 @@ mod tests {
         wm.water[55] = 0.5; // water at (5, 5)
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
+        let map = grass_map(10, 10);
 
         for _ in 0..20 {
-            mm.update(&wm, &mut vm);
+            mm.update(&wm, &mut vm, &map);
         }
 
         assert!(mm.get(5, 5) > 0.05, "tile with water should have moisture: got {}", mm.get(5, 5));
@@ -831,10 +850,11 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         mm.moisture[55] = 0.8; // some initial moisture, no water
         let mut vm = VegetationMap::new(10, 10);
+        let map = grass_map(10, 10);
 
         // slower decay (0.95 factor) needs more ticks
         for _ in 0..100 {
-            mm.update(&wm, &mut vm);
+            mm.update(&wm, &mut vm, &map);
         }
 
         assert!(mm.get(5, 5) < 0.1, "moisture should decay without water source: got {}", mm.get(5, 5));
@@ -845,6 +865,7 @@ mod tests {
         let wm = WaterMap::new(10, 10);
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
+        let map = grass_map(10, 10);
 
         // Seed a region with moisture in the growth band (0.1-0.5)
         // so box blur keeps it above threshold
@@ -861,7 +882,7 @@ mod tests {
                     mm.moisture[y * 10 + x] = 0.3;
                 }
             }
-            mm.update(&wm, &mut vm);
+            mm.update(&wm, &mut vm, &map);
         }
 
         assert!(vm.get(5, 5) > 0.0, "vegetation should grow with sustained moisture: got {}", vm.get(5, 5));
@@ -872,11 +893,12 @@ mod tests {
         let wm = WaterMap::new(10, 10);
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
+        let map = grass_map(10, 10);
         vm.vegetation[55] = 0.5; // some initial vegetation
 
         // slower decay (0.003/tick), 0.5 / 0.003 = ~167 ticks to fully decay
         for _ in 0..200 {
-            mm.update(&wm, &mut vm);
+            mm.update(&wm, &mut vm, &map);
         }
 
         assert!(vm.get(5, 5) < 0.1, "vegetation should decay without moisture: got {}", vm.get(5, 5));
