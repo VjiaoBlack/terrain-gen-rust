@@ -10,13 +10,15 @@ pub enum Terrain {
     Forest,
     Mountain,
     Snow,
+    BuildingFloor,
+    BuildingWall,
 }
 
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
-            Terrain::Water | Terrain::Mountain | Terrain::Snow => false,
-            Terrain::Sand | Terrain::Grass | Terrain::Forest => true,
+            Terrain::Water | Terrain::Mountain | Terrain::Snow | Terrain::BuildingWall => false,
+            Terrain::Sand | Terrain::Grass | Terrain::Forest | Terrain::BuildingFloor => true,
         }
     }
 
@@ -29,6 +31,8 @@ impl Terrain {
             Terrain::Forest => ':',
             Terrain::Mountain => '^',
             Terrain::Snow => '·',
+            Terrain::BuildingFloor => '░',
+            Terrain::BuildingWall => '█',
         }
     }
 
@@ -41,6 +45,8 @@ impl Terrain {
             Terrain::Forest => Color(15, 80, 20),
             Terrain::Mountain => Color(120, 110, 100),
             Terrain::Snow => Color(220, 220, 240),
+            Terrain::BuildingFloor => Color(140, 120, 90),
+            Terrain::BuildingWall => Color(160, 140, 110),
         }
     }
 
@@ -53,6 +59,8 @@ impl Terrain {
             Terrain::Forest => Some(Color(10, 60, 15)),
             Terrain::Mountain => Some(Color(95, 85, 75)),
             Terrain::Snow => Some(Color(200, 200, 215)),
+            Terrain::BuildingFloor => Some(Color(100, 80, 60)),
+            Terrain::BuildingWall => Some(Color(120, 100, 80)),
         }
     }
 }

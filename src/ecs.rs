@@ -70,6 +70,8 @@ pub enum BehaviorState {
     Hauling { target_x: f64, target_y: f64, resource_type: ResourceType },
     /// Villager: sleeping at night.
     Sleeping { timer: u32 },
+    /// Villager: building at a build site.
+    Building { target_x: f64, target_y: f64, timer: u32 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -85,6 +87,101 @@ pub struct Creature {
     pub home_x: f64,
     pub home_y: f64,
     pub sight_range: f64,  // how far this creature can see
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum BuildingType {
+    Hut,
+    Wall,
+    Farm,
+    Stockpile,
+}
+
+impl BuildingType {
+    pub fn cost(&self) -> (u32, u32, u32) {
+        match self {
+            BuildingType::Hut => (0, 5, 2),
+            BuildingType::Wall => (0, 1, 1),
+            BuildingType::Farm => (2, 3, 0),
+            BuildingType::Stockpile => (0, 2, 0),
+        }
+    }
+
+    pub fn build_time(&self) -> u32 {
+        match self {
+            BuildingType::Hut => 120,
+            BuildingType::Wall => 30,
+            BuildingType::Farm => 80,
+            BuildingType::Stockpile => 40,
+        }
+    }
+
+    pub fn size(&self) -> (i32, i32) {
+        match self {
+            BuildingType::Hut => (3, 3),
+            BuildingType::Wall => (1, 1),
+            BuildingType::Farm => (3, 3),
+            BuildingType::Stockpile => (2, 2),
+        }
+    }
+
+    pub fn tiles(&self) -> Vec<(i32, i32, Terrain)> {
+        match self {
+            BuildingType::Hut => {
+                let mut tiles = Vec::new();
+                for dx in 0..3 {
+                    tiles.push((dx, 0, Terrain::BuildingWall));
+                    tiles.push((dx, 2, Terrain::BuildingWall));
+                }
+                tiles.push((0, 1, Terrain::BuildingWall));
+                tiles.push((2, 1, Terrain::BuildingWall));
+                tiles.push((1, 1, Terrain::BuildingFloor));
+                tiles.push((1, 2, Terrain::BuildingFloor)); // door on south side
+                tiles
+            }
+            BuildingType::Wall => vec![(0, 0, Terrain::BuildingWall)],
+            BuildingType::Farm => {
+                let mut tiles = Vec::new();
+                for dy in 0..3 {
+                    for dx in 0..3 {
+                        tiles.push((dx, dy, Terrain::BuildingFloor));
+                    }
+                }
+                tiles
+            }
+            BuildingType::Stockpile => {
+                let mut tiles = Vec::new();
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        tiles.push((dx, dy, Terrain::BuildingFloor));
+                    }
+                }
+                tiles
+            }
+        }
+    }
+
+    pub fn all() -> &'static [BuildingType] {
+        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile]
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            BuildingType::Hut => "Hut",
+            BuildingType::Wall => "Wall",
+            BuildingType::Farm => "Farm",
+            BuildingType::Stockpile => "Stockpile",
+        }
+    }
+}
+
+/// A build site entity — placed by the player, worked on by villagers.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct BuildSite {
+    pub building_type: BuildingType,
+    pub progress: u32,
+    pub required: u32,
+    pub assigned: bool,
 }
 
 /// Marker component for berry bushes (food source for prey).
@@ -202,6 +299,12 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
         .map(|(pos, _)| (pos.x, pos.y))
         .collect();
 
+    let build_site_positions: Vec<(Entity, f64, f64, bool)> = world
+        .query::<(Entity, &Position, &BuildSite)>()
+        .iter()
+        .map(|(e, pos, site)| (e, pos.x, pos.y, site.assigned))
+        .collect();
+
     // Phase 2: collect entity IDs with Behavior
     let entities: Vec<Entity> = world
         .query::<(Entity, &Behavior)>()
@@ -212,6 +315,7 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
     // Phase 3: process each entity
     let mut to_capture: Vec<Entity> = Vec::new();
     let mut to_despawn: Vec<Entity> = Vec::new();
+    let mut build_progress: Vec<(f64, f64)> = Vec::new(); // positions where building work happened
     for e in entities {
         // Read position (copy) and check if it's a creature
         let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else { continue };
@@ -262,10 +366,17 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
                     .iter()
                     .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
 
-                let (s, vx, vy, h, dep) = ai_villager(
+                let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos, &creature, &behavior_state, speed, predator_nearby,
-                    &food_positions, &stockpile_positions, map, &mut rng,
+                    &food_positions, &stockpile_positions, &build_site_positions,
+                    map, &mut rng,
                 );
+                // If villager claims a build site, mark it assigned
+                if let Some(site_entity) = claim_site {
+                    if let Ok(mut site) = world.get::<&mut BuildSite>(site_entity) {
+                        site.assigned = true;
+                    }
+                }
                 (s, vx, vy, h, None, dep)
             }
         };
@@ -284,6 +395,10 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
         }
         if let Ok(mut c) = world.get::<&mut Creature>(e) {
             c.hunger = new_hunger;
+        }
+        // Track build progress: if villager is in Building state, record target position
+        if let BehaviorState::Building { target_x, target_y, .. } = new_state {
+            build_progress.push((target_x, target_y));
         }
         if let Some(prey_e) = kill {
             // If wolf just caught prey (entering Eating), mark prey as Captured
@@ -312,6 +427,16 @@ pub fn system_ai(world: &mut World, map: &TileMap) -> Vec<ResourceType> {
     // Despawn consumed prey
     for e in to_despawn {
         let _ = world.despawn(e);
+    }
+
+    // Increment progress on build sites where villagers are working
+    for (bx, by) in build_progress {
+        for (pos, site) in world.query_mut::<(&Position, &mut BuildSite)>() {
+            if (pos.x - bx).abs() < 1.5 && (pos.y - by).abs() < 1.5 {
+                site.progress += 1;
+                break;
+            }
+        }
     }
 
     deposited_resources
@@ -509,7 +634,7 @@ fn do_wander_tick(
             vel.dx = 0.0;
             vel.dy = 0.0;
         }
-        BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. } | BehaviorState::Sleeping { .. } => {
+        BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. } | BehaviorState::Sleeping { .. } | BehaviorState::Building { .. } => {
             // Handled by creature-specific code
             vel.dx = 0.0;
             vel.dy = 0.0;
@@ -626,6 +751,19 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
+pub fn spawn_build_site(world: &mut World, x: f64, y: f64, building_type: BuildingType) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '#', fg: Color(200, 180, 100) },
+        BuildSite {
+            building_type,
+            progress: 0,
+            required: building_type.build_time(),
+            assigned: false,
+        },
+    ))
+}
+
 pub fn spawn_stockpile(world: &mut World, x: f64, y: f64) -> Entity {
     world.spawn((
         Position { x, y },
@@ -679,8 +817,8 @@ fn find_nearest_terrain(pos: &Position, map: &TileMap, terrain: Terrain, radius:
     best.map(|(x, y, _)| (x, y))
 }
 
-/// Villager AI: gather resources, eat when hungry, flee predators.
-/// Returns (new_state, vx, vy, hunger, Option<ResourceType> deposited).
+/// Villager AI: gather resources, eat when hungry, flee predators, build.
+/// Returns (new_state, vx, vy, hunger, Option<ResourceType> deposited, Option<Entity> claimed_build_site).
 fn ai_villager(
     pos: &Position,
     creature: &Creature,
@@ -689,9 +827,10 @@ fn ai_villager(
     predator_nearby: bool,
     food: &[(f64, f64)],
     stockpile: &[(f64, f64)],
+    build_sites: &[(Entity, f64, f64, bool)],
     map: &TileMap,
     rng: &mut impl rand::RngExt,
-) -> (BehaviorState, f64, f64, f64, Option<ResourceType>) {
+) -> (BehaviorState, f64, f64, f64, Option<ResourceType>, Option<Entity>) {
     let mut hunger = creature.hunger;
     let pos_copy = *pos;
 
@@ -699,11 +838,11 @@ fn ai_villager(
         BehaviorState::Eating { timer } => {
             hunger = (hunger - 0.01).max(0.0);
             if predator_nearby {
-                (BehaviorState::FleeHome, 0.0, 0.0, hunger, None)
+                (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None)
             } else if *timer == 0 || hunger <= 0.0 {
-                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None)
+                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None, None)
             } else {
-                (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, hunger, None)
+                (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, hunger, None, None)
             }
         }
         BehaviorState::FleeHome => {
@@ -717,14 +856,14 @@ fn ai_villager(
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let d = move_toward(pos, hx, hy, speed * 1.5, &mut vel);
             if d < 1.5 {
-                (BehaviorState::Idle { timer: rng.random_range(30..90) }, 0.0, 0.0, hunger, None)
+                (BehaviorState::Idle { timer: rng.random_range(30..90) }, 0.0, 0.0, hunger, None, None)
             } else {
-                (BehaviorState::FleeHome, vel.dx, vel.dy, hunger, None)
+                (BehaviorState::FleeHome, vel.dx, vel.dy, hunger, None, None)
             }
         }
         BehaviorState::Gathering { timer, resource_type } => {
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None);
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
             }
             if *timer == 0 {
                 // Done gathering — haul to nearest stockpile
@@ -735,9 +874,9 @@ fn ai_villager(
                     .unwrap_or((creature.home_x, creature.home_y));
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                 move_toward(pos, hx, hy, speed, &mut vel);
-                (BehaviorState::Hauling { target_x: hx, target_y: hy, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None)
+                (BehaviorState::Hauling { target_x: hx, target_y: hy, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None, None)
             } else {
-                (BehaviorState::Gathering { timer: timer - 1, resource_type: *resource_type }, 0.0, 0.0, hunger, None)
+                (BehaviorState::Gathering { timer: timer - 1, resource_type: *resource_type }, 0.0, 0.0, hunger, None, None)
             }
         }
         BehaviorState::Hauling { target_x, target_y, resource_type } => {
@@ -745,22 +884,33 @@ fn ai_villager(
             let d = move_toward(pos, *target_x, *target_y, speed, &mut vel);
             if d < 1.5 {
                 // Deposited resource at stockpile
-                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, Some(*resource_type))
+                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, Some(*resource_type), None)
             } else {
-                (BehaviorState::Hauling { target_x: *target_x, target_y: *target_y, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None)
+                (BehaviorState::Hauling { target_x: *target_x, target_y: *target_y, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None, None)
             }
         }
         BehaviorState::Sleeping { timer } => {
             if *timer == 0 {
-                (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None)
+                (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None, None)
             } else {
-                (BehaviorState::Sleeping { timer: timer - 1 }, 0.0, 0.0, hunger, None)
+                (BehaviorState::Sleeping { timer: timer - 1 }, 0.0, 0.0, hunger, None, None)
+            }
+        }
+        BehaviorState::Building { target_x, target_y, timer } => {
+            if predator_nearby {
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+            }
+            if *timer == 0 {
+                // Done building this round
+                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None, None)
+            } else {
+                (BehaviorState::Building { target_x: *target_x, target_y: *target_y, timer: timer - 1 }, 0.0, 0.0, hunger, None, None)
             }
         }
         _ => {
             // Wander/Seek/Idle — check for threats, food, and gathering
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None);
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
             }
 
             // Eat: if hungry and near food
@@ -770,11 +920,29 @@ fn ai_villager(
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
                 if let Some((fx, fy, d)) = nearest_food {
                     if d < 1.5 {
-                        return (BehaviorState::Eating { timer: rng.random_range(30..60) }, 0.0, 0.0, hunger, None);
+                        return (BehaviorState::Eating { timer: rng.random_range(30..60) }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, fx, fy, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
+                    }
+                }
+            }
+
+            // Build: if not too hungry and there are unassigned build sites
+            if hunger < 0.5 {
+                let nearest_site = build_sites.iter()
+                    .filter(|(_, _, _, assigned)| !assigned)
+                    .map(|&(e, bx, by, _)| (e, bx, by, dist(pos.x, pos.y, bx, by)))
+                    .filter(|(_, _, _, d)| *d < creature.sight_range)
+                    .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap());
+                if let Some((site_e, bx, by, d)) = nearest_site {
+                    if d < 1.5 {
+                        return (BehaviorState::Building { target_x: bx, target_y: by, timer: 30 }, 0.0, 0.0, hunger, None, Some(site_e));
+                    } else {
+                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        move_toward(pos, bx, by, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: bx, target_y: by }, vel.dx, vel.dy, hunger, None, Some(site_e));
                     }
                 }
             }
@@ -784,22 +952,22 @@ fn ai_villager(
                 if let Some((fx, fy)) = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range) {
                     let d = dist(pos.x, pos.y, fx, fy);
                     if d < 1.5 {
-                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Wood }, 0.0, 0.0, hunger, None);
+                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Wood }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, fx, fy, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
                 // Gather stone: find nearest Mountain-adjacent tile
                 if let Some((mx, my)) = find_nearest_terrain(pos, map, Terrain::Mountain, creature.sight_range) {
                     let d = dist(pos.x, pos.y, mx, my);
                     if d < 1.5 {
-                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None);
+                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, mx, my, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: mx, target_y: my }, vel.dx, vel.dy, hunger, None);
+                        return (BehaviorState::Seek { target_x: mx, target_y: my }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
             }
@@ -808,7 +976,7 @@ fn ai_villager(
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let mut bhv = Behavior { state: *state, speed };
             do_wander_tick(&pos_copy, &mut vel, &mut bhv, map, rng);
-            (bhv.state, vel.dx, vel.dy, hunger, None)
+            (bhv.state, vel.dx, vel.dy, hunger, None, None)
         }
     }
 }
@@ -1447,5 +1615,114 @@ mod tests {
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Idle { .. }),
             "villager should be idle after depositing, got: {:?}", state);
+    }
+
+    #[test]
+    fn building_wall_blocks_movement() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(5, 5, Terrain::BuildingWall);
+        let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        assert_eq!(pos.x, 4.0, "BuildingWall should block movement");
+    }
+
+    #[test]
+    fn building_floor_is_walkable() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(5, 5, Terrain::BuildingFloor);
+        let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        assert_eq!(pos.x, 5.0, "BuildingFloor should be walkable");
+    }
+
+    #[test]
+    fn villager_builds_at_site() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+        let _site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall);
+
+        // Low hunger, idle — should find build site and start building
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.2;
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Wander { timer: 0 };
+        }
+
+        system_ai(&mut world, &map);
+
+        let state = world.get::<&Behavior>(villager).unwrap().state;
+        assert!(matches!(state, BehaviorState::Building { .. }),
+            "villager near build site with low hunger should start building, got: {:?}", state);
+    }
+
+    #[test]
+    fn build_site_completes() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+        let site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall);
+
+        // Set build site progress to almost complete
+        {
+            let mut s = world.get::<&mut BuildSite>(site).unwrap();
+            s.progress = s.required - 1;
+        }
+
+        // Put villager in building state at the site
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.2;
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
+        }
+
+        system_ai(&mut world, &map);
+
+        // Build site should now be complete (progress >= required)
+        let s = world.get::<&BuildSite>(site).unwrap();
+        assert!(s.progress >= s.required,
+            "build site should be complete: progress={} required={}", s.progress, s.required);
+    }
+
+    #[test]
+    fn building_type_costs_and_sizes() {
+        assert_eq!(BuildingType::Hut.cost(), (0, 5, 2));
+        assert_eq!(BuildingType::Wall.cost(), (0, 1, 1));
+        assert_eq!(BuildingType::Farm.cost(), (2, 3, 0));
+        assert_eq!(BuildingType::Stockpile.cost(), (0, 2, 0));
+
+        assert_eq!(BuildingType::Hut.size(), (3, 3));
+        assert_eq!(BuildingType::Wall.size(), (1, 1));
+        assert_eq!(BuildingType::Farm.size(), (3, 3));
+        assert_eq!(BuildingType::Stockpile.size(), (2, 2));
+
+        assert_eq!(BuildingType::Hut.build_time(), 120);
+        assert_eq!(BuildingType::Wall.build_time(), 30);
+        assert_eq!(BuildingType::Farm.build_time(), 80);
+        assert_eq!(BuildingType::Stockpile.build_time(), 40);
+
+        // Wall tiles should contain exactly one BuildingWall
+        let wall_tiles = BuildingType::Wall.tiles();
+        assert_eq!(wall_tiles.len(), 1);
+        assert_eq!(wall_tiles[0], (0, 0, Terrain::BuildingWall));
+
+        // Hut should have both wall and floor tiles
+        let hut_tiles = BuildingType::Hut.tiles();
+        let wall_count = hut_tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingWall).count();
+        let floor_count = hut_tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingFloor).count();
+        assert!(wall_count > 0, "hut should have wall tiles");
+        assert!(floor_count > 0, "hut should have floor tiles");
     }
 }

@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Behavior, BehaviorState, Creature, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
+use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -73,6 +73,13 @@ pub enum GameInput {
     QueryDown,
     QueryLeft,
     QueryRight,
+    ToggleBuildMode,
+    BuildCycleType,
+    BuildPlace,
+    BuildUp,
+    BuildDown,
+    BuildLeft,
+    BuildRight,
     Drain,
     None,
 }
@@ -110,6 +117,10 @@ pub struct Game {
     pub query_cy: i32, // cursor world Y
     pub display_fps: Option<u32>,
     pub resources: Resources,
+    pub build_mode: bool,
+    pub build_cursor_x: i32,
+    pub build_cursor_y: i32,
+    pub selected_building: BuildingType,
 }
 
 impl Game {
@@ -208,6 +219,10 @@ impl Game {
             query_cy: 128,
             display_fps: None,
             resources: Resources::default(),
+            build_mode: false,
+            build_cursor_x: 128,
+            build_cursor_y: 128,
+            selected_building: BuildingType::Wall,
         }
     }
 
@@ -226,6 +241,7 @@ impl Game {
             GameInput::ToggleQueryMode => {
                 self.query_mode = !self.query_mode;
                 if self.query_mode {
+                    self.build_mode = false; // mutually exclusive
                     // Center cursor on screen
                     let (vw, vh) = renderer.size();
                     let world_vw = vw as i32 / CELL_ASPECT;
@@ -237,6 +253,28 @@ impl Game {
             GameInput::QueryDown => if self.query_mode { self.query_cy += 1; },
             GameInput::QueryLeft => if self.query_mode { self.query_cx -= 1; },
             GameInput::QueryRight => if self.query_mode { self.query_cx += 1; },
+            GameInput::ToggleBuildMode => {
+                self.build_mode = !self.build_mode;
+                if self.build_mode {
+                    self.query_mode = false; // mutually exclusive
+                    let (vw, vh) = renderer.size();
+                    let world_vw = vw as i32 / CELL_ASPECT;
+                    self.build_cursor_x = self.camera.x + world_vw / 2;
+                    self.build_cursor_y = self.camera.y + vh as i32 / 2;
+                }
+            }
+            GameInput::BuildUp => if self.build_mode { self.build_cursor_y -= 1; },
+            GameInput::BuildDown => if self.build_mode { self.build_cursor_y += 1; },
+            GameInput::BuildLeft => if self.build_mode { self.build_cursor_x -= 1; },
+            GameInput::BuildRight => if self.build_mode { self.build_cursor_x += 1; },
+            GameInput::BuildCycleType => if self.build_mode {
+                let types = BuildingType::all();
+                let idx = types.iter().position(|t| *t == self.selected_building).unwrap_or(0);
+                self.selected_building = types[(idx + 1) % types.len()];
+            },
+            GameInput::BuildPlace => if self.build_mode {
+                self.try_place_building();
+            },
             GameInput::Drain => self.water.drain(),
             GameInput::Quit | GameInput::None => {}
         }
@@ -259,6 +297,9 @@ impl Game {
                 }
             }
             ecs::system_movement(&mut self.world, &self.map);
+
+            // Check for completed buildings
+            self.check_build_completion();
 
             if self.raining {
                 self.water.rain(&self.sim_config);
@@ -303,6 +344,74 @@ impl Game {
     pub fn step_headless(&mut self, input: GameInput, renderer: &mut HeadlessRenderer) -> Result<FrameSnapshot> {
         self.step(input, renderer)?;
         Ok(self.snapshot(renderer))
+    }
+
+    /// Check if a building can be placed at the given position.
+    pub fn can_place_building(&self, bx: i32, by: i32, building_type: BuildingType) -> bool {
+        let (w, h) = building_type.size();
+        for dy in 0..h {
+            for dx in 0..w {
+                let tx = bx + dx;
+                let ty = by + dy;
+                if tx < 0 || ty < 0 || tx as usize >= self.map.width || ty as usize >= self.map.height {
+                    return false;
+                }
+                if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
+                    match terrain {
+                        Terrain::Grass | Terrain::Sand | Terrain::Forest => {} // ok
+                        _ => return false, // water, mountain, snow, existing buildings
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Try to place a building at the build cursor position.
+    fn try_place_building(&mut self) {
+        let bx = self.build_cursor_x;
+        let by = self.build_cursor_y;
+        let bt = self.selected_building;
+
+        if !self.can_place_building(bx, by, bt) {
+            return;
+        }
+
+        // Check resources
+        let (cost_f, cost_w, cost_s) = bt.cost();
+        if self.resources.food < cost_f || self.resources.wood < cost_w || self.resources.stone < cost_s {
+            return;
+        }
+
+        // Deduct resources
+        self.resources.food -= cost_f;
+        self.resources.wood -= cost_w;
+        self.resources.stone -= cost_s;
+
+        // Spawn build site entity
+        ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt);
+    }
+
+    /// Check for completed build sites and apply their tiles to the map.
+    fn check_build_completion(&mut self) {
+        let mut completed: Vec<(hecs::Entity, Position, BuildSite)> = Vec::new();
+        for (e, (pos, site)) in self.world.query::<(hecs::Entity, (&Position, &BuildSite))>().iter() {
+            if site.progress >= site.required {
+                completed.push((e, *pos, *site));
+            }
+        }
+        for (e, pos, site) in completed {
+            for (dx, dy, terrain) in site.building_type.tiles() {
+                let tx = pos.x as i32 + dx;
+                let ty = pos.y as i32 + dy;
+                if tx >= 0 && ty >= 0 {
+                    self.map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            self.world.despawn(e).ok();
+        }
     }
 
     pub fn draw(&self, renderer: &mut dyn Renderer) {
@@ -426,7 +535,70 @@ impl Game {
             self.draw_query_panel(renderer);
         }
 
+        if self.build_mode {
+            self.draw_build_mode(renderer);
+        }
+
         self.draw_status(renderer);
+    }
+
+    fn draw_build_mode(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 2u16;
+        let aspect = CELL_ASPECT;
+        let (bw, bh) = self.selected_building.size();
+
+        let valid = self.can_place_building(self.build_cursor_x, self.build_cursor_y, self.selected_building);
+
+        // Draw ghost building footprint
+        for dy in 0..bh {
+            for dx in 0..bw {
+                let wx = self.build_cursor_x + dx;
+                let wy = self.build_cursor_y + dy;
+                let sx = (wx - self.camera.x) * aspect;
+                let sy = wy - self.camera.y;
+                if sy >= 0 && (sy as u16) < h.saturating_sub(status_h) {
+                    for ax in 0..aspect {
+                        let cx = sx + ax;
+                        if cx >= 0 && (cx as u16) < w {
+                            let (fg, bg) = if valid {
+                                (Color(200, 255, 200), Color(0, 100, 0))
+                            } else {
+                                (Color(255, 200, 200), Color(100, 0, 0))
+                            };
+                            renderer.draw(cx as u16, sy as u16, '#', fg, Some(bg));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw build mode info panel (bottom-left, above status)
+        let (cost_f, cost_w, cost_s) = self.selected_building.cost();
+        let name = self.selected_building.name();
+        let line1 = format!(" BUILD: {} (tab:cycle, enter:place, b/esc:exit) ", name);
+        let line2 = format!(" Cost: F:{} W:{} S:{} | Have: F:{} W:{} S:{} ",
+            cost_f, cost_w, cost_s, self.resources.food, self.resources.wood, self.resources.stone);
+        let valid_str = if valid { "OK" } else { "INVALID" };
+        let line3 = format!(" Placement: {} | wasd:move cursor ", valid_str);
+
+        let panel_y = h.saturating_sub(status_h + 3);
+        let fg = Color(255, 255, 255);
+        let bg = Color(40, 40, 80);
+        for (i, line) in [&line1, &line2, &line3].iter().enumerate() {
+            let sy = panel_y + i as u16;
+            for (j, ch) in line.chars().enumerate() {
+                if (j as u16) < w && sy < h {
+                    renderer.draw(j as u16, sy, ch, fg, Some(bg));
+                }
+            }
+            // Fill rest of panel width
+            for j in line.len()..w as usize {
+                if sy < h {
+                    renderer.draw(j as u16, sy, ' ', fg, Some(bg));
+                }
+            }
+        }
     }
 
     fn draw_query_cursor(&self, renderer: &mut dyn Renderer) {
@@ -526,6 +698,7 @@ impl Game {
                         BehaviorState::Gathering { timer, resource_type } => format!("Gathering {:?} ({})", resource_type, timer),
                         BehaviorState::Hauling { target_x, target_y, resource_type } => format!("Hauling {:?} ({:.0},{:.0})", resource_type, target_x, target_y),
                         BehaviorState::Sleeping { timer } => format!("Sleeping ({})", timer),
+                        BehaviorState::Building { target_x, target_y, timer } => format!("Building ({:.0},{:.0}) ({})", target_x, target_y, timer),
                     };
                     lines.push(format!("state: {}", state_str));
                     lines.push(format!("speed: {:.2}", behavior.speed));
@@ -542,6 +715,11 @@ impl Game {
                 }
                 if self.world.get::<&Den>(e).is_ok() {
                     lines.push("Den (safe zone)".to_string());
+                }
+                if let Ok(site) = self.world.get::<&ecs::BuildSite>(e) {
+                    lines.push(format!("BuildSite: {}", site.building_type.name()));
+                    lines.push(format!("progress: {}/{}", site.progress, site.required));
+                    lines.push(format!("assigned: {}", site.assigned));
                 }
                 if self.world.get::<&Stockpile>(e).is_ok() {
                     lines.push(format!("Stockpile (F:{} W:{} S:{})",
@@ -599,13 +777,14 @@ impl Game {
             None => "---".to_string(),
         };
         let query_str = if self.query_mode { "ON (wasd, q:exit)" } else { "off" };
+        let build_str = if self.build_mode { "ON" } else { "off" };
         let pause_str = if self.paused { "PAUSED" } else { "" };
         let status1 = format!(
-            " tick: {}  cam: ({},{})  fps: {}  {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  pause: [space]  drain: [d]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, fps_str, pause_str, rain_str, erosion_str, dn_str, view_str, query_str,
+            " tick: {}  cam: ({},{})  fps: {}  {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  build: [b] {}  pause: [space]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, fps_str, pause_str, rain_str, erosion_str, dn_str, view_str, query_str, build_str,
         );
         let status2 = format!(
-            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}",
+            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}  |  drain: [d]",
             self.resources.food, self.resources.wood, self.resources.stone,
         );
 
@@ -649,8 +828,10 @@ impl Game {
                             Terrain::Sand =>     ('S', Color(200, 180, 100)),
                             Terrain::Grass =>    ('G', Color(50, 160, 50)),
                             Terrain::Forest =>   ('F', Color(20, 100, 30)),
-                            Terrain::Mountain => ('M', Color(140, 130, 120)),
-                            Terrain::Snow =>     ('N', Color(220, 220, 230)),
+                            Terrain::Mountain =>      ('M', Color(140, 130, 120)),
+                            Terrain::Snow =>          ('N', Color(220, 220, 230)),
+                            Terrain::BuildingFloor => ('B', Color(140, 120, 90)),
+                            Terrain::BuildingWall =>  ('X', Color(160, 140, 110)),
                         };
                         renderer.draw(sx, sy, ch, black, Some(bg));
                     }
@@ -691,6 +872,10 @@ impl Game {
         if self.query_mode {
             self.draw_query_cursor(renderer);
             self.draw_query_panel(renderer);
+        }
+
+        if self.build_mode {
+            self.draw_build_mode(renderer);
         }
 
         // Status bar (shared with normal draw)
