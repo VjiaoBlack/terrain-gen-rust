@@ -4,6 +4,7 @@ mod headless_renderer;
 mod game;
 mod ecs;
 mod tilemap;
+mod terrain_gen;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
