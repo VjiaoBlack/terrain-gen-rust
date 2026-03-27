@@ -11,3 +11,10 @@ noise = "0.9.0"
 rand = "0.10.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+
+# Fast debug builds — optimize deps but keep our code debuggable
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1

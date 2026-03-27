@@ -376,22 +376,23 @@ impl DayNightCycle {
     /// Returns a normalized (nx, ny, nz) vector. The z-scale controls how
     /// exaggerated the slopes appear (higher = flatter normals).
     fn terrain_normal(heights: &[f64], width: usize, height: usize, x: usize, y: usize) -> (f64, f64, f64) {
-        let z_scale = 4.0; // lower = more pronounced slopes, more contrast
-
         let h = |xi: i32, yi: i32| -> f64 {
             let cx = (xi.max(0) as usize).min(width - 1);
             let cy = (yi.max(0) as usize).min(height - 1);
             heights[cy * width + cx]
         };
 
-        // Central differences
-        let dhdx = (h(x as i32 + 1, y as i32) - h(x as i32 - 1, y as i32)) * 0.5;
-        let dhdy = (h(x as i32, y as i32 + 1) - h(x as i32, y as i32 - 1)) * 0.5;
+        // Central differences, amplified heavily.
+        // Raw gradients are ~0.005 (heights 0-1 over 256 cells).
+        // Multiply by 40 so slopes become visible in the lighting.
+        let scale = 40.0;
+        let dhdx = (h(x as i32 + 1, y as i32) - h(x as i32 - 1, y as i32)) * 0.5 * scale;
+        let dhdy = (h(x as i32, y as i32 + 1) - h(x as i32, y as i32 - 1)) * 0.5 * scale;
 
-        // Normal = (-dh/dx, -dh/dy, 1/z_scale), normalized
+        // Normal = (-dh/dx, -dh/dy, 1), normalized
         let nx = -dhdx;
         let ny = -dhdy;
-        let nz = 1.0 / z_scale;
+        let nz = 1.0;
         let len = (nx * nx + ny * ny + nz * nz).sqrt();
         (nx / len, ny / len, nz / len)
     }
