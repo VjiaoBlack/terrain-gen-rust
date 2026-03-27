@@ -369,4 +369,86 @@ mod tests {
         assert!(json.contains("\"to_tick\":2"));
         assert!(json.contains("\"changes\""));
     }
+
+    #[test]
+    fn profile_frame_phases() {
+        use std::time::Instant;
+        use crate::renderer::Renderer;
+
+        let mut r = HeadlessRenderer::new(120, 40); // realistic terminal size
+        let mut game = test_game();
+
+        // Warm up
+        for _ in 0..10 {
+            game.step(GameInput::None, &mut r).unwrap();
+        }
+
+        let hours_to_test = [12.0, 6.5, 18.5, 0.0]; // noon, sunrise, sunset, midnight
+        let labels = ["noon", "sunrise", "sunset", "midnight"];
+
+        for (hour, label) in hours_to_test.iter().zip(labels.iter()) {
+            game.day_night.hour = *hour;
+            game.raining = true; // worst case: water sim active
+
+            let n = 100;
+            let start = Instant::now();
+            for _ in 0..n {
+                game.step(GameInput::None, &mut r).unwrap();
+            }
+            let total = start.elapsed();
+            let per_frame_us = total.as_micros() / n as u128;
+            let fps = 1_000_000.0 / per_frame_us as f64;
+
+            eprintln!("  {}: {:.0}us/frame ({:.0} fps)", label, per_frame_us, fps);
+        }
+
+        // Now profile individual phases at sunset (worst case)
+        game.day_night.hour = 18.5;
+        game.raining = true;
+
+        let n = 100;
+
+        // Phase: water + moisture
+        let start = Instant::now();
+        for _ in 0..n {
+            game.water.rain(&game.sim_config);
+            game.water.update(&mut game.heights, &game.sim_config);
+            game.moisture.update(&game.water, &mut game.vegetation);
+        }
+        let water_us = start.elapsed().as_micros() / n as u128;
+
+        // Phase: lighting
+        let start = Instant::now();
+        for _ in 0..n {
+            game.day_night.compute_lighting(
+                &game.heights, game.map.width, game.map.height,
+                game.camera.x, game.camera.y, 120, 40,
+            );
+        }
+        let light_us = start.elapsed().as_micros() / n as u128;
+
+        // Phase: render
+        let start = Instant::now();
+        for _ in 0..n {
+            r.clear();
+            game.draw(&mut r);
+        }
+        let draw_us = start.elapsed().as_micros() / n as u128;
+
+        // Phase: flush
+        let start = Instant::now();
+        for _ in 0..n {
+            r.flush().unwrap();
+        }
+        let flush_us = start.elapsed().as_micros() / n as u128;
+
+        eprintln!("\n  Sunset breakdown (120x40):");
+        eprintln!("    water+moisture: {}us", water_us);
+        eprintln!("    lighting:       {}us", light_us);
+        eprintln!("    draw:           {}us", draw_us);
+        eprintln!("    flush:          {}us", flush_us);
+        eprintln!("    total:          {}us ({:.0} fps budget)",
+            water_us + light_us + draw_us + flush_us,
+            1_000_000.0 / (water_us + light_us + draw_us + flush_us) as f64);
+    }
 }

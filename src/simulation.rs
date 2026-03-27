@@ -620,9 +620,12 @@ impl DayNightCycle {
         // enough directional for normals to show through
         let light = 0.25 + 0.75 * directional;
 
-        let r = (color.0 as f64 * tr * light).clamp(0.0, 255.0) as u8;
-        let g = (color.1 as f64 * tg * light).clamp(0.0, 255.0) as u8;
-        let b = (color.2 as f64 * tb * light).clamp(0.0, 255.0) as u8;
+        // Quantize to steps of 4 so small lighting changes don't trigger
+        // terminal redraws (crossterm double-buffer compares exact colors)
+        let q = |v: f64| -> u8 { ((v as u8) >> 2) << 2 };
+        let r = q((color.0 as f64 * tr * light).clamp(0.0, 255.0));
+        let g = q((color.1 as f64 * tg * light).clamp(0.0, 255.0));
+        let b = q((color.2 as f64 * tb * light).clamp(0.0, 255.0));
         Color(r, g, b)
     }
 

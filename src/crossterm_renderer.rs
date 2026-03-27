@@ -79,24 +79,44 @@ impl Renderer for CrosstermRenderer {
     }
 
     fn flush(&mut self) -> Result<()> {
+        // Batch consecutive changed cells into single writes.
+        // Track current cursor position and colors to skip redundant commands.
+        let mut cur_x: i32 = -1;
+        let mut cur_y: i32 = -1;
+        let mut cur_fg = CColor::Reset;
+        let mut cur_bg = CColor::Reset;
+
         for y in 0..self.height {
             for x in 0..self.width {
                 let idx = (y * self.width + x) as usize;
                 let cell = self.front[idx];
-                if cell != self.back[idx] {
-                    let fg = to_ccolor(cell.fg);
-                    let bg = match cell.bg {
-                        Some(c) => to_ccolor(c),
-                        None => CColor::Reset,
-                    };
-                    queue!(
-                        self.stdout,
-                        cursor::MoveTo(x, y),
-                        SetColors(Colors::new(fg, bg)),
-                    )?;
-                    write!(self.stdout, "{}", cell.ch)?;
-                    self.back[idx] = cell;
+                if cell == self.back[idx] {
+                    continue;
                 }
+
+                // Move cursor if not already at the right position
+                if x as i32 != cur_x || y as i32 != cur_y {
+                    queue!(self.stdout, cursor::MoveTo(x, y))?;
+                }
+
+                // Set colors only if changed
+                let fg = to_ccolor(cell.fg);
+                let bg = match cell.bg {
+                    Some(c) => to_ccolor(c),
+                    None => CColor::Reset,
+                };
+                if fg != cur_fg || bg != cur_bg {
+                    queue!(self.stdout, SetColors(Colors::new(fg, bg)))?;
+                    cur_fg = fg;
+                    cur_bg = bg;
+                }
+
+                write!(self.stdout, "{}", cell.ch)?;
+                self.back[idx] = cell;
+
+                // After writing one char, cursor advances by 1
+                cur_x = x as i32 + 1;
+                cur_y = y as i32;
             }
         }
         self.stdout.flush()?;
