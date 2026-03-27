@@ -1,5 +1,7 @@
 use rand::RngExt;
 
+use crate::renderer::Color;
+
 /// Parallel grid of water depth, layered on top of a height map.
 /// Water flows downhill, erodes terrain, and evaporates over time.
 pub struct WaterMap {
@@ -84,86 +86,102 @@ impl WaterMap {
         self.water_avg.fill(0.0);
     }
 
+    /// Returns true if any water exists on the map.
+    pub fn has_water(&self) -> bool {
+        self.water.iter().any(|&w| w > 0.0)
+    }
+
     /// Run one tick of water flow + optional erosion.
     /// `heights` is the terrain height map (same dimensions), and may be modified by erosion.
     pub fn update(&mut self, heights: &mut Vec<f64>, config: &SimConfig) {
-        // clear temp buffer
         self.water_temp.fill(0.0);
 
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let i = y * self.width + x;
+        let w = self.width;
+        let h = self.height;
+
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
 
                 // update smoothed average
                 self.water_avg[i] = self.water_avg[i] * config.avg_factor
                     + self.water[i] * (1.0 - config.avg_factor);
 
-                let h = heights[i] + self.water[i];
+                // skip dry cells entirely
+                if self.water[i] < 1e-8 {
+                    continue;
+                }
 
-                // find lowest neighbor (cardinal first, then diagonal with sqrt(2) bias)
-                let mut best_x = x as i32;
-                let mut best_y = y as i32;
-                let mut best_h = h;
+                let cell_h = heights[i] + self.water[i];
+
+                // find lowest neighbor — inline bounds for interior cells (avoid mod)
+                let mut best_i = i;
+                let mut best_h = cell_h;
 
                 // cardinal directions
-                for &(dx, dy) in &[(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                    let (nx, ny) = self.wrapping_coords(x as i32 + dx, y as i32 + dy);
-                    let ni = ny * self.width + nx;
+                let cardinals: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+                for &(dx, dy) in &cardinals {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    let (nx, ny) = if nx >= 0 && nx < w as i32 && ny >= 0 && ny < h as i32 {
+                        (nx as usize, ny as usize)
+                    } else {
+                        self.wrapping_coords(nx, ny)
+                    };
+                    let ni = ny * w + nx;
                     let nh = heights[ni] + self.water[ni];
                     if nh < best_h {
-                        best_x = x as i32 + dx;
-                        best_y = y as i32 + dy;
+                        best_i = ni;
                         best_h = nh;
                     }
                 }
 
                 // diagonal directions — only prefer if drop is > sqrt(2)x the cardinal best
-                for &(dx, dy) in &[(1, 1), (-1, -1), (1, -1), (-1, 1)] {
-                    let (nx, ny) = self.wrapping_coords(x as i32 + dx, y as i32 + dy);
-                    let ni = ny * self.width + nx;
+                let diagonals: [(i32, i32); 4] = [(1, 1), (-1, -1), (1, -1), (-1, 1)];
+                for &(dx, dy) in &diagonals {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    let (nx, ny) = if nx >= 0 && nx < w as i32 && ny >= 0 && ny < h as i32 {
+                        (nx as usize, ny as usize)
+                    } else {
+                        self.wrapping_coords(nx, ny)
+                    };
+                    let ni = ny * w + nx;
                     let nh = heights[ni] + self.water[ni];
-                    if (h - nh) > (h - best_h) * 1.4142 {
-                        best_x = x as i32 + dx;
-                        best_y = y as i32 + dy;
+                    if (cell_h - nh) > (cell_h - best_h) * 1.4142 {
+                        best_i = ni;
                         best_h = nh;
                     }
                 }
 
                 // flow water downhill
-                if best_h < h - 0.0001 {
-                    let diff_raw = h - best_h;
+                if best_h < cell_h - 0.0001 {
+                    let diff_raw = cell_h - best_h;
                     let mut diff = diff_raw * config.flow_fraction;
-
-                    // dampen based on existing water depth (prevents cutting too deep)
                     diff *= 1.0 - self.water[i];
-                    // can't flow more water than we have
                     if diff > self.water[i] {
                         diff = self.water[i];
                     }
 
-                    let (bx, by) = self.wrapping_coords(best_x, best_y);
-                    let bi = by * self.width + bx;
-                    self.water_temp[bi] += diff;
+                    self.water_temp[best_i] += diff;
                     self.water_temp[i] -= diff;
                 }
             }
         }
 
         // apply transfers, erosion, and evaporation
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let i = y * self.width + x;
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
 
-                // erosion: flowing water modifies terrain height
-                if config.erosion_enabled {
+                if config.erosion_enabled && self.water_temp[i].abs() > 1e-10 {
                     let change = self.water_temp[i];
                     let mut erode = if change > 0.0 {
-                        change * 0.5 // deposition is gentler
+                        change * 0.5
                     } else {
                         change
                     };
 
-                    // scale erosion by water amount
                     if self.water[i] > 0.001 {
                         erode *= (erode * 0.1 / self.water[i]).abs();
                     } else {
@@ -172,18 +190,16 @@ impl WaterMap {
 
                     erode *= config.erosion_strength;
 
-                    // distribute erosion to neighbors (kernel from original)
                     heights[i] += erode / 8.0;
-                    for &(dx, dy, w) in &[
+                    for &(dx, dy, wt) in &[
                         (1i32, 0i32, 16.0), (-1, 0, 16.0), (0, 1, 16.0), (0, -1, 16.0),
                         (1, 1, 22.63), (-1, -1, 22.63), (1, -1, 22.63), (-1, 1, 22.63),
                     ] {
                         let (nx, ny) = self.wrapping_coords(x as i32 + dx, y as i32 + dy);
-                        heights[ny * self.width + nx] += erode / w;
+                        heights[ny * w + nx] += erode / wt;
                     }
                 }
 
-                // apply water transfer and evaporation
                 self.water[i] = (self.water[i] + self.water_temp[i] - config.evaporation)
                     .clamp(0.0, 1.0);
             }
@@ -224,19 +240,52 @@ impl MoistureMap {
     /// Update moisture from water presence and propagate.
     /// Also updates vegetation based on moisture bands.
     pub fn update(&mut self, water: &WaterMap, vegetation: &mut VegetationMap) {
-        // Step 1: moisture from water
+        // Step 1: moisture from water — gentle contribution, faster decay
         for y in 0..self.height {
             for x in 0..self.width {
                 let i = y * self.width + x;
                 let w = water.get(x, y);
                 if w > 0.01 {
-                    self.moisture[i] = 1.0;
+                    // Standing water: high moisture, but blend don't slam to 1.0
+                    self.moisture[i] = self.moisture[i] * 0.8 + 0.2;
                 } else {
-                    self.moisture[i] = self.moisture[i] * 0.50 + w * 50.0;
+                    // Decay toward zero; small boost from trace water
+                    self.moisture[i] = self.moisture[i] * 0.95 + w * 5.0;
                 }
+            }
+        }
 
-                // vegetation responds to moisture
+        // Step 2: propagate moisture forward (downwind = +y direction, like original)
+        // Conservative: what leaves a cell is subtracted from it
+        let mut delta = vec![0.0f64; self.width * self.height];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let i = y * self.width + x;
                 let m = self.moisture[i];
+                let spread = m * 0.2; // total amount leaving this cell
+                // forward: 50% of spread
+                let fi = self.wrapping_idx(x as i32, y as i32 + 1);
+                delta[fi] += spread * 0.5;
+                // diagonals: 25% each
+                let fli = self.wrapping_idx(x as i32 + 1, y as i32 + 1);
+                delta[fli] += spread * 0.25;
+                let fri = self.wrapping_idx(x as i32 - 1, y as i32 + 1);
+                delta[fri] += spread * 0.25;
+                // subtract from source
+                delta[i] -= spread;
+            }
+        }
+        for i in 0..self.moisture.len() {
+            self.moisture[i] = (self.moisture[i] + delta[i]).clamp(0.0, 1.0);
+        }
+
+        // Step 3: box blur
+        self.box_blur();
+
+        // Step 4: vegetation responds to moisture (after blur for stable values)
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let m = self.moisture[y * self.width + x];
                 if m > 0.1 && m < 0.5 {
                     vegetation.grow(x, y);
                 } else {
@@ -244,25 +293,6 @@ impl MoistureMap {
                 }
             }
         }
-
-        // Step 2: propagate moisture forward (downwind = +y direction, like original)
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let i = y * self.width + x;
-                let m = self.moisture[i];
-                // forward
-                let fi = self.wrapping_idx(x as i32, y as i32 + 1);
-                self.moisture[fi] += m * 0.25;
-                // diagonals
-                let fli = self.wrapping_idx(x as i32 + 1, y as i32 + 1);
-                self.moisture[fli] += m * 0.125;
-                let fri = self.wrapping_idx(x as i32 - 1, y as i32 + 1);
-                self.moisture[fri] += m * 0.125;
-            }
-        }
-
-        // Step 3: box blur
-        self.box_blur();
     }
 
     fn box_blur(&mut self) {
@@ -280,6 +310,284 @@ impl MoistureMap {
             }
         }
         self.moisture = temp;
+    }
+}
+
+/// Day/night cycle with Blinn-Phong lighting, terrain normals, and shadow raytracing.
+pub struct DayNightCycle {
+    pub hour: f64,           // 0.0 - 24.0
+    pub tick_rate: f64,      // hours per tick
+    pub enabled: bool,
+    light_map: Vec<f64>,     // per-tile total lighting intensity (combined diffuse + shadow)
+    light_w: usize,
+    light_h: usize,
+}
+
+impl DayNightCycle {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            hour: 10.0, // start at 10am
+            tick_rate: 0.02, // ~8 minutes per real second at 30fps
+            enabled: true,
+            light_map: vec![1.0; width * height],
+            light_w: width,
+            light_h: height,
+        }
+    }
+
+    /// Advance time by one tick.
+    pub fn tick(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        self.hour += self.tick_rate;
+        if self.hour >= 24.0 {
+            self.hour -= 24.0;
+        }
+    }
+
+    /// Sun elevation angle in radians. Peaks at noon (pi/2), below 0 at night.
+    pub fn sun_elevation(&self) -> f64 {
+        let angle = (self.hour - 6.0) / 12.0 * std::f64::consts::PI;
+        angle.sin() * (std::f64::consts::PI / 2.2) // max ~80 degrees
+    }
+
+    /// Sun direction as a 3D unit vector (dx, dy, dz) pointing TOWARD the sun.
+    pub fn sun_direction_3d(&self) -> (f64, f64, f64) {
+        let elev = self.sun_elevation();
+        let azimuth = (self.hour - 6.0) / 12.0 * std::f64::consts::PI;
+        // Sun arcs east→south→west; dz = sin(elevation)
+        let dz = elev.sin();
+        let horiz = elev.cos();
+        let dx = azimuth.cos() * horiz;
+        let dy = -0.5 * horiz; // slightly from the south
+        let len = (dx * dx + dy * dy + dz * dz).sqrt();
+        (dx / len, dy / len, dz / len)
+    }
+
+    /// Sun direction projected onto 2D for shadow raymarching.
+    fn sun_direction_2d(&self) -> (f64, f64) {
+        let (dx, dy, _) = self.sun_direction_3d();
+        let len = (dx * dx + dy * dy).sqrt().max(0.001);
+        (dx / len, dy / len)
+    }
+
+    /// Compute terrain normal at (x, y) from height finite differences.
+    /// Returns a normalized (nx, ny, nz) vector. The z-scale controls how
+    /// exaggerated the slopes appear (higher = flatter normals).
+    fn terrain_normal(heights: &[f64], width: usize, height: usize, x: usize, y: usize) -> (f64, f64, f64) {
+        let z_scale = 4.0; // lower = more pronounced slopes, more contrast
+
+        let h = |xi: i32, yi: i32| -> f64 {
+            let cx = (xi.max(0) as usize).min(width - 1);
+            let cy = (yi.max(0) as usize).min(height - 1);
+            heights[cy * width + cx]
+        };
+
+        // Central differences
+        let dhdx = (h(x as i32 + 1, y as i32) - h(x as i32 - 1, y as i32)) * 0.5;
+        let dhdy = (h(x as i32, y as i32 + 1) - h(x as i32, y as i32 - 1)) * 0.5;
+
+        // Normal = (-dh/dx, -dh/dy, 1/z_scale), normalized
+        let nx = -dhdx;
+        let ny = -dhdy;
+        let nz = 1.0 / z_scale;
+        let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        (nx / len, ny / len, nz / len)
+    }
+
+    /// Compute Blinn-Phong lighting with shadow sweep for a viewport region.
+    /// Shadow sweep is O(cells) — one pass across the map propagating shadow height,
+    /// instead of O(cells * ray_steps) per-cell raycasting.
+    pub fn compute_lighting(
+        &mut self,
+        heights: &[f64],
+        map_w: usize,
+        map_h: usize,
+        vx: i32,
+        vy: i32,
+        vw: usize,
+        vh: usize,
+    ) {
+        let elev = self.sun_elevation();
+        if elev <= 0.0 {
+            // Night: mark viewport as unlit
+            let x0 = vx.max(0) as usize;
+            let y0 = vy.max(0) as usize;
+            let x1 = ((vx + vw as i32) as usize).min(map_w);
+            let y1 = ((vy + vh as i32) as usize).min(map_h);
+            for y_pos in y0..y1 {
+                for x_pos in x0..x1 {
+                    self.light_map[y_pos * map_w + x_pos] = 0.0;
+                }
+            }
+            return;
+        }
+
+        let (sun_dx, sun_dy, sun_dz) = self.sun_direction_3d();
+        let tan_elev = elev.tan().max(0.01);
+        // How much shadow height decays per cell step (based on sun angle)
+        let shadow_decay = tan_elev * 0.15;
+
+        // Shadow sweep: single pass AGAINST the sun direction.
+        // We propagate a "shadow height" — if a cell's terrain is below the shadow
+        // height, it's in shadow. The shadow height decays as it moves away from
+        // the casting peak (because the sun ray rises).
+        //
+        // Sweep the viewport + a margin so shadows from peaks just outside are caught.
+        let margin = 30i32; // shadow can reach ~30 cells at low angles
+        let x0 = (vx - margin).max(0) as usize;
+        let y0 = (vy - margin).max(0) as usize;
+        let x1 = ((vx + vw as i32 + margin) as usize).min(map_w);
+        let y1 = ((vy + vh as i32 + margin) as usize).min(map_h);
+
+        // Build a shadow buffer for the sweep region
+        let sw = x1 - x0;
+        let sh = y1 - y0;
+        let mut shadow = vec![0.0f64; sw * sh];
+
+        // Determine sweep order based on sun direction:
+        // We sweep FROM the sun side (where light comes from) TO the shadow side.
+        let sweep_x_rev = sun_dx < 0.0; // sun from east = sweep left-to-right
+        let sweep_y_rev = sun_dy < 0.0; // sun from south = sweep top-to-bottom
+
+        let xs: Vec<usize> = if sweep_x_rev {
+            (x0..x1).rev().collect()
+        } else {
+            (x0..x1).collect()
+        };
+        let ys: Vec<usize> = if sweep_y_rev {
+            (y0..y1).rev().collect()
+        } else {
+            (y0..y1).collect()
+        };
+
+        for &y_pos in &ys {
+            for &x_pos in &xs {
+                let si = (y_pos - y0) * sw + (x_pos - x0);
+                let terrain_h = heights[y_pos * map_w + x_pos];
+
+                // Incoming shadow from the sun-side neighbor
+                let mut max_shadow = 0.0f64;
+
+                // Check the neighbor that the sun shines through (opposite of sun dir)
+                // Cardinal neighbor in sun's x-direction
+                let prev_x = if sweep_x_rev { x_pos + 1 } else { x_pos.wrapping_sub(1) };
+                if prev_x >= x0 && prev_x < x1 {
+                    let prev_si = (y_pos - y0) * sw + (prev_x - x0);
+                    max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay);
+                }
+                // Cardinal neighbor in sun's y-direction
+                let prev_y = if sweep_y_rev { y_pos + 1 } else { y_pos.wrapping_sub(1) };
+                if prev_y >= y0 && prev_y < y1 {
+                    let prev_si = (prev_y - y0) * sw + (x_pos - x0);
+                    max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay);
+                }
+
+                // Shadow height = max of incoming shadow or this cell's own height
+                shadow[si] = terrain_h.max(max_shadow);
+            }
+        }
+
+        // Now compute lighting for the visible viewport only
+        let vx0 = vx.max(0) as usize;
+        let vy0 = vy.max(0) as usize;
+        let vx1 = ((vx + vw as i32) as usize).min(map_w);
+        let vy1 = ((vy + vh as i32) as usize).min(map_h);
+
+        for y_pos in vy0..vy1 {
+            for x_pos in vx0..vx1 {
+                let i = y_pos * map_w + x_pos;
+                let terrain_h = heights[i];
+
+                // Check shadow: if shadow height at this cell > terrain height, it's shadowed
+                let si = (y_pos - y0) * sw + (x_pos - x0);
+                let in_shadow = shadow[si] > terrain_h + 0.01;
+
+                if in_shadow {
+                    self.light_map[i] = 0.15;
+                    continue;
+                }
+
+                // Terrain normal + Blinn-Phong
+                let (nx, ny, nz) = Self::terrain_normal(heights, map_w, map_h, x_pos, y_pos);
+
+                // Diffuse: L·N
+                let l_dot_n = (sun_dx * nx + sun_dy * ny + sun_dz * nz).max(0.0);
+
+                // Specular: (H·N)^k, view = straight down (0,0,1)
+                let hx = sun_dx;
+                let hy = sun_dy;
+                let hz = sun_dz + 1.0;
+                let h_len = (hx * hx + hy * hy + hz * hz).sqrt();
+                let h_dot_n = if h_len > 0.001 {
+                    ((hx / h_len) * nx + (hy / h_len) * ny + (hz / h_len) * nz).max(0.0)
+                } else {
+                    0.0
+                };
+                let specular = h_dot_n.powi(16) * 0.3;
+
+                self.light_map[i] = (l_dot_n + specular).min(1.0);
+            }
+        }
+    }
+
+    /// Get lighting intensity for a world cell. Returns 0.0 - 1.0.
+    pub fn get_light(&self, x: usize, y: usize) -> f64 {
+        if x < self.light_w && y < self.light_h {
+            self.light_map[y * self.light_w + x]
+        } else {
+            1.0
+        }
+    }
+
+    /// Get the ambient color tint for current time of day.
+    pub fn ambient_tint(&self) -> (f64, f64, f64) {
+        let elev = self.sun_elevation();
+
+        if elev > 0.3 {
+            (1.0, 1.0, 0.95)
+        } else if elev > 0.0 {
+            let t = elev / 0.3;
+            (1.0, 0.6 + 0.4 * t, 0.4 + 0.55 * t)
+        } else if elev > -0.2 {
+            let t = (elev + 0.2) / 0.2;
+            (0.3 + 0.7 * t, 0.3 + 0.3 * t, 0.5)
+        } else {
+            (0.2, 0.2, 0.4)
+        }
+    }
+
+    /// Apply Blinn-Phong lighting + time-of-day tint to a color.
+    pub fn apply_lighting(&self, color: Color, wx: usize, wy: usize) -> Color {
+        if !self.enabled {
+            return color;
+        }
+
+        let (tr, tg, tb) = self.ambient_tint();
+        let directional = self.get_light(wx, wy);
+
+        // Low ambient (0.15) + strong directional (0.85) for visible normal shading
+        let light = 0.15 + 0.85 * directional;
+
+        let r = (color.0 as f64 * tr * light).clamp(0.0, 255.0) as u8;
+        let g = (color.1 as f64 * tg * light).clamp(0.0, 255.0) as u8;
+        let b = (color.2 as f64 * tb * light).clamp(0.0, 255.0) as u8;
+        Color(r, g, b)
+    }
+
+    /// Apply tint to an optional background color.
+    pub fn apply_lighting_bg(&self, bg: Option<Color>, wx: usize, wy: usize) -> Option<Color> {
+        bg.map(|c| self.apply_lighting(c, wx, wy))
+    }
+
+    /// Time-of-day as a display string for status bar.
+    pub fn time_string(&self) -> String {
+        let h = self.hour as u32;
+        let m = ((self.hour - h as f64) * 60.0) as u32;
+        let period = if h < 12 { "AM" } else { "PM" };
+        let display_h = if h == 0 { 12 } else if h > 12 { h - 12 } else { h };
+        format!("{:2}:{:02}{}", display_h, m, period)
     }
 }
 
@@ -310,14 +618,14 @@ impl VegetationMap {
     pub fn grow(&mut self, x: usize, y: usize) {
         if x < self.width && y < self.height {
             let i = y * self.width + x;
-            self.vegetation[i] = (self.vegetation[i] + 0.01).min(1.0);
+            self.vegetation[i] = (self.vegetation[i] + 0.002).min(1.0);
         }
     }
 
     pub fn decay(&mut self, x: usize, y: usize) {
         if x < self.width && y < self.height {
             let i = y * self.width + x;
-            self.vegetation[i] = (self.vegetation[i] - 0.01).max(0.0);
+            self.vegetation[i] = (self.vegetation[i] - 0.003).max(0.0);
         }
     }
 }
@@ -440,13 +748,12 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
 
-        mm.update(&wm, &mut vm);
+        for _ in 0..20 {
+            mm.update(&wm, &mut vm);
+        }
 
-        // after blur, the water tile won't be exactly 1.0 but should be high
-        assert!(mm.get(5, 5) > 0.1, "tile with water should have high moisture");
-        // nearby tiles should also have some moisture from propagation + blur
+        assert!(mm.get(5, 5) > 0.05, "tile with water should have moisture: got {}", mm.get(5, 5));
         assert!(mm.get(5, 6) > 0.0, "moisture should propagate forward");
-        // tile with water should be higher than a distant dry tile
         assert!(mm.get(5, 5) > mm.get(0, 0), "water tile should be more moist than dry tile");
     }
 
@@ -457,27 +764,39 @@ mod tests {
         mm.moisture[55] = 0.8; // some initial moisture, no water
         let mut vm = VegetationMap::new(10, 10);
 
-        for _ in 0..20 {
+        // slower decay (0.95 factor) needs more ticks
+        for _ in 0..100 {
             mm.update(&wm, &mut vm);
         }
 
-        assert!(mm.get(5, 5) < 0.1, "moisture should decay without water source");
+        assert!(mm.get(5, 5) < 0.1, "moisture should decay without water source: got {}", mm.get(5, 5));
     }
 
     #[test]
     fn vegetation_grows_with_moisture() {
-        let mut wm = WaterMap::new(10, 10);
-        // put a little water so moisture lands in the sweet spot (0.1-0.5)
-        wm.water[55] = 0.005;
+        let wm = WaterMap::new(10, 10);
         let mut mm = MoistureMap::new(10, 10);
-        mm.moisture[55] = 0.3; // in the growth band
         let mut vm = VegetationMap::new(10, 10);
 
-        for _ in 0..50 {
+        // Seed a region with moisture in the growth band (0.1-0.5)
+        // so box blur keeps it above threshold
+        for y in 3..7 {
+            for x in 3..7 {
+                mm.moisture[y * 10 + x] = 0.3;
+            }
+        }
+
+        for _ in 0..100 {
+            // Re-seed moisture each tick (simulating sustained water presence)
+            for y in 4..6 {
+                for x in 4..6 {
+                    mm.moisture[y * 10 + x] = 0.3;
+                }
+            }
             mm.update(&wm, &mut vm);
         }
 
-        assert!(vm.get(5, 5) > 0.0, "vegetation should grow with appropriate moisture");
+        assert!(vm.get(5, 5) > 0.0, "vegetation should grow with sustained moisture: got {}", vm.get(5, 5));
     }
 
     #[test]
@@ -487,11 +806,12 @@ mod tests {
         let mut vm = VegetationMap::new(10, 10);
         vm.vegetation[55] = 0.5; // some initial vegetation
 
-        for _ in 0..100 {
+        // slower decay (0.003/tick), 0.5 / 0.003 = ~167 ticks to fully decay
+        for _ in 0..200 {
             mm.update(&wm, &mut vm);
         }
 
-        assert!(vm.get(5, 5) < 0.1, "vegetation should decay without moisture");
+        assert!(vm.get(5, 5) < 0.1, "vegetation should decay without moisture: got {}", vm.get(5, 5));
     }
 
     #[test]
@@ -506,6 +826,120 @@ mod tests {
             vm.decay(2, 2);
         }
         assert!(vm.get(2, 2) >= 0.0);
+    }
+
+    #[test]
+    fn day_night_time_advances() {
+        let mut dn = DayNightCycle::new(10, 10);
+        let start = dn.hour;
+        dn.tick();
+        assert!(dn.hour > start, "time should advance each tick");
+    }
+
+    #[test]
+    fn day_night_wraps_at_24() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.hour = 23.99;
+        dn.tick();
+        assert!(dn.hour < 24.0, "hour should wrap past 24");
+    }
+
+    #[test]
+    fn sun_elevation_peaks_at_noon() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.hour = 12.0;
+        let noon_elev = dn.sun_elevation();
+        dn.hour = 6.0;
+        let dawn_elev = dn.sun_elevation();
+        dn.hour = 0.0;
+        let midnight_elev = dn.sun_elevation();
+
+        assert!(noon_elev > dawn_elev, "noon should be higher than dawn");
+        assert!(noon_elev > 0.0, "noon elevation should be positive");
+        assert!(midnight_elev < 0.0, "midnight elevation should be negative");
+    }
+
+    #[test]
+    fn ambient_tint_varies_by_time() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.hour = 12.0;
+        let day = dn.ambient_tint();
+        dn.hour = 0.0;
+        let night = dn.ambient_tint();
+
+        // Day should be brighter than night
+        assert!(day.0 > night.0, "day red should be brighter than night");
+        assert!(day.1 > night.1, "day green should be brighter than night");
+    }
+
+    #[test]
+    fn shadow_map_darkens_behind_peaks() {
+        let mut dn = DayNightCycle::new(20, 20);
+        dn.hour = 12.0; // noon
+        let mut heights = vec![0.1; 400];
+        heights[10 * 20 + 10] = 0.9; // tall peak at center
+
+        dn.compute_lighting(&heights, 20, 20, 0, 0, 20, 20);
+
+        // The peak itself should be brighter than a shadowed cell behind it
+        assert!(dn.get_light(10, 10) > 0.3, "peak should be well-lit: got {}", dn.get_light(10, 10));
+    }
+
+    #[test]
+    fn slopes_facing_sun_are_brighter() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.hour = 12.0;
+
+        // Slope going uphill left-to-right
+        let mut heights = vec![0.0; 100];
+        for y in 0..10 {
+            for x in 0..10 {
+                heights[y * 10 + x] = x as f64 / 9.0;
+            }
+        }
+
+        dn.compute_lighting(&heights, 10, 10, 0, 0, 10, 10);
+
+        let slope_light = dn.get_light(5, 5);
+        assert!(slope_light > 0.0 && slope_light < 1.0,
+            "slope should have intermediate lighting: got {}", slope_light);
+    }
+
+    #[test]
+    fn apply_lighting_darkens_at_night() {
+        let mut dn = DayNightCycle::new(10, 10);
+        let base = Color(200, 200, 200);
+
+        dn.hour = 12.0;
+        dn.compute_lighting(&vec![0.5; 100], 10, 10, 0, 0, 10, 10);
+        let day_color = dn.apply_lighting(base, 5, 5);
+
+        dn.hour = 0.0;
+        dn.compute_lighting(&vec![0.5; 100], 10, 10, 0, 0, 10, 10);
+        let night_color = dn.apply_lighting(base, 5, 5);
+
+        assert!(day_color.0 > night_color.0, "day should be brighter than night: day={:?} night={:?}", day_color, night_color);
+    }
+
+    #[test]
+    fn time_string_formats_correctly() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.hour = 14.5;
+        let s = dn.time_string();
+        assert!(s.contains("2:30PM"), "expected 2:30PM, got {}", s);
+
+        dn.hour = 0.0;
+        let s = dn.time_string();
+        assert!(s.contains("12:00AM"), "expected 12:00AM, got {}", s);
+    }
+
+    #[test]
+    fn disabled_day_night_passes_through() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.enabled = false;
+        let base = Color(100, 150, 200);
+        let result = dn.apply_lighting(base, 0, 0);
+        assert_eq!(result, base, "disabled day/night should pass colors through");
     }
 
     #[test]

@@ -5,9 +5,9 @@ use serde::Serialize;
 use crate::ecs::{self, Position, Sprite};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
-use crate::simulation::{MoistureMap, SimConfig, VegetationMap, WaterMap};
+use crate::simulation::{DayNightCycle, MoistureMap, SimConfig, VegetationMap, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
-use crate::tilemap::{self, Camera, TileMap};
+use crate::tilemap::{Camera, TileMap};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FrameSnapshot {
@@ -65,6 +65,7 @@ pub enum GameInput {
     ScrollRight,
     ToggleRain,
     ToggleErosion,
+    ToggleDayNight,
     Drain,
     None,
 }
@@ -81,6 +82,7 @@ pub struct Game {
     pub terrain_config: TerrainGenConfig,
     pub camera: Camera,
     pub world: World,
+    pub day_night: DayNightCycle,
     pub scroll_speed: i32,
     pub raining: bool,
 }
@@ -114,6 +116,7 @@ impl Game {
             terrain_config,
             camera,
             world,
+            day_night: DayNightCycle::new(256, 256),
             scroll_speed: 2,
             raining: false,
         }
@@ -128,6 +131,7 @@ impl Game {
             GameInput::ScrollRight => self.camera.x += self.scroll_speed,
             GameInput::ToggleRain => self.raining = !self.raining,
             GameInput::ToggleErosion => self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled,
+            GameInput::ToggleDayNight => self.day_night.enabled = !self.day_night.enabled,
             GameInput::Drain => self.water.drain(),
             GameInput::Quit | GameInput::None => {}
         }
@@ -142,12 +146,29 @@ impl Game {
         if self.raining {
             self.water.rain(&self.sim_config);
         }
-        self.water.update(&mut self.heights, &self.sim_config);
-        self.moisture.update(&self.water, &mut self.vegetation);
+        // Only run expensive water sim when there's actually water
+        if self.raining || self.water.has_water() {
+            self.water.update(&mut self.heights, &self.sim_config);
+            self.moisture.update(&self.water, &mut self.vegetation);
+        }
 
         // rebuild tiles if erosion changed heights
         if self.sim_config.erosion_enabled {
             terrain_gen::rebuild_tiles(&mut self.map, &self.heights, &self.terrain_config);
+        }
+
+        // advance day/night cycle and compute Blinn-Phong lighting + shadows (viewport only)
+        self.day_night.tick();
+        if self.day_night.enabled {
+            self.day_night.compute_lighting(
+                &self.heights,
+                self.map.width,
+                self.map.height,
+                self.camera.x,
+                self.camera.y,
+                vw as usize,
+                vh as usize,
+            );
         }
 
         // render
@@ -166,8 +187,21 @@ impl Game {
         let (w, h) = renderer.size();
         let status_h = 2u16; // reserve 2 lines for status
 
-        // draw terrain
-        tilemap::render_map(&self.map, &self.camera, renderer);
+        // draw terrain with day/night lighting
+        let (vw, vh) = renderer.size();
+        for sy in 0..vh {
+            for sx in 0..vw {
+                let wx = self.camera.x + sx as i32;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 {
+                    if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
+                        let fg = self.day_night.apply_lighting(terrain.fg(), wx as usize, wy as usize);
+                        let bg = self.day_night.apply_lighting_bg(terrain.bg(), wx as usize, wy as usize);
+                        renderer.draw(sx, sy, terrain.ch(), fg, bg);
+                    }
+                }
+            }
+        }
 
         // draw vegetation on top of terrain (before water)
         for sy in 0..h.saturating_sub(status_h) {
@@ -177,14 +211,14 @@ impl Game {
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.vegetation.width && (wy as usize) < self.vegetation.height {
                     let v = self.vegetation.get(wx as usize, wy as usize);
                     if v > 0.2 {
-                        // vegetation intensity affects character and color
                         let (ch, fg) = if v > 0.8 {
-                            ('♠', Color(0, 80, 10))       // dense forest
+                            ('♠', Color(0, 80, 10))
                         } else if v > 0.5 {
-                            ('♣', Color(10, 110, 20))     // forest
+                            ('♣', Color(10, 110, 20))
                         } else {
-                            ('"', Color(40, 160, 40))     // grass/scrub
+                            ('"', Color(40, 160, 40))
                         };
+                        let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
                         renderer.draw(sx, sy, ch, fg, None);
                     }
                 }
@@ -199,13 +233,17 @@ impl Game {
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
                     let depth = self.water.get_avg(wx as usize, wy as usize);
                     if depth > 0.0005 {
-                        // water color varies by depth
                         let intensity = (depth * 500.0).min(1.0);
                         let r = (50.0 * (1.0 - intensity)) as u8;
                         let g = (100.0 + 50.0 * intensity) as u8;
                         let b = (180.0 + 75.0 * intensity) as u8;
                         let ch = if depth > 0.01 { '≈' } else { '~' };
-                        renderer.draw(sx, sy, ch, Color(r, g, b), Some(Color(20, 40, (80.0 + 40.0 * intensity) as u8)));
+                        let fg = self.day_night.apply_lighting(Color(r, g, b), wx as usize, wy as usize);
+                        let bg = self.day_night.apply_lighting_bg(
+                            Some(Color(20, 40, (80.0 + 40.0 * intensity) as u8)),
+                            wx as usize, wy as usize,
+                        );
+                        renderer.draw(sx, sy, ch, fg, bg);
                     }
                 }
             }
@@ -216,16 +254,28 @@ impl Game {
             let sx = pos.x.round() as i32 - self.camera.x;
             let sy = pos.y.round() as i32 - self.camera.y;
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
-                renderer.draw(sx as u16, sy as u16, sprite.ch, sprite.fg, None);
+                // Entities get tinted but not shadowed (they're above terrain)
+                let (tr, tg, tb) = self.day_night.ambient_tint();
+                let fg = Color(
+                    (sprite.fg.0 as f64 * tr).clamp(0.0, 255.0) as u8,
+                    (sprite.fg.1 as f64 * tg).clamp(0.0, 255.0) as u8,
+                    (sprite.fg.2 as f64 * tb).clamp(0.0, 255.0) as u8,
+                );
+                renderer.draw(sx as u16, sy as u16, sprite.ch, fg, None);
             }
         }
 
         // status lines at bottom
         let rain_str = if self.raining { "ON" } else { "off" };
         let erosion_str = if self.sim_config.erosion_enabled { "ON" } else { "off" };
+        let dn_str = if self.day_night.enabled {
+            format!("ON {}", self.day_night.time_string())
+        } else {
+            "off".to_string()
+        };
         let status1 = format!(
-            " tick: {}  cam: ({},{})  rain: [r] {}  erosion: [e] {}  drain: [d]  q: quit ",
-            self.tick, self.camera.x, self.camera.y, rain_str, erosion_str,
+            " tick: {}  cam: ({},{})  rain: [r] {}  erosion: [e] {}  time: [t] {}  drain: [d]  q: quit ",
+            self.tick, self.camera.x, self.camera.y, rain_str, erosion_str, dn_str,
         );
         let status2 = format!(
             " arrows: scroll  ",

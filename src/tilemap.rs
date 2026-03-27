@@ -13,32 +13,39 @@ pub enum Terrain {
 }
 
 impl Terrain {
+    /// Characters chosen for similar visual density — subtle texture, not brightness.
     pub fn ch(&self) -> char {
         match self {
             Terrain::Water => '~',
-            Terrain::Sand => '.',
-            Terrain::Grass => ',',
-            Terrain::Forest => '♣',
-            Terrain::Mountain => '▲',
-            Terrain::Snow => '▓',
+            Terrain::Sand => '·',      // middle dot: lighter than '.' but visible
+            Terrain::Grass => '\'',
+            Terrain::Forest => ':',
+            Terrain::Mountain => '^',
+            Terrain::Snow => '·',
         }
     }
 
+    /// Foreground: subtle texture color, close to bg so character density doesn't dominate.
     pub fn fg(&self) -> Color {
         match self {
-            Terrain::Water => Color(50, 100, 200),
-            Terrain::Sand => Color(210, 180, 100),
-            Terrain::Grass => Color(60, 180, 60),
-            Terrain::Forest => Color(20, 120, 30),
-            Terrain::Mountain => Color(140, 130, 120),
-            Terrain::Snow => Color(240, 240, 255),
+            Terrain::Water => Color(60, 110, 220),
+            Terrain::Sand => Color(190, 165, 90),
+            Terrain::Grass => Color(45, 140, 45),
+            Terrain::Forest => Color(15, 80, 20),
+            Terrain::Mountain => Color(120, 110, 100),
+            Terrain::Snow => Color(220, 220, 240),
         }
     }
 
+    /// Background: every terrain gets a bg color so lighting controls perceived brightness.
     pub fn bg(&self) -> Option<Color> {
         match self {
             Terrain::Water => Some(Color(20, 40, 100)),
-            _ => None,
+            Terrain::Sand => Some(Color(170, 145, 80)),
+            Terrain::Grass => Some(Color(30, 100, 30)),
+            Terrain::Forest => Some(Color(10, 60, 15)),
+            Terrain::Mountain => Some(Color(95, 85, 75)),
+            Terrain::Snow => Some(Color(200, 200, 215)),
         }
     }
 }
@@ -139,7 +146,7 @@ mod tests {
         // every cell should be grass
         for ch in frame.chars() {
             if ch != '\n' {
-                assert_eq!(ch, ',', "expected grass char, got '{}'", ch);
+                assert_eq!(ch, '\'', "expected grass char, got '{}'", ch);
             }
         }
     }
@@ -154,7 +161,7 @@ mod tests {
         let mut r = HeadlessRenderer::new(10, 5);
         render_map(&map, &camera, &mut r);
 
-        assert_eq!(r.get_cell(2, 1).unwrap().ch, '▲');
+        assert_eq!(r.get_cell(2, 1).unwrap().ch, '^');
     }
 
     #[test]
@@ -194,7 +201,7 @@ mod tests {
         render_map(&map, &camera, &mut r);
 
         assert_eq!(r.get_cell(0, 0).unwrap().ch, '~');
-        assert_eq!(r.get_cell(1, 0).unwrap().ch, '.');
-        assert_eq!(r.get_cell(2, 0).unwrap().ch, '♣');
+        assert_eq!(r.get_cell(1, 0).unwrap().ch, '·');
+        assert_eq!(r.get_cell(2, 0).unwrap().ch, ':');
     }
 }

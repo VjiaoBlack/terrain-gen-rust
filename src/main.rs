@@ -29,6 +29,7 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
                     KeyCode::Right => GameInput::ScrollRight,
                     KeyCode::Char('r') => GameInput::ToggleRain,
                     KeyCode::Char('e') => GameInput::ToggleErosion,
+                    KeyCode::Char('t') => GameInput::ToggleDayNight,
                     KeyCode::Char('d') => GameInput::Drain,
                     _ => GameInput::None,
                 },
@@ -131,7 +132,7 @@ mod tests {
 
         let frame = r.frame_as_string();
         // should contain terrain characters
-        let terrain_chars = ['~', '.', ',', '♣', '▲', '▓'];
+        let terrain_chars = ['~', '·', '\'', ':', '^'];
         let has_terrain = frame.chars().any(|c| terrain_chars.contains(&c));
         assert!(has_terrain, "frame should contain terrain characters:\n{}", frame);
     }
@@ -285,6 +286,47 @@ mod tests {
         game.step(GameInput::ToggleRain, &mut r).unwrap();
         let frame = r.frame_as_string();
         assert!(frame.contains("rain: [r] ON"), "should show rain ON:\n{}", frame);
+    }
+
+    #[test]
+    fn toggle_day_night() {
+        let mut r = HeadlessRenderer::new(100, 20);
+        let mut game = test_game();
+        assert!(game.day_night.enabled);
+
+        game.step(GameInput::None, &mut r).unwrap();
+        let frame = r.frame_as_string();
+        assert!(frame.contains("time: [t] ON"), "should show time ON:\n{}", frame);
+
+        game.step(GameInput::ToggleDayNight, &mut r).unwrap();
+        assert!(!game.day_night.enabled);
+        let frame = r.frame_as_string();
+        assert!(frame.contains("time: [t] off"), "should show time off:\n{}", frame);
+    }
+
+    #[test]
+    fn day_night_affects_colors() {
+        let mut r = HeadlessRenderer::new(40, 20);
+        let mut game = test_game();
+
+        // Noon: bright
+        game.day_night.hour = 12.0;
+        game.step(GameInput::None, &mut r).unwrap();
+        let noon_snap = game.step_headless(GameInput::None, &mut r).unwrap();
+
+        // Midnight: dark
+        game.day_night.hour = 0.0;
+        let midnight_snap = game.step_headless(GameInput::None, &mut r).unwrap();
+
+        // Compare brightness of a terrain cell (not status bar)
+        let noon_cell = &noon_snap.cells[5][5];
+        let midnight_cell = &midnight_snap.cells[5][5];
+
+        let noon_brightness = noon_cell.fg.0 as u32 + noon_cell.fg.1 as u32 + noon_cell.fg.2 as u32;
+        let midnight_brightness = midnight_cell.fg.0 as u32 + midnight_cell.fg.1 as u32 + midnight_cell.fg.2 as u32;
+
+        assert!(noon_brightness > midnight_brightness,
+            "noon should be brighter than midnight: noon={} midnight={}", noon_brightness, midnight_brightness);
     }
 
     #[test]

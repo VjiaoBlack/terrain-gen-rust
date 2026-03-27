@@ -32,9 +32,9 @@
 - [x] Erosion — toggleable, distributed kernel modifies terrain heights
 - [x] Water rendering — depth-colored ~≈ characters over terrain
 - [x] Interactive controls — [r] rain, [e] erosion, [d] drain
-- [ ] Moisture propagation — spreads from water, drives vegetation
-- [ ] Vegetation growth/decay — responds to moisture bands
-- [ ] Day/night cycle — color shifts based on time
+- [x] Moisture propagation — spreads from water, drives vegetation
+- [x] Vegetation growth/decay — responds to moisture bands
+- [x] Day/night cycle — sun position, color tinting, shadow raytracing, [t] toggle
 
 ## Later
 - [ ] notcurses backend swap
