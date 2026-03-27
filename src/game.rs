@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
+use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -308,6 +308,10 @@ impl Game {
             ecs::system_breeding(&mut self.world, self.day_night.season);
             ecs::system_death(&mut self.world);
 
+            // Farm growth and harvest
+            let farm_food = ecs::system_farms(&mut self.world, self.day_night.season);
+            self.resources.food += farm_food;
+
             // Check for completed buildings
             self.check_build_completion();
 
@@ -433,6 +437,13 @@ impl Game {
                 if tx >= 0 && ty >= 0 {
                     self.map.set(tx as usize, ty as usize, terrain);
                 }
+            }
+            // Spawn a FarmPlot entity at the center of completed farms
+            if site.building_type == BuildingType::Farm {
+                let (sw, sh) = site.building_type.size();
+                let cx = pos.x + sw as f64 / 2.0;
+                let cy = pos.y + sh as f64 / 2.0;
+                ecs::spawn_farm_plot(&mut self.world, cx, cy);
             }
             self.world.despawn(e).ok();
         }
@@ -842,6 +853,11 @@ impl Game {
                     lines.push(format!("progress: {}/{}", site.progress, site.required));
                     lines.push(format!("assigned: {}", site.assigned));
                 }
+                if let Ok(farm) = self.world.get::<&FarmPlot>(e) {
+                    lines.push(format!("Farm: {:.0}% grown{}",
+                        farm.growth * 100.0,
+                        if farm.harvest_ready { " [READY]" } else { "" }));
+                }
                 if self.world.get::<&Stockpile>(e).is_ok() {
                     lines.push(format!("Stockpile (F:{} W:{} S:{})",
                         self.resources.food, self.resources.wood, self.resources.stone));
@@ -904,9 +920,17 @@ impl Game {
             " tick: {}  cam: ({},{})  fps: {}  {}  rain: [r] {}  erosion: [e] {}  time: [t] {}  view: [v] {}  query: [k] {}  build: [b] {}  pause: [space]  q: quit ",
             self.tick, self.camera.x, self.camera.y, fps_str, pause_str, rain_str, erosion_str, dn_str, view_str, query_str, build_str,
         );
+        let villager_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+        let prey_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Prey).count();
+        let wolf_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+
         let status2 = format!(
-            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}  |  drain: [d]",
+            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}  |  Pop: {}  Prey: {}  Wolves: {}  |  drain: [d]",
             self.resources.food, self.resources.wood, self.resources.stone,
+            villager_count, prey_count, wolf_count,
         );
 
         for (i, ch) in status1.chars().enumerate() {

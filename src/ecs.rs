@@ -187,6 +187,13 @@ pub struct BuildSite {
     pub assigned: bool,
 }
 
+/// Marker for a completed farm plot — grows crops and produces food.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct FarmPlot {
+    pub growth: f64,        // 0.0 to 1.0
+    pub harvest_ready: bool,
+}
+
 /// Marker component for berry bushes (food source for prey).
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct FoodSource;
@@ -804,6 +811,61 @@ pub fn spawn_stockpile(world: &mut World, x: f64, y: f64) -> Entity {
         Sprite { ch: '■', fg: Color(180, 140, 60) }, // wooden stockpile
         Stockpile,
     ))
+}
+
+pub fn spawn_farm_plot(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '·', fg: Color(120, 80, 30) }, // starts as dirt
+        FarmPlot { growth: 0.0, harvest_ready: false },
+    ))
+}
+
+/// Grow farm plots based on season and auto-harvest when ready.
+/// Returns the amount of food produced this tick.
+pub fn system_farms(world: &mut World, season: Season) -> u32 {
+    let growth_rate = match season {
+        Season::Spring => 0.002,
+        Season::Summer => 0.003,
+        Season::Autumn => 0.001,
+        Season::Winter => 0.0,
+    };
+
+    // Pass 1: advance growth
+    let mut food_produced = 0u32;
+    for farm in world.query_mut::<&mut FarmPlot>() {
+        if farm.harvest_ready {
+            // Auto-harvest
+            farm.growth = 0.0;
+            farm.harvest_ready = false;
+            food_produced += 3;
+        } else {
+            farm.growth += growth_rate;
+            if farm.growth >= 1.0 {
+                farm.growth = 1.0;
+                farm.harvest_ready = true;
+            }
+        }
+    }
+
+    // Pass 2: update sprite visuals based on growth stage
+    for (farm, sprite) in world.query_mut::<(&FarmPlot, &mut Sprite)>() {
+        if farm.harvest_ready {
+            sprite.fg = Color(220, 200, 40); // harvest ready — gold
+            sprite.ch = '♣';
+        } else if farm.growth < 0.3 {
+            sprite.fg = Color(120, 80, 30);  // dirt
+            sprite.ch = '·';
+        } else if farm.growth < 0.7 {
+            sprite.fg = Color(80, 160, 40);  // growing
+            sprite.ch = '♠';
+        } else {
+            sprite.fg = Color(60, 180, 40);  // mature
+            sprite.ch = '"';
+        }
+    }
+
+    food_produced
 }
 
 /// Find the nearest tile of a given terrain type within a radius.
@@ -1978,5 +2040,64 @@ mod tests {
         let count = world.query::<&Creature>().iter()
             .filter(|c| c.species == Species::Prey).count();
         assert_eq!(count, 3, "prey should be capped at 3 per den, got {}", count);
+    }
+
+    #[test]
+    fn farm_produces_food() {
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+
+        let mut total_food = 0u32;
+        // Run enough ticks for at least one harvest (growth rate 0.003 in summer,
+        // needs ~334 ticks to reach 1.0, then one more tick to harvest)
+        for _ in 0..400 {
+            total_food += system_farms(&mut world, Season::Summer);
+        }
+        assert!(total_food >= 3, "farm should have produced at least 3 food, got {}", total_food);
+    }
+
+    #[test]
+    fn farm_no_growth_in_winter() {
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+
+        for _ in 0..500 {
+            system_farms(&mut world, Season::Winter);
+        }
+
+        let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
+        assert_eq!(growth, 0.0, "farm should not grow in winter, got {}", growth);
+    }
+
+    #[test]
+    fn farm_visual_changes_with_growth() {
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+
+        // Initially dirt
+        let ch = world.query::<&Sprite>().iter()
+            .find(|s| s.ch == '·')
+            .map(|s| s.ch);
+        assert_eq!(ch, Some('·'), "new farm should show dirt sprite");
+
+        // Grow to medium (0.3+): run 150 ticks at summer rate 0.003 => 0.45
+        for _ in 0..150 {
+            system_farms(&mut world, Season::Summer);
+        }
+        {
+            let mut q = world.query::<(&FarmPlot, &Sprite)>();
+            let (_, sprite) = q.iter().next().unwrap();
+            assert_eq!(sprite.ch, '♠', "mid-growth farm should show growing sprite, got '{}'", sprite.ch);
+        }
+
+        // Grow to mature (0.7+): run 100 more ticks => 0.75
+        for _ in 0..100 {
+            system_farms(&mut world, Season::Summer);
+        }
+        {
+            let mut q = world.query::<(&FarmPlot, &Sprite)>();
+            let (_, sprite) = q.iter().next().unwrap();
+            assert_eq!(sprite.ch, '"', "mature farm should show mature sprite, got '{}'", sprite.ch);
+        }
     }
 }
