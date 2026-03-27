@@ -70,6 +70,10 @@ pub enum GameInput {
     None,
 }
 
+/// Terminal chars are ~2x taller than wide. Each world tile gets this many
+/// screen columns so the grid looks square.
+const CELL_ASPECT: i32 = 2;
+
 pub struct Game {
     pub target_fps: u32,
     pub tick: u64,
@@ -139,7 +143,9 @@ impl Game {
         }
 
         let (vw, vh) = renderer.size();
-        self.camera.clamp(self.map.width, self.map.height, vw, vh);
+        // World-space viewport: screen width is divided by aspect ratio
+        let world_vw = (vw as i32 / CELL_ASPECT) as u16;
+        self.camera.clamp(self.map.width, self.map.height, world_vw, vh);
 
         // update simulation
         self.tick += 1;
@@ -168,7 +174,7 @@ impl Game {
                 self.map.height,
                 self.camera.x,
                 self.camera.y,
-                vw as usize,
+                world_vw as usize,
                 vh as usize,
             );
         }
@@ -188,12 +194,13 @@ impl Game {
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let status_h = 2u16; // reserve 2 lines for status
+        let aspect = CELL_ASPECT;
 
         // draw terrain with day/night lighting
-        let (vw, vh) = renderer.size();
-        for sy in 0..vh {
-            for sx in 0..vw {
-                let wx = self.camera.x + sx as i32;
+        // Each world tile occupies `aspect` screen columns for square pixels.
+        for sy in 0..h {
+            for sx in 0..w {
+                let wx = self.camera.x + sx as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
@@ -208,7 +215,7 @@ impl Game {
         // draw vegetation on top of terrain (before water)
         for sy in 0..h.saturating_sub(status_h) {
             for sx in 0..w {
-                let wx = self.camera.x + sx as i32;
+                let wx = self.camera.x + sx as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.vegetation.width && (wy as usize) < self.vegetation.height {
                     let v = self.vegetation.get(wx as usize, wy as usize);
@@ -230,7 +237,7 @@ impl Game {
         // draw water on top of terrain
         for sy in 0..h.saturating_sub(status_h) {
             for sx in 0..w {
-                let wx = self.camera.x + sx as i32;
+                let wx = self.camera.x + sx as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
                     let depth = self.water.get_avg(wx as usize, wy as usize);
@@ -251,9 +258,9 @@ impl Game {
             }
         }
 
-        // draw entities (offset by camera)
+        // draw entities (offset by camera) — world→screen X is multiplied by aspect
         for (pos, sprite) in self.world.query::<(&Position, &Sprite)>().iter() {
-            let sx = pos.x.round() as i32 - self.camera.x;
+            let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
             let sy = pos.y.round() as i32 - self.camera.y;
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
                 // Entities get tinted but not shadowed (they're above terrain)
