@@ -124,6 +124,8 @@ pub struct Game {
     pub influence: InfluenceMap,
     pub last_birth_tick: u64,
     pub notifications: Vec<(u64, String)>,
+    pub game_over: bool,
+    pub peak_population: u32,
 }
 
 impl Game {
@@ -241,6 +243,8 @@ impl Game {
             influence: InfluenceMap::new(256, 256),
             last_birth_tick: 0,
             notifications: Vec::new(),
+            game_over: false,
+            peak_population: 3,
         }
     }
 
@@ -393,6 +397,17 @@ impl Game {
                 self.notify(format!("A wolf died!"));
             }
 
+            // Track peak population and detect game over
+            let villager_count = villagers_after as u32;
+            if villager_count > self.peak_population {
+                self.peak_population = villager_count;
+            }
+            if villager_count == 0 && villagers_before > 0 {
+                self.game_over = true;
+                self.paused = true;
+                self.notify("All villagers have perished!".to_string());
+            }
+
             // Farm growth and harvest
             let farm_food = ecs::system_farms(&mut self.world, self.day_night.season);
             self.resources.food += farm_food;
@@ -456,6 +471,9 @@ impl Game {
             self.draw_debug(renderer);
         } else {
             self.draw(renderer);
+        }
+        if self.game_over {
+            self.draw_game_over(renderer);
         }
         renderer.flush()?;
         Ok(())
@@ -1025,6 +1043,44 @@ impl Game {
         }
     }
 
+    fn draw_game_over(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let red = Color(255, 60, 60);
+        let white = Color(220, 220, 220);
+        let dim = Color(140, 140, 140);
+
+        let lines = [
+            ("GAME OVER", red),
+            ("", dim),
+            ("All villagers have perished.", white),
+            ("", dim),
+            (&format!("Survived: {} ticks ({} days)", self.tick, self.tick / 1200), dim),
+            (&format!("Peak population: {}", self.peak_population), dim),
+            (&format!("Resources: {} food, {} wood, {} stone",
+                self.resources.food, self.resources.wood, self.resources.stone), dim),
+            ("", dim),
+            ("Press [q] to quit", white),
+        ];
+
+        let box_h = lines.len() as u16;
+        let box_w: u16 = lines.iter().map(|(s, _)| s.len() as u16).max().unwrap_or(30).max(30);
+        let start_y = h / 2 - box_h / 2;
+        let start_x = w / 2 - box_w / 2;
+
+        for (i, (text, color)) in lines.iter().enumerate() {
+            let y = start_y + i as u16;
+            if y >= h { break; }
+            let pad = (box_w as usize).saturating_sub(text.len()) / 2;
+            let padded = format!("{:>pad$}{}", "", text, pad = pad);
+            for (j, ch) in padded.chars().enumerate() {
+                let x = start_x + j as u16;
+                if x < w {
+                    renderer.draw(x, y, ch, *color, Some(Color(20, 20, 30)));
+                }
+            }
+        }
+    }
+
     fn draw_status(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let rain_str = if self.raining { "ON" } else { "off" };
@@ -1238,5 +1294,27 @@ mod tests {
             .count();
         assert_eq!(final_count, 3, "should have spawned one new villager");
         assert_eq!(resources.food, 5, "should have consumed 5 food");
+    }
+
+    #[test]
+    fn game_over_when_all_villagers_die() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        assert!(!game.game_over, "should not start in game over");
+        assert!(!game.paused, "should not start paused");
+
+        // Set all villager hunger to 1.0 so system_death kills them
+        for creature in game.world.query_mut::<&mut Creature>() {
+            if creature.species == Species::Villager {
+                creature.hunger = 1.0;
+            }
+        }
+
+        // Step — death system should trigger game over
+        game.step(GameInput::None, &mut renderer).unwrap();
+
+        assert!(game.game_over, "game should be over when all villagers die");
+        assert!(game.paused, "game should pause on game over");
     }
 }
