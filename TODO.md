@@ -16,7 +16,7 @@
 - [x] Frame diffing — `FrameSnapshot::diff()` returns cell-level `FrameDiff`
 
 ## Engine Core
-- [ ] ECS — hecs or custom, entity/component storage
+- [x] ECS — hecs with Position, Velocity, Sprite components + movement/render systems
 - [ ] Terminal resize handling
 
 ## Game Systems
