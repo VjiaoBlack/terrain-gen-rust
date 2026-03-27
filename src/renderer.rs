@@ -1,9 +1,10 @@
 use anyhow::Result;
+use serde::Serialize;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Color(pub u8, pub u8, pub u8);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Cell {
     pub ch: char,
     pub fg: Color,
