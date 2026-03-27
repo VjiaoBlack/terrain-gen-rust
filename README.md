@@ -50,6 +50,9 @@ Designed as an AI development harness: headless renderer, frame serialization, p
 - Grid-based collision with axis-separated wall sliding and bounce
 - 2:1 aspect ratio correction for square-looking terminal tiles
 - Double-buffered crossterm rendering at 60fps (hybrid sleep + spin-wait)
+- Mouse support for building placement and tile querying
+- Left-side UI panel with resources, population, and clickable building buttons
+- Auto-build mode: AI-driven automatic building placement based on settlement needs
 - Terminal resize handling
 
 **AI Harness**
@@ -71,13 +74,21 @@ Designed as an AI development harness: headless renderer, frame serialization, p
 | `v` | Toggle debug view |
 | `k` | Toggle query/inspect mode |
 | `b` | Toggle build mode |
+| `a` | Toggle auto-build mode |
 | `Space` | Pause/unpause |
 | `d` | Drain all water |
+| Mouse click | Place building (build mode) or query tile (normal mode) |
 | `q` | Quit (or exit mode) |
+
+**Left panel**: Always-visible sidebar showing date/season, resources (Food/Wood/Stone), population, clickable building buttons with costs, auto-build toggle, and control hints.
+
+**Mouse support**: Click on the map to place buildings (in build mode) or query tiles (in normal mode). Click panel buttons to select building types or toggle auto-build.
 
 **Query mode** (`k`): Move cursor with `WASD`. Shows tile info (terrain, height, water, moisture, vegetation, influence) and entity details (species, hunger, AI state, speed, home, farm growth).
 
-**Build mode** (`b`): Move cursor with `WASD`, `Tab` cycles building type (Hut/Wall/Farm), `Enter`/`Space` places. Green ghost = valid, red = invalid. Costs resources.
+**Build mode** (`b`): Move cursor with `WASD` or click map, `Tab` cycles building type (Hut/Wall/Farm/Stockpile), `Enter`/`Space`/click places. Green ghost = valid, red = invalid. Costs resources.
+
+**Auto-build** (`a`): When enabled, the game automatically queues buildings based on settlement needs — farms when food is low, huts when population grows, and walls when wolves approach.
 
 ## Building & Running
 
@@ -91,7 +102,7 @@ cargo run --release
 cargo test
 ```
 
-118 tests cover terrain generation, water simulation, day/night lighting, ECS systems, collision, AI behavior, ecosystem interactions, building system, seasons, farming, breeding, influence maps, and the headless harness.
+119 tests cover terrain generation, water simulation, day/night lighting, ECS systems, collision, AI behavior, ecosystem interactions, building system, seasons, farming, breeding, influence maps, and the headless harness.
 
 ## Architecture
 
