@@ -457,7 +457,7 @@ impl DayNightCycle {
         // Pick the active light source
         let (light_dx, light_dy, light_dz, light_strength) = if is_night {
             let (dx, dy, dz) = self.moon_direction_3d();
-            (dx, dy, dz, 0.25) // moon at 25% sun intensity
+            (dx, dy, dz, 0.4) // moon at 40% sun intensity
         } else {
             let (dx, dy, dz) = self.sun_direction_3d();
             (dx, dy, dz, 1.0)
@@ -542,7 +542,7 @@ impl DayNightCycle {
                 let in_shadow = shadow[si] > terrain_h + 0.01;
 
                 if in_shadow {
-                    self.light_map[i] = 0.15;
+                    self.light_map[i] = 0.05;
                     continue;
                 }
 
@@ -598,12 +598,12 @@ impl DayNightCycle {
             let t = (sun_elev + 0.2) / 0.2;
             (0.3 + 0.7 * t, 0.3 + 0.3 * t, 0.5)
         } else if moon_elev > 0.1 {
-            // Moonlit night: cool blue-silver
-            let m = (moon_elev / 0.5).min(1.0); // brighter when moon is higher
-            (0.15 + 0.1 * m, 0.18 + 0.12 * m, 0.35 + 0.15 * m)
+            // Moonlit night: cool blue-silver, fairly visible
+            let m = (moon_elev / 0.5).min(1.0);
+            (0.25 + 0.15 * m, 0.28 + 0.15 * m, 0.45 + 0.15 * m)
         } else {
-            // Dark night: deep blue
-            (0.12, 0.12, 0.25)
+            // Dark night: still visible but muted
+            (0.18, 0.18, 0.30)
         }
     }
 
