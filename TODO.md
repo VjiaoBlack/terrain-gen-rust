@@ -26,6 +26,16 @@
 - [ ] Physics/collision — simple grid or AABB
 - [ ] Planning/AI — entity behaviors
 
+## Terrain Simulation
+- [x] Water flow — gradient descent, 8 neighbors, evaporation, pooling
+- [x] Rain — toggleable random water drops
+- [x] Erosion — toggleable, distributed kernel modifies terrain heights
+- [x] Water rendering — depth-colored ~≈ characters over terrain
+- [x] Interactive controls — [r] rain, [e] erosion, [d] drain
+- [ ] Moisture propagation — spreads from water, drives vegetation
+- [ ] Vegetation growth/decay — responds to moisture bands
+- [ ] Day/night cycle — color shifts based on time
+
 ## Later
 - [ ] notcurses backend swap
 - [ ] rayon parallelism where needed
