@@ -13,6 +13,13 @@ pub enum Terrain {
 }
 
 impl Terrain {
+    pub fn is_walkable(&self) -> bool {
+        match self {
+            Terrain::Water | Terrain::Mountain | Terrain::Snow => false,
+            Terrain::Sand | Terrain::Grass | Terrain::Forest => true,
+        }
+    }
+
     /// Characters chosen for similar visual density — subtle texture, not brightness.
     pub fn ch(&self) -> char {
         match self {
@@ -76,6 +83,19 @@ impl TileMap {
     pub fn set(&mut self, x: usize, y: usize, terrain: Terrain) {
         if x < self.width && y < self.height {
             self.tiles[y * self.width + x] = terrain;
+        }
+    }
+
+    /// Check if a world position is walkable (in-bounds and walkable terrain).
+    pub fn is_walkable(&self, x: f64, y: f64) -> bool {
+        let ix = x.round() as i64;
+        let iy = y.round() as i64;
+        if ix < 0 || iy < 0 {
+            return false;
+        }
+        match self.get(ix as usize, iy as usize) {
+            Some(t) => t.is_walkable(),
+            None => false, // out of bounds = blocked
         }
     }
 }

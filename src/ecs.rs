@@ -2,6 +2,7 @@ use hecs::World;
 use serde::Serialize;
 
 use crate::renderer::{Color, Renderer};
+use crate::tilemap::TileMap;
 
 // --- Components ---
 
@@ -25,12 +26,28 @@ pub struct Sprite {
 
 // --- Systems ---
 
-pub fn system_movement(world: &mut World) {
-    for (pos, vel) in world.query_mut::<(&mut Position, &Velocity)>() {
-        pos.x += vel.dx;
-        pos.y += vel.dy;
+/// Move entities with terrain collision. Each axis is tested independently so
+/// entities slide along walls. If blocked, velocity on that axis is reversed
+/// (NPCs bounce).
+pub fn system_movement(world: &mut World, map: &TileMap) {
+    for (pos, vel) in world.query_mut::<(&mut Position, &mut Velocity)>() {
+        // Try X
+        let new_x = pos.x + vel.dx;
+        if map.is_walkable(new_x, pos.y) {
+            pos.x = new_x;
+        } else {
+            vel.dx = -vel.dx; // bounce
+        }
+        // Try Y
+        let new_y = pos.y + vel.dy;
+        if map.is_walkable(pos.x, new_y) {
+            pos.y = new_y;
+        } else {
+            vel.dy = -vel.dy; // bounce
+        }
     }
 }
+
 
 pub fn system_render(world: &World, renderer: &mut dyn Renderer) {
     for (pos, sprite) in world.query::<(&Position, &Sprite)>().iter() {
@@ -56,6 +73,11 @@ pub fn spawn_entity(world: &mut World, x: f64, y: f64, dx: f64, dy: f64, ch: cha
 mod tests {
     use super::*;
     use crate::headless_renderer::HeadlessRenderer;
+    use crate::tilemap::{Terrain, TileMap};
+
+    fn walkable_map(w: usize, h: usize) -> TileMap {
+        TileMap::new(w, h, Terrain::Grass)
+    }
 
     #[test]
     fn spawn_and_query() {
@@ -75,9 +97,10 @@ mod tests {
     #[test]
     fn movement_system_updates_position() {
         let mut world = World::new();
+        let map = walkable_map(20, 20);
         let e = spawn_entity(&mut world, 10.0, 5.0, 1.5, -0.5, '@', Color(255, 255, 255));
 
-        system_movement(&mut world);
+        system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
         assert_eq!(pos.x, 11.5);
@@ -87,15 +110,77 @@ mod tests {
     #[test]
     fn movement_accumulates_over_ticks() {
         let mut world = World::new();
+        let map = walkable_map(20, 20);
         let e = spawn_entity(&mut world, 0.0, 0.0, 1.0, 1.0, '@', Color(255, 255, 255));
 
         for _ in 0..10 {
-            system_movement(&mut world);
+            system_movement(&mut world, &map);
         }
 
         let pos = world.get::<&Position>(e).unwrap();
         assert_eq!(pos.x, 10.0);
         assert_eq!(pos.y, 10.0);
+    }
+
+    #[test]
+    fn collision_blocks_movement() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        // Wall of mountains at x=5
+        for y in 0..10 {
+            map.set(5, y, Terrain::Mountain);
+        }
+        let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        // Should be blocked, position unchanged on x
+        let pos = world.get::<&Position>(e).unwrap();
+        assert_eq!(pos.x, 4.0, "should be blocked by mountain wall");
+    }
+
+    #[test]
+    fn collision_bounces_velocity() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(5, 5, Terrain::Mountain);
+        let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let vel = world.get::<&Velocity>(e).unwrap();
+        assert_eq!(vel.dx, -1.0, "velocity should bounce on collision");
+    }
+
+    #[test]
+    fn slides_along_wall() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        // Wall at x=5
+        for y in 0..10 {
+            map.set(5, y, Terrain::Mountain);
+        }
+        // Moving diagonally into wall
+        let e = spawn_entity(&mut world, 4.0, 4.0, 1.0, 1.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        assert_eq!(pos.x, 4.0, "x should be blocked");
+        assert_eq!(pos.y, 5.0, "y should still move (slide)");
+    }
+
+    #[test]
+    fn water_blocks_movement() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(5, 5, Terrain::Water);
+        let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        assert_eq!(pos.x, 4.0, "water should block movement");
     }
 
     #[test]

@@ -104,12 +104,30 @@ impl Game {
         let camera = Camera::new(100, 100);
         let mut world = World::new();
 
-        // spawn a player entity in the center of the map
-        ecs::spawn_entity(&mut world, 128.0, 128.0, 0.0, 0.0, '@', Color(255, 255, 0));
+        // Spawn entities on walkable tiles (search outward if blocked)
+        let find_walkable = |map: &TileMap, cx: usize, cy: usize| -> (f64, f64) {
+            for r in 0..50 {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if dx.unsigned_abs() as usize != r && dy.unsigned_abs() as usize != r { continue; }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if map.is_walkable(x as f64, y as f64) {
+                            return (x as f64, y as f64);
+                        }
+                    }
+                }
+            }
+            (cx as f64, cy as f64) // fallback
+        };
 
-        // spawn a few wandering NPCs
-        ecs::spawn_entity(&mut world, 110.0, 105.0, 0.1, 0.05, '☺', Color(200, 100, 50));
-        ecs::spawn_entity(&mut world, 130.0, 115.0, -0.05, 0.1, '☺', Color(100, 200, 50));
+        let (px, py) = find_walkable(&map, 128, 128);
+        ecs::spawn_entity(&mut world, px, py, 0.0, 0.0, '@', Color(255, 255, 0));
+
+        let (n1x, n1y) = find_walkable(&map, 110, 105);
+        ecs::spawn_entity(&mut world, n1x, n1y, 0.1, 0.05, '☺', Color(200, 100, 50));
+        let (n2x, n2y) = find_walkable(&map, 130, 115);
+        ecs::spawn_entity(&mut world, n2x, n2y, -0.05, 0.1, '☺', Color(100, 200, 50));
 
         Self {
             target_fps,
@@ -153,7 +171,7 @@ impl Game {
 
         // update simulation
         self.tick += 1;
-        ecs::system_movement(&mut self.world);
+        ecs::system_movement(&mut self.world, &self.map);
 
         if self.raining {
             self.water.rain(&self.sim_config);

@@ -23,7 +23,7 @@
 - [x] Tile map — 2D grid world, camera/viewport, scrolling (256x256, Camera with clamp)
 - [x] Terrain generation — Perlin fBm with configurable octaves, 6 terrain types
 - [x] Entity rendering — entities drawn on map with camera offset
-- [ ] Physics/collision — simple grid or AABB
+- [x] Physics/collision — grid walkability, axis-separated slide+bounce
 - [ ] Planning/AI — entity behaviors
 
 ## Terrain Simulation
