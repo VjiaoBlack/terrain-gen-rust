@@ -1719,7 +1719,7 @@ fn ai_villager(
 }
 
 /// Breeding system: prey breed at dens in spring/summer, wolves breed when well-fed.
-pub fn system_breeding(world: &mut World, season: Season) {
+pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64) {
     let mut rng = rand::rng();
 
     // Only breed in Spring and Summer
@@ -1793,8 +1793,9 @@ pub fn system_breeding(world: &mut World, season: Season) {
             .map(|(p, _, _)| (p.x, p.y))
             .collect();
 
+        let wolf_threshold = (1000.0 / wolf_breed_boost) as u32;
         for (px, py) in wolf_candidates {
-            if rng.random_range(0u32..1000) == 0 {
+            if rng.random_range(0u32..wolf_threshold.max(1)) == 0 {
                 spawn_predator(
                     world,
                     px + rng.random_range(-3i32..4) as f64,
@@ -2620,7 +2621,7 @@ mod tests {
 
         // Run many ticks to overcome 1/500 probability
         for _ in 0..5000 {
-            system_breeding(&mut world, Season::Spring);
+            system_breeding(&mut world, Season::Spring, 1.0);
         }
 
         let final_count = world.query::<&Creature>().iter()
@@ -2640,7 +2641,7 @@ mod tests {
         assert_eq!(initial_count, 1);
 
         for _ in 0..10000 {
-            system_breeding(&mut world, Season::Summer);
+            system_breeding(&mut world, Season::Summer, 1.0);
         }
 
         let final_count = world.query::<&Creature>().iter()
@@ -2656,7 +2657,7 @@ mod tests {
         world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::AtHome { timer: 100 };
 
         for _ in 0..5000 {
-            system_breeding(&mut world, Season::Winter);
+            system_breeding(&mut world, Season::Winter, 1.0);
         }
 
         let count = world.query::<&Creature>().iter()
@@ -2675,7 +2676,7 @@ mod tests {
         }
 
         for _ in 0..5000 {
-            system_breeding(&mut world, Season::Spring);
+            system_breeding(&mut world, Season::Spring, 1.0);
         }
 
         let count = world.query::<&Creature>().iter()

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use hecs::World;
+use rand::RngExt;
 use serde::{Serialize, Deserialize};
 
 use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
@@ -101,6 +102,53 @@ pub enum OverlayMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GameEvent {
+    Drought { ticks_remaining: u64 },
+    BountifulHarvest { ticks_remaining: u64 },
+    Migration { count: u32 },
+    WolfSurge { ticks_remaining: u64 },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EventSystem {
+    pub active_events: Vec<GameEvent>,
+    pub event_log: Vec<String>,
+}
+
+impl EventSystem {
+    /// Returns farm yield multiplier based on active events.
+    pub fn farm_yield_multiplier(&self) -> f64 {
+        for event in &self.active_events {
+            match event {
+                GameEvent::Drought { .. } => return 0.5,
+                GameEvent::BountifulHarvest { .. } => return 2.0,
+                _ => {}
+            }
+        }
+        1.0
+    }
+
+    /// Returns wolf spawn rate multiplier based on active events.
+    pub fn wolf_spawn_multiplier(&self) -> f64 {
+        for event in &self.active_events {
+            if matches!(event, GameEvent::WolfSurge { .. }) {
+                return 2.0;
+            }
+        }
+        1.0
+    }
+
+    fn has_event_type(&self, check: &str) -> bool {
+        self.active_events.iter().any(|e| match e {
+            GameEvent::Drought { .. } => check == "drought",
+            GameEvent::BountifulHarvest { .. } => check == "harvest",
+            GameEvent::Migration { .. } => check == "migration",
+            GameEvent::WolfSurge { .. } => check == "wolf_surge",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CivSkills {
     pub farming: f64,
     pub mining: f64,
@@ -134,6 +182,8 @@ pub struct SaveState {
     pub auto_build: bool,
     pub sim_config: SimConfig,
     pub terrain_config: TerrainGenConfig,
+    #[serde(default)]
+    pub events: EventSystem,
 }
 
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
@@ -174,6 +224,7 @@ pub struct Game {
     pub auto_build: bool,
     pub skills: CivSkills,
     pub overlay: OverlayMode,
+    pub events: EventSystem,
 }
 
 impl Game {
@@ -296,6 +347,7 @@ impl Game {
             auto_build: false,
             skills: CivSkills::default(),
             overlay: OverlayMode::None,
+            events: EventSystem::default(),
         };
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
@@ -306,6 +358,93 @@ impl Game {
         // Keep only last 5 notifications
         if self.notifications.len() > 5 {
             self.notifications.remove(0);
+        }
+    }
+
+    fn update_events(&mut self) {
+        // Tick down duration-based events, remove expired
+        self.events.active_events.retain_mut(|event| {
+            match event {
+                GameEvent::Drought { ticks_remaining } => {
+                    *ticks_remaining = ticks_remaining.saturating_sub(1);
+                    if *ticks_remaining == 0 {
+                        self.events.event_log.push("Drought has ended.".to_string());
+                        return false;
+                    }
+                    true
+                }
+                GameEvent::BountifulHarvest { ticks_remaining } => {
+                    *ticks_remaining = ticks_remaining.saturating_sub(1);
+                    if *ticks_remaining == 0 {
+                        self.events.event_log.push("Bountiful harvest season ends.".to_string());
+                        return false;
+                    }
+                    true
+                }
+                GameEvent::WolfSurge { ticks_remaining } => {
+                    *ticks_remaining = ticks_remaining.saturating_sub(1);
+                    if *ticks_remaining == 0 {
+                        self.events.event_log.push("Wolf surge subsides.".to_string());
+                        return false;
+                    }
+                    true
+                }
+                GameEvent::Migration { .. } => false, // instant, remove after spawning
+            }
+        });
+
+        // Keep event log trimmed
+        if self.events.event_log.len() > 5 {
+            self.events.event_log.drain(0..self.events.event_log.len() - 5);
+        }
+
+        // Check for new events every 100 ticks
+        if self.tick % 100 != 0 { return; }
+
+        let mut rng = rand::rng();
+        let season = self.day_night.season;
+
+        match season {
+            Season::Summer => {
+                if !self.events.has_event_type("drought") && rng.random_range(0u32..100) < 15 {
+                    self.events.active_events.push(GameEvent::Drought { ticks_remaining: 300 });
+                    self.events.event_log.push("Drought! Farm yields halved.".to_string());
+                    self.notify("Drought! Farm yields halved.".to_string());
+                }
+            }
+            Season::Autumn => {
+                if !self.events.has_event_type("harvest") && rng.random_range(0u32..100) < 20 {
+                    self.events.active_events.push(GameEvent::BountifulHarvest { ticks_remaining: 200 });
+                    self.events.event_log.push("Bountiful harvest! Farm yields doubled.".to_string());
+                    self.notify("Bountiful harvest! Farm yields doubled.".to_string());
+                }
+            }
+            Season::Spring => {
+                // Migration: new villagers arrive if food surplus and housing available
+                let villager_count = self.world.query::<&Creature>().iter()
+                    .filter(|c| c.species == Species::Villager).count() as u32;
+                let hut_capacity: u32 = self.world.query::<&HutBuilding>().iter()
+                    .map(|h| h.capacity).sum();
+                let has_housing = hut_capacity > villager_count;
+                if has_housing && self.resources.food > 30 && rng.random_range(0u32..100) < 20 {
+                    let count = rng.random_range(1u32..4);
+                    let (cx, cy) = self.settlement_center();
+                    for _ in 0..count {
+                        let ox = rng.random_range(-3i32..4) as f64;
+                        let oy = rng.random_range(-3i32..4) as f64;
+                        ecs::spawn_villager(&mut self.world, cx as f64 + ox, cy as f64 + oy);
+                    }
+                    self.events.event_log.push(format!("{} migrants arrived!", count));
+                    self.notify(format!("{} migrants arrived!", count));
+                }
+            }
+            Season::Winter => {
+                if !self.events.has_event_type("wolf_surge") && rng.random_range(0u32..100) < 25 {
+                    self.events.active_events.push(GameEvent::WolfSurge { ticks_remaining: 400 });
+                    self.events.event_log.push("Wolf surge! Pack activity increases.".to_string());
+                    self.notify("Wolf surge! Pack activity increases.".to_string());
+                }
+            }
         }
     }
 
@@ -328,6 +467,7 @@ impl Game {
             auto_build: self.auto_build,
             sim_config: self.sim_config.clone(),
             terrain_config: serde_json::from_value(serde_json::to_value(&self.terrain_config)?)?,
+            events: self.events.clone(),
         };
         let file = std::fs::File::create(path)?;
         serde_json::to_writer(file, &state)?;
@@ -371,6 +511,7 @@ impl Game {
             auto_build: state.auto_build,
             skills: state.skills,
             overlay: OverlayMode::None,
+            events: state.events,
         })
     }
 
@@ -471,6 +612,9 @@ impl Game {
             // Clean up old notifications
             self.notifications.retain(|(t, _)| self.tick - t < 200);
 
+            // Update event system
+            self.update_events();
+
             // Apply seasonal modifiers
             let mods = self.day_night.season_modifiers();
 
@@ -562,7 +706,8 @@ impl Game {
             let wolf_before = self.world.query::<&Creature>().iter()
                 .filter(|c| c.species == Species::Predator).count();
 
-            ecs::system_breeding(&mut self.world, self.day_night.season);
+            let wolf_boost = self.events.wolf_spawn_multiplier();
+            ecs::system_breeding(&mut self.world, self.day_night.season, wolf_boost);
 
             let prey_after = self.world.query::<&Creature>().iter()
                 .filter(|c| c.species == Species::Prey).count();
@@ -616,8 +761,8 @@ impl Game {
                 self.notify("All villagers have perished!".to_string());
             }
 
-            // Farm growth and harvest (farming skill boosts growth rate)
-            let farm_mult = 1.0 + self.skills.farming / 100.0;
+            // Farm growth and harvest (farming skill + event multiplier)
+            let farm_mult = (1.0 + self.skills.farming / 100.0) * self.events.farm_yield_multiplier();
             let farm_food = ecs::system_farms(&mut self.world, self.day_night.season, farm_mult);
             self.resources.food += farm_food;
             // Active farms contribute to farming skill
@@ -2273,5 +2418,73 @@ mod tests {
         let state = world.get::<&Behavior>(v).unwrap().state;
         assert!(matches!(state, BehaviorState::Sleeping { .. }),
             "villager should sleep at night when hut is nearby, got: {:?}", state);
+    }
+
+    #[test]
+    fn drought_halves_farm_yield() {
+        let mut events = EventSystem::default();
+        assert_eq!(events.farm_yield_multiplier(), 1.0);
+
+        events.active_events.push(GameEvent::Drought { ticks_remaining: 100 });
+        assert_eq!(events.farm_yield_multiplier(), 0.5);
+    }
+
+    #[test]
+    fn bountiful_harvest_doubles_farm_yield() {
+        let mut events = EventSystem::default();
+        events.active_events.push(GameEvent::BountifulHarvest { ticks_remaining: 100 });
+        assert_eq!(events.farm_yield_multiplier(), 2.0);
+    }
+
+    #[test]
+    fn wolf_surge_doubles_breeding() {
+        let mut events = EventSystem::default();
+        assert_eq!(events.wolf_spawn_multiplier(), 1.0);
+
+        events.active_events.push(GameEvent::WolfSurge { ticks_remaining: 100 });
+        assert_eq!(events.wolf_spawn_multiplier(), 2.0);
+    }
+
+    #[test]
+    fn events_expire_after_duration() {
+        let mut game = Game::new(60, 42);
+        game.events.active_events.push(GameEvent::Drought { ticks_remaining: 2 });
+
+        // Tick 1: still active
+        game.tick = 99; // avoid the event check (only triggers on tick % 100 == 0)
+        game.update_events();
+        assert_eq!(game.events.active_events.len(), 1);
+
+        // Tick 2: should expire
+        game.update_events();
+        assert_eq!(game.events.active_events.len(), 0);
+    }
+
+    #[test]
+    fn no_duplicate_events() {
+        let mut events = EventSystem::default();
+        events.active_events.push(GameEvent::Drought { ticks_remaining: 100 });
+        assert!(events.has_event_type("drought"));
+        // The check prevents duplicates
+        assert!(!events.has_event_type("harvest"));
+    }
+
+    #[test]
+    fn event_system_serialization() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        game.events.active_events.push(GameEvent::Drought { ticks_remaining: 150 });
+        game.events.event_log.push("Test event".to_string());
+
+        game.save("/tmp/test_events_save.json").unwrap();
+        let loaded = Game::load("/tmp/test_events_save.json", 60).unwrap();
+
+        assert_eq!(loaded.events.active_events.len(), 1);
+        assert!(matches!(loaded.events.active_events[0], GameEvent::Drought { ticks_remaining: 150 }));
+        assert_eq!(loaded.events.event_log.len(), 1);
+
+        // Cleanup
+        let _ = std::fs::remove_file("/tmp/test_events_save.json");
     }
 }
