@@ -223,8 +223,22 @@ impl super::Game {
                 if wx >= 0 && wy >= 0 {
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
                         if *terrain == Terrain::Water {
-                            // Water terrain: no day/night shading, constant appearance
-                            renderer.draw(sx, sy, terrain.ch(), terrain.fg(), terrain.bg());
+                            // Water terrain: animated character + blue shimmer
+                            let water_chars = ['~', '≈', '∼'];
+                            let anim_index = ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
+                            let ch = water_chars[anim_index];
+
+                            let Color(r, g, b) = terrain.fg();
+                            let shimmer = (((self.tick as f64) * 0.1 + (wx as f64)).sin() * 20.0) as i16;
+                            let b_shimmered = (b as i16 + shimmer).clamp(0, 255) as u8;
+                            let fg = Color(r, g, b_shimmered);
+
+                            let bg = terrain.bg().map(|Color(br, bg_g, bb)| {
+                                let bb_shimmered = (bb as i16 + shimmer).clamp(0, 255) as u8;
+                                Color(br, bg_g, bb_shimmered)
+                            });
+
+                            renderer.draw(sx, sy, ch, fg, bg);
                         } else {
                             let fg = self.season_tint(terrain.fg(), terrain);
                             let bg = terrain.bg().map(|c| self.season_tint(c, terrain));
@@ -279,11 +293,21 @@ impl super::Game {
                         let intensity = (depth * 500.0).min(1.0);
                         let r = (50.0 * (1.0 - intensity)) as u8;
                         let g = (100.0 + 50.0 * intensity) as u8;
-                        let b = (180.0 + 75.0 * intensity) as u8;
-                        let ch = if depth > 0.01 { '≈' } else { '~' };
+                        let b_base = (180.0 + 75.0 * intensity) as u8;
+
+                        // Animated character cycling
+                        let water_chars = ['~', '≈', '∼'];
+                        let anim_index = ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
+                        let ch = water_chars[anim_index];
+
+                        // Blue channel shimmer
+                        let shimmer = (((self.tick as f64) * 0.1 + (wx as f64)).sin() * 20.0) as i16;
+                        let b = (b_base as i16 + shimmer).clamp(0, 255) as u8;
+
                         let fg = self.day_night.apply_lighting(Color(r, g, b), wx as usize, wy as usize);
+                        let bg_b = ((80.0 + 40.0 * intensity) as i16 + shimmer).clamp(0, 255) as u8;
                         let bg = self.day_night.apply_lighting_bg(
-                            Some(Color(20, 40, (80.0 + 40.0 * intensity) as u8)),
+                            Some(Color(20, 40, bg_b)),
                             wx as usize, wy as usize,
                         );
                         renderer.draw(sx, sy, ch, fg, bg);

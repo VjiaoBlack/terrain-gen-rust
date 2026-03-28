@@ -1350,4 +1350,58 @@ mod tests {
         game.step(GameInput::None, &mut renderer).unwrap();
         // Just verify no panic
     }
+
+    #[test]
+    fn water_animation_renders_without_panic() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Run multiple ticks so the water animation cycles through all characters
+        for _ in 0..30 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        // Just verify no panic across multiple animation frames
+    }
+
+    #[test]
+    fn water_animation_cycles_characters() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Set tick values that produce different animation indices
+        // For a given (x, y), changing tick/8 should cycle the character
+        game.tick = 0;
+        game.draw(&mut renderer);
+        let frame0 = renderer.frame_as_string();
+
+        game.tick = 8;
+        renderer.clear();
+        game.draw(&mut renderer);
+        let frame1 = renderer.frame_as_string();
+
+        game.tick = 16;
+        renderer.clear();
+        game.draw(&mut renderer);
+        let frame2 = renderer.frame_as_string();
+
+        // At least one pair of frames should differ (animation is cycling)
+        let any_change = frame0 != frame1 || frame1 != frame2 || frame0 != frame2;
+        assert!(any_change, "water animation should produce different frames at different ticks");
+    }
+
+    #[test]
+    fn water_shimmer_clamps_blue_channel() {
+        // Verify the shimmer math doesn't panic with extreme tick values
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        game.tick = u64::MAX / 2;
+        game.draw(&mut renderer);
+        // No panic = pass
+
+        game.tick = 0;
+        renderer.clear();
+        game.draw(&mut renderer);
+        // No panic = pass
+    }
 }
