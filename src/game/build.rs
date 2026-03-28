@@ -1,4 +1,4 @@
-use crate::ecs::{self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, Recipe, Species, Stockpile};
+use crate::ecs::{self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Species, Stockpile};
 use crate::renderer::Renderer;
 use crate::tilemap::Terrain;
 use super::{CELL_ASPECT, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
@@ -478,5 +478,102 @@ impl super::Game {
             }
         }
         None
+    }
+
+    /// Demolish any building at (bx, by). Restores terrain to grass and despawns entity.
+    pub(super) fn demolish_at(&mut self, bx: i32, by: i32) {
+
+        // Find building entity at this position
+        let mut to_demolish: Option<hecs::Entity> = None;
+        let mut building_size = (1i32, 1i32);
+
+        // Check for huts
+        for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &HutBuilding))>().iter() {
+            let (w, h) = BuildingType::Hut.size();
+            let ex = pos.x as i32 - w / 2;
+            let ey = pos.y as i32 - h / 2;
+            if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                to_demolish = Some(entity);
+                building_size = (w, h);
+                break;
+            }
+        }
+
+        // Check for farms
+        if to_demolish.is_none() {
+            for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &FarmPlot))>().iter() {
+                let (w, h) = BuildingType::Farm.size();
+                let ex = pos.x as i32 - w / 2;
+                let ey = pos.y as i32 - h / 2;
+                if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                    to_demolish = Some(entity);
+                    building_size = (w, h);
+                    break;
+                }
+            }
+        }
+
+        // Check for garrisons
+        if to_demolish.is_none() {
+            for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &GarrisonBuilding))>().iter() {
+                let (w, h) = BuildingType::Garrison.size();
+                let ex = pos.x as i32 - w / 2;
+                let ey = pos.y as i32 - h / 2;
+                if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                    to_demolish = Some(entity);
+                    building_size = (w, h);
+                    break;
+                }
+            }
+        }
+
+        // Check for processing buildings (workshop, smithy, bakery)
+        if to_demolish.is_none() {
+            for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &ProcessingBuilding))>().iter() {
+                let (w, h) = (3, 3); // processing buildings are 3x3
+                let ex = pos.x as i32 - w / 2;
+                let ey = pos.y as i32 - h / 2;
+                if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                    to_demolish = Some(entity);
+                    building_size = (w, h);
+                    break;
+                }
+            }
+        }
+
+        // Check for build sites (in-progress buildings)
+        if to_demolish.is_none() {
+            for (entity, (pos, site)) in self.world.query::<(hecs::Entity, (&Position, &BuildSite))>().iter() {
+                let (w, h) = site.building_type.size();
+                let ex = pos.x as i32;
+                let ey = pos.y as i32;
+                if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                    to_demolish = Some(entity);
+                    building_size = (w, h);
+                    break;
+                }
+            }
+        }
+
+        if let Some(entity) = to_demolish {
+            let _ = self.world.despawn(entity);
+            // Restore terrain under demolished building to grass
+            for dy in 0..building_size.1 {
+                for dx in 0..building_size.0 {
+                    let tx = bx + dx;
+                    let ty = by + dy;
+                    if tx >= 0 && ty >= 0 {
+                        let tux = tx as usize;
+                        let tuy = ty as usize;
+                        if let Some(t) = self.map.get(tux, tuy) {
+                            if matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall) {
+                                self.map.set(tux, tuy, Terrain::Grass);
+                            }
+                        }
+                    }
+                }
+            }
+            self.notify("Building demolished.".to_string());
+        }
     }
 }

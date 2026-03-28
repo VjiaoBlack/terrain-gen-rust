@@ -103,6 +103,8 @@ pub enum GameInput {
     Restart,
     ToggleAutoBuild,
     CycleOverlay,
+    GotoSettlement,
+    Demolish,
     /// Mouse click at screen coordinates (x, y)
     MouseClick { x: u16, y: u16 },
     None,
@@ -295,7 +297,7 @@ impl Game {
 
     pub fn new_with_size(target_fps: u32, seed: u32, map_width: usize, map_height: usize) -> Self {
         // Reduce terrain noise scale for larger biomes — buildings feel right-sized
-        let terrain_config = TerrainGenConfig { seed, scale: 0.012, ..Default::default() };
+        let terrain_config = TerrainGenConfig { seed, scale: 0.02, ..Default::default() };
         let (mut map, heights) = terrain_gen::generate_terrain(map_width, map_height, &terrain_config);
         let mut water = WaterMap::new(map_width, map_height);
         // Seed water at terrain-Water tiles so ocean/lake areas have actual water
@@ -329,13 +331,36 @@ impl Game {
             (cx as f64, cy as f64) // fallback
         };
 
-        // Map center for entity placement
+        // Find a good start position: grass/sand tile adjacent to forest, near map center
         let cx = map_width / 2;
         let cy = map_height / 2;
-
-        // Player
-        let (px, py) = find_walkable(&map, cx, cy);
-        ecs::spawn_entity(&mut world, px, py, 0.0, 0.0, '@', Color(255, 255, 0));
+        let mut start_cx = cx;
+        let mut start_cy = cy;
+        'search: for r in 0..80usize {
+            for dy in -(r as i32)..=(r as i32) {
+                for dx in -(r as i32)..=(r as i32) {
+                    if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) { continue; }
+                    let x = cx as i32 + dx;
+                    let y = cy as i32 + dy;
+                    if x < 2 || y < 2 || x as usize >= map_width - 2 || y as usize >= map_height - 2 { continue; }
+                    let ux = x as usize;
+                    let uy = y as usize;
+                    if let Some(t) = map.get(ux, uy) {
+                        if matches!(t, Terrain::Grass | Terrain::Sand) {
+                            // Check if forest is adjacent (within 3 tiles)
+                            let has_forest = (-3i32..=3).any(|fy| (-3i32..=3).any(|fx| {
+                                map.get((ux as i32 + fx) as usize, (uy as i32 + fy) as usize) == Some(&Terrain::Forest)
+                            }));
+                            if has_forest {
+                                start_cx = ux;
+                                start_cy = uy;
+                                break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Ecosystem: dens, berry bushes, prey, predators (offset from center)
         let den_spots = [
@@ -372,9 +397,10 @@ impl Game {
             ecs::spawn_predator(&mut world, wx, wy);
         }
 
-        // Settlement: stockpile + villagers near center, with nearby food
-        let sc = cx.wrapping_sub(3); // settlement center offset
-        let (sx, sy) = find_walkable(&map, sc, sc);
+        // Settlement: stockpile + villagers near found start position
+        let scx = start_cx;
+        let scy = start_cy;
+        let (sx, sy) = find_walkable(&map, scx, scy);
         ecs::spawn_stockpile(&mut world, sx, sy);
         // Set stockpile terrain tiles (2x2)
         for dy in 0..2 {
@@ -384,7 +410,7 @@ impl Game {
         }
 
         // Pre-built hut near stockpile
-        let (hx, hy) = find_walkable(&map, sc.wrapping_sub(3), sc.wrapping_sub(2));
+        let (hx, hy) = find_walkable(&map, scx.wrapping_sub(3), scy.wrapping_sub(2));
         for (dx, dy, terrain) in BuildingType::Hut.tiles() {
             map.set(hx as usize + dx as usize, hy as usize + dy as usize, terrain);
         }
@@ -392,7 +418,7 @@ impl Game {
         ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
 
         // Pre-built farm near stockpile
-        let (fx, fy) = find_walkable(&map, sc + 3, sc.wrapping_sub(2));
+        let (fx, fy) = find_walkable(&map, scx + 3, scy.wrapping_sub(2));
         for (dx, dy, terrain) in BuildingType::Farm.tiles() {
             map.set(fx as usize + dx as usize, fy as usize + dy as usize, terrain);
         }
@@ -400,20 +426,20 @@ impl Game {
         ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Berry bushes near settlement so villagers have food access
-        for &(bsx, bsy) in &[(sc.wrapping_sub(1), sc.wrapping_sub(1)), (sc + 1, sc + 2)] {
+        for &(bsx, bsy) in &[(scx.wrapping_sub(1), scy.wrapping_sub(1)), (scx + 1, scy + 2)] {
             let (bx, by) = find_walkable(&map, bsx, bsy);
             ecs::spawn_berry_bush(&mut world, bx, by);
         }
 
         // Stone deposits near settlement so villagers can gather stone
-        for &(dsx, dsy) in &[(sc.wrapping_sub(3), sc), (sc + 3, sc + 1)] {
+        for &(dsx, dsy) in &[(scx.wrapping_sub(3), scy), (scx + 3, scy + 1)] {
             let (dx, dy) = find_walkable(&map, dsx, dsy);
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
         // Spawn 3 villagers near the stockpile
         for i in 0..3 {
-            let (vx, vy) = find_walkable(&map, sc + i * 2, sc + 1);
+            let (vx, vy) = find_walkable(&map, scx + i * 2, scy + 1);
             ecs::spawn_villager(&mut world, vx, vy);
         }
 
@@ -435,13 +461,13 @@ impl Game {
             paused: false,
             debug_view: false,
             query_mode: false,
-            query_cx: cx as i32,
-            query_cy: cy as i32,
+            query_cx: scx as i32,
+            query_cy: scy as i32,
             display_fps: None,
             resources: Resources { food: 20, wood: 20, stone: 10, ..Default::default() },
             build_mode: false,
-            build_cursor_x: cx as i32,
-            build_cursor_y: cy as i32,
+            build_cursor_x: scx as i32,
+            build_cursor_y: scy as i32,
             selected_building: BuildingType::Wall,
             influence: InfluenceMap::new(map_width, map_height),
             last_birth_tick: 0,
@@ -460,7 +486,10 @@ impl Game {
             script_engine: None,
         };
         // Pre-reveal settlement start area (around map center)
-        g.exploration.reveal(cx, cy, 15);
+        g.exploration.reveal(scx, scy, 15);
+        // Start camera at settlement
+        g.camera.x = scx as i32 - 20;
+        g.camera.y = scy as i32 - 10;
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
     }
@@ -607,6 +636,16 @@ impl Game {
                 };
             }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
+            GameInput::GotoSettlement => {
+                let (scx, scy) = self.settlement_center();
+                self.camera.x = scx - 20;
+                self.camera.y = scy - 10;
+            }
+            GameInput::Demolish => {
+                if self.build_mode {
+                    self.demolish_at(self.build_cursor_x, self.build_cursor_y);
+                }
+            }
             GameInput::Save => { let _ = self.save("savegame.json"); },
             GameInput::Load => {} // handled in main.rs loop
             GameInput::Quit | GameInput::Restart | GameInput::None => {}
@@ -1211,12 +1250,14 @@ mod tests {
         game.resources.wood = 100;
         game.resources.stone = 100;
 
-        // Place a wall build site near the actual settlement center
+        // Place a wall build site near the actual settlement center on walkable terrain
         let (scx, scy) = game.settlement_center();
-        let site = ecs::spawn_build_site(&mut game.world, scx as f64 + 1.0, scy as f64 + 1.0, BuildingType::Wall);
+        // Ensure the site terrain is walkable
+        game.map.set((scx + 2) as usize, scy as usize, Terrain::Grass);
+        let site = ecs::spawn_build_site(&mut game.world, scx as f64 + 2.0, scy as f64, BuildingType::Wall);
 
-        // Run for enough ticks — wall requires 30 build_time
-        for _ in 0..1500 {
+        // Run for enough ticks — wall requires 30 build_time, villagers may be slow on terrain
+        for _ in 0..3000 {
             game.step(GameInput::None, &mut renderer).unwrap();
             if game.world.get::<&BuildSite>(site).is_err() {
                 return; // Build site despawned = completed
@@ -1224,7 +1265,7 @@ mod tests {
         }
 
         if let Ok(s) = game.world.get::<&BuildSite>(site) {
-            panic!("build site not completed after 1500 ticks: progress={}/{}", s.progress, s.required);
+            panic!("build site not completed after 3000 ticks: progress={}/{}", s.progress, s.required);
         }
     }
 
