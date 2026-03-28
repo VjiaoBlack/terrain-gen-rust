@@ -883,6 +883,19 @@ impl Game {
                 }
             }
         }
+        // Must be within settlement influence (any tile of building footprint)
+        let in_territory = (0..h).any(|dy| (0..w).any(|dx| {
+            let tx = bx + dx;
+            let ty = by + dy;
+            if tx >= 0 && ty >= 0 {
+                self.influence.get(tx as usize, ty as usize) > 0.1
+            } else {
+                false
+            }
+        }));
+        if !in_territory {
+            return false;
+        }
         true
     }
 
@@ -1083,6 +1096,19 @@ impl Game {
         // Active build sites emit influence at strength 0.5
         for (pos, _site) in self.world.query::<(&Position, &BuildSite)>().iter() {
             sources.push((pos.x, pos.y, 0.5));
+        }
+
+        // Garrisons project stronger influence (outpost expansion)
+        for (pos, _) in self.world.query::<(&Position, &GarrisonBuilding)>().iter() {
+            sources.push((pos.x, pos.y, 3.0));
+        }
+
+        // Huts and stockpiles emit moderate influence
+        for (pos, _) in self.world.query::<(&Position, &HutBuilding)>().iter() {
+            sources.push((pos.x, pos.y, 1.5));
+        }
+        for (pos, _) in self.world.query::<(&Position, &Stockpile)>().iter() {
+            sources.push((pos.x, pos.y, 1.0));
         }
 
         self.influence.update(&sources);
@@ -2306,6 +2332,11 @@ mod tests {
         game.resources.wood = 10;
         game.resources.stone = 10;
 
+        // Build up influence so auto-build can place within territory
+        for _ in 0..10 {
+            game.update_influence();
+        }
+
         let farms_before = game.world.query::<&BuildSite>().iter()
             .filter(|s| s.building_type == BuildingType::Farm).count()
             + game.world.query::<&FarmPlot>().iter().count();
@@ -2657,5 +2688,24 @@ mod tests {
         // Berry bush char '♦' should appear
         let frame = renderer.frame_as_string();
         assert!(frame.contains('♦'), "resource overlay should show berry bushes");
+    }
+
+    #[test]
+    fn building_requires_influence() {
+        let mut game = Game::new(60, 42);
+
+        // Far from settlement — no influence
+        let far_x = 10i32;
+        let far_y = 10i32;
+        assert!(!game.can_place_building(far_x, far_y, BuildingType::Wall),
+            "should not be able to build outside influence");
+
+        // Near settlement — build up influence
+        for _ in 0..10 {
+            game.update_influence();
+        }
+        let (cx, cy) = game.settlement_center();
+        assert!(game.can_place_building(cx + 2, cy + 2, BuildingType::Wall),
+            "should be able to build within influence");
     }
 }
