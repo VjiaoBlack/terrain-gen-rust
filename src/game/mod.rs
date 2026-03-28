@@ -15,6 +15,16 @@ use crate::simulation::{DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
 
+pub struct Particle {
+    pub x: f64,
+    pub y: f64,
+    pub ch: char,
+    pub fg: Color,
+    pub life: u32,
+    pub dx: f64,
+    pub dy: f64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct FrameSnapshot {
     pub tick: u64,
@@ -237,6 +247,9 @@ pub struct Game {
     pub events: EventSystem,
     pub traffic: TrafficMap,
     pub exploration: ExplorationMap,
+    pub particles: Vec<Particle>,
+    #[cfg(feature = "lua")]
+    pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
 
 /// Traffic above this threshold converts walkable terrain to road.
@@ -388,6 +401,9 @@ impl Game {
             events: EventSystem::default(),
             traffic: TrafficMap::new(256, 256),
             exploration: ExplorationMap::new(256, 256),
+            particles: Vec::new(),
+            #[cfg(feature = "lua")]
+            script_engine: None,
         };
         // Pre-reveal settlement start area (around map center)
         g.exploration.reveal(128, 128, 15);
@@ -400,6 +416,58 @@ impl Game {
         // Keep only last 5 notifications
         if self.notifications.len() > 5 {
             self.notifications.remove(0);
+        }
+    }
+
+    /// Load all .lua scripts from a directory into the script engine.
+    /// Creates a new ScriptEngine if one doesn't exist yet.
+    #[cfg(feature = "lua")]
+    pub fn load_scripts(&mut self, dir: &str) -> Result<()> {
+        let engine = match self.script_engine.take() {
+            Some(e) => e,
+            None => crate::scripting::ScriptEngine::new()
+                .map_err(|e| anyhow::anyhow!("Failed to create ScriptEngine: {}", e))?,
+        };
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "lua") {
+                    if let Err(e) = engine.load_script(&path.to_string_lossy()) {
+                        eprintln!("Lua script error in {:?}: {}", path, e);
+                    }
+                }
+            }
+        }
+        self.script_engine = Some(engine);
+        Ok(())
+    }
+
+    /// Call lua on_tick hook with current game state.
+    #[cfg(feature = "lua")]
+    fn lua_on_tick(&self) {
+        if let Some(ref engine) = self.script_engine {
+            let villager_count = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Villager).count() as u32;
+            let wolf_count = self.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Predator).count() as u32;
+            let season_name = self.day_night.season.name();
+            let _ = engine.update_state(villager_count, &self.resources, season_name, wolf_count);
+            let _ = engine.call_hook("on_tick");
+        }
+    }
+
+    /// Hot-reload lua scripts from the scripts/ directory every 100 ticks.
+    #[cfg(feature = "lua")]
+    fn lua_hot_reload(&mut self) {
+        if self.tick % 100 == 0 {
+            if std::path::Path::new("scripts").is_dir() {
+                if let Some(ref engine) = self.script_engine {
+                    let _ = engine.reload_scripts("scripts");
+                } else {
+                    // Auto-initialize engine if scripts/ directory exists
+                    let _ = self.load_scripts("scripts");
+                }
+            }
         }
     }
 
@@ -605,11 +673,11 @@ impl Game {
                 .filter(|c| c.species == Species::Predator).count();
 
             let wolf_boost = self.events.wolf_spawn_multiplier();
-            ecs::system_breeding(&mut self.world, self.day_night.season, wolf_boost);
+            ecs::system_breeding(&mut self.world, self.day_night.season, wolf_boost, self.day_night.year);
 
             // Coordinated wolf raids
             let (scx, scy) = self.settlement_center();
-            if ecs::system_wolf_raids(&mut self.world, scx as f64, scy as f64, self.tick) {
+            if ecs::system_wolf_raids(&mut self.world, scx as f64, scy as f64, self.tick, self.day_night.year) {
                 self.notify("Wolf pack is raiding the settlement!".to_string());
             }
 
@@ -686,6 +754,41 @@ impl Game {
             let process_mult = 1.0;
             ecs::system_processing(&mut self.world, &mut self.resources, process_mult);
 
+            // Update particles: move, age, and remove dead ones
+            for p in &mut self.particles {
+                p.x += p.dx;
+                p.y += p.dy;
+                p.life -= 1;
+            }
+            self.particles.retain(|p| p.life > 0);
+
+            // Spawn smoke particles from active processing buildings
+            {
+                let mut rng = rand::rng();
+                let smoke_sources: Vec<(f64, f64)> = self.world
+                    .query::<(&ProcessingBuilding, &Position)>()
+                    .iter()
+                    .filter(|(pb, _)| pb.worker_present)
+                    .map(|(_, pos)| (pos.x, pos.y))
+                    .collect();
+                for (px, py) in smoke_sources {
+                    // Spawn a smoke particle every ~3 ticks per building
+                    if rng.random_range(0..3) == 0 {
+                        let ch = if rng.random_bool(0.5) { '.' } else { '\u{00b0}' };
+                        let gray = rng.random_range(100u8..180u8);
+                        self.particles.push(Particle {
+                            x: px,
+                            y: py - 1.0,
+                            ch,
+                            fg: Color(gray, gray, gray),
+                            life: rng.random_range(15..=25),
+                            dx: rng.random_range(-0.05..0.05),
+                            dy: rng.random_range(-0.3..-0.1),
+                        });
+                    }
+                }
+            }
+
             // Winter food decay: percentage-based spoilage, grain is preserved
             if self.day_night.season == Season::Winter && self.tick % 30 == 0 && self.resources.food > 0 {
                 let decay = std::cmp::max(1, self.resources.food * 2 / 100); // 2% per 30 ticks, min 1
@@ -722,8 +825,14 @@ impl Game {
                 self.water.rain(&tick_config);
             }
             // Only run expensive water sim when there's actually water
+            let viewport_bounds = Some((
+                self.camera.x.max(0) as usize,
+                self.camera.y.max(0) as usize,
+                (self.camera.x.max(0) as usize).saturating_add(world_vw as usize),
+                (self.camera.y.max(0) as usize).saturating_add(vh as usize),
+            ));
             if self.raining || self.water.has_water() {
-                self.water.update(&mut self.heights, &tick_config);
+                self.water.update(&mut self.heights, &tick_config, viewport_bounds);
                 self.moisture.update(&self.water, &mut self.vegetation, &self.map);
             }
 
@@ -740,6 +849,13 @@ impl Game {
             self.day_night.tick();
             if self.day_night.season != prev_season {
                 self.notify(format!("Season changed: {}", self.day_night.season.name()));
+            }
+
+            // Lua scripting hooks
+            #[cfg(feature = "lua")]
+            {
+                self.lua_hot_reload();
+                self.lua_on_tick();
             }
         }
         if self.day_night.enabled {
@@ -1266,7 +1382,7 @@ mod tests {
         }
 
         // Raid should trigger (wolves within 15 tiles of each other)
-        let raided = ecs::system_wolf_raids(&mut world, 25.0, 25.0, 50);
+        let raided = ecs::system_wolf_raids(&mut world, 25.0, 25.0, 50, 0);
         assert!(raided, "raid should trigger with 6 wolves in a pack");
 
         // All wolves should now be Hunting toward settlement
@@ -1280,12 +1396,12 @@ mod tests {
     fn wolf_raid_needs_minimum_pack() {
         let mut world = hecs::World::new();
 
-        // Only 3 wolves — not enough for a raid
+        // Only 3 wolves — not enough for a raid (year 0, threshold = 5)
         for i in 0..3 {
             ecs::spawn_predator(&mut world, 30.0 + i as f64, 30.0);
         }
 
-        let raided = ecs::system_wolf_raids(&mut world, 25.0, 25.0, 50);
+        let raided = ecs::system_wolf_raids(&mut world, 25.0, 25.0, 50, 0);
         assert!(!raided, "raid should not trigger with only 3 wolves");
     }
 
@@ -1493,5 +1609,161 @@ mod tests {
             }
         }
         assert_eq!(near_bushes, 2, "should have exactly 2 berry bushes near settlement center");
+    }
+
+    #[test]
+    fn particles_spawn_from_active_workshop() {
+        let mut game = Game::new(60, 42);
+        // Spawn a processing building with worker_present = true
+        game.world.spawn((
+            Position { x: 130.0, y: 130.0 },
+            ProcessingBuilding {
+                recipe: Recipe::WoodToPlanks,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+            },
+        ));
+        assert!(game.particles.is_empty(), "no particles before step");
+        // Run enough steps so at least one particle spawns (probabilistic, but 20 steps is enough)
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        assert!(!game.particles.is_empty(), "particles should spawn from active workshop");
+    }
+
+    #[test]
+    fn particles_despawn_after_lifetime() {
+        let mut game = Game::new(60, 42);
+        // Manually add a particle with life=1
+        game.particles.push(Particle {
+            x: 128.0,
+            y: 128.0,
+            ch: '.',
+            fg: Color(150, 150, 150),
+            life: 1,
+            dx: 0.0,
+            dy: -0.2,
+        });
+        assert_eq!(game.particles.len(), 1);
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        game.step(GameInput::None, &mut renderer).unwrap();
+        // After one step, life decrements to 0 and particle is removed
+        let manual_particles: Vec<_> = game.particles.iter()
+            .filter(|p| p.ch == '.' && p.dx == 0.0)
+            .collect();
+        assert!(manual_particles.is_empty(), "particle with life=1 should be removed after one step");
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_on_tick_hook_called_during_step() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(80, 24);
+
+        let engine = crate::scripting::ScriptEngine::new().unwrap();
+        engine.exec("tick_count = 0; function on_tick() tick_count = tick_count + 1 end").unwrap();
+        game.script_engine = Some(engine);
+
+        for _ in 0..5 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        let engine = game.script_engine.as_ref().unwrap();
+        engine.exec("assert(tick_count >= 5, 'on_tick should have been called at least 5 times, got ' .. tick_count)").unwrap();
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_on_tick_updates_game_state() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(80, 24);
+
+        let engine = crate::scripting::ScriptEngine::new().unwrap();
+        engine.exec(r#"
+            last_season = nil
+            last_villager_count = nil
+            function on_tick()
+                last_season = season
+                last_villager_count = villager_count
+            end
+        "#).unwrap();
+        game.script_engine = Some(engine);
+
+        game.step(GameInput::None, &mut renderer).unwrap();
+
+        let engine = game.script_engine.as_ref().unwrap();
+        engine.exec("assert(last_season ~= nil, 'season should be set')").unwrap();
+        engine.exec("assert(last_villager_count ~= nil, 'villager_count should be set')").unwrap();
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_event_hook_fires_on_drought() {
+        let mut game = Game::new(60, 42);
+
+        let engine = crate::scripting::ScriptEngine::new().unwrap();
+        engine.exec(r#"
+            last_event = nil
+            function on_event()
+                last_event = event_name
+            end
+        "#).unwrap();
+        game.script_engine = Some(engine);
+
+        game.fire_event_hook("drought");
+
+        let engine = game.script_engine.as_ref().unwrap();
+        engine.exec(r#"assert(last_event == "drought", "expected drought event, got " .. tostring(last_event))"#).unwrap();
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_event_hook_fires_on_wolf_surge() {
+        let mut game = Game::new(60, 42);
+
+        let engine = crate::scripting::ScriptEngine::new().unwrap();
+        engine.exec(r#"
+            last_event = nil
+            function on_event()
+                last_event = event_name
+            end
+        "#).unwrap();
+        game.script_engine = Some(engine);
+
+        game.fire_event_hook("wolf_surge");
+
+        let engine = game.script_engine.as_ref().unwrap();
+        engine.exec(r#"assert(last_event == "wolf_surge", "expected wolf_surge event")"#).unwrap();
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_hot_reload_picks_up_changes() {
+        let tmp_dir = std::env::temp_dir().join("lua_hot_reload_test");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        let script_path = tmp_dir.join("test.lua");
+        std::fs::write(&script_path, "reload_version = 1").unwrap();
+
+        let mut game = Game::new(60, 42);
+        let engine = crate::scripting::ScriptEngine::new().unwrap();
+        engine.load_script(script_path.to_str().unwrap()).unwrap();
+        game.script_engine = Some(engine);
+
+        game.script_engine.as_ref().unwrap()
+            .exec("assert(reload_version == 1, 'initial version should be 1')").unwrap();
+
+        std::fs::write(&script_path, "reload_version = 2").unwrap();
+
+        game.script_engine.as_ref().unwrap()
+            .reload_scripts(tmp_dir.to_str().unwrap()).unwrap();
+
+        game.script_engine.as_ref().unwrap()
+            .exec("assert(reload_version == 2, 'version should be 2 after reload')").unwrap();
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

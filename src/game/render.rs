@@ -409,6 +409,15 @@ impl super::Game {
             }
         }
 
+        // Draw particles (smoke, effects) on top of entities
+        for p in &self.particles {
+            let sx = (p.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+            let sy = p.y.round() as i32 - self.camera.y;
+            if sx >= panel_w as i32 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {
+                renderer.draw(sx as u16, sy as u16, p.ch, p.fg, None);
+            }
+        }
+
         // Overlay pass: draw additional markers on top
         if self.overlay == OverlayMode::Resources {
             self.draw_resource_overlay(renderer);

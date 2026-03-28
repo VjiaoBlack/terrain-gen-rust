@@ -74,6 +74,9 @@ impl Game {
             events: state.events,
             traffic: state.traffic,
             exploration: ExplorationMap::new(map_w, map_h),
+            particles: Vec::new(),
+            #[cfg(feature = "lua")]
+            script_engine: None,
         })
     }
 }
