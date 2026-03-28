@@ -127,6 +127,7 @@ pub enum BuildingType {
     Workshop,
     Smithy,
     Garrison,
+    Road,
 }
 
 impl BuildingType {
@@ -139,6 +140,7 @@ impl BuildingType {
             BuildingType::Workshop => Resources { wood: 8, stone: 4, ..Default::default() },
             BuildingType::Smithy => Resources { wood: 5, stone: 8, ..Default::default() },
             BuildingType::Garrison => Resources { planks: 5, masonry: 5, ..Default::default() },
+            BuildingType::Road => Resources { stone: 1, ..Default::default() },
         }
     }
 
@@ -151,6 +153,7 @@ impl BuildingType {
             BuildingType::Workshop => 150,
             BuildingType::Smithy => 180,
             BuildingType::Garrison => 120,
+            BuildingType::Road => 20,
         }
     }
 
@@ -163,6 +166,7 @@ impl BuildingType {
             BuildingType::Workshop => (3, 3),
             BuildingType::Smithy => (3, 3),
             BuildingType::Garrison => (3, 3),
+            BuildingType::Road => (1, 1),
         }
     }
 
@@ -222,11 +226,12 @@ impl BuildingType {
                 tiles.push((1, 1, Terrain::BuildingFloor));
                 tiles
             }
+            BuildingType::Road => vec![(0, 0, Terrain::Road)],
         }
     }
 
     pub fn all() -> &'static [BuildingType] {
-        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison]
+        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison, BuildingType::Road]
     }
 
     pub fn name(&self) -> &'static str {
@@ -238,6 +243,7 @@ impl BuildingType {
             BuildingType::Workshop => "Workshop",
             BuildingType::Smithy => "Smithy",
             BuildingType::Garrison => "Garrison",
+            BuildingType::Road => "Road",
         }
     }
 }
@@ -446,15 +452,26 @@ impl Resources {
 /// (NPCs bounce).
 pub fn system_movement(world: &mut World, map: &TileMap) {
     for (pos, vel) in world.query_mut::<(&mut Position, &mut Velocity)>() {
+        // Apply terrain speed multiplier (e.g. roads give 1.5x bonus)
+        let ix = pos.x.round() as i64;
+        let iy = pos.y.round() as i64;
+        let speed_mult = if ix >= 0 && iy >= 0 {
+            map.get(ix as usize, iy as usize)
+                .map(|t| t.speed_multiplier())
+                .unwrap_or(1.0)
+        } else {
+            1.0
+        };
+
         // Try X
-        let new_x = pos.x + vel.dx;
+        let new_x = pos.x + vel.dx * speed_mult;
         if map.is_walkable(new_x, pos.y) {
             pos.x = new_x;
         } else {
             vel.dx = -vel.dx; // bounce
         }
         // Try Y
-        let new_y = pos.y + vel.dy;
+        let new_y = pos.y + vel.dy * speed_mult;
         if map.is_walkable(pos.x, new_y) {
             pos.y = new_y;
         } else {
@@ -3063,5 +3080,57 @@ mod tests {
             assert!(result.grain_consumed > 0, "should prefer grain over raw food");
             assert_eq!(result.food_consumed, 0, "should not consume food when grain available");
         }
+    }
+
+    #[test]
+    fn road_building_type_properties() {
+        assert_eq!(BuildingType::Road.cost(), Resources { stone: 1, ..Default::default() });
+        assert_eq!(BuildingType::Road.build_time(), 20);
+        assert_eq!(BuildingType::Road.size(), (1, 1));
+        assert_eq!(BuildingType::Road.tiles(), vec![(0, 0, Terrain::Road)]);
+        assert_eq!(BuildingType::Road.name(), "Road");
+    }
+
+    #[test]
+    fn road_in_all_building_types() {
+        assert!(BuildingType::all().contains(&BuildingType::Road));
+    }
+
+    #[test]
+    fn road_speed_bonus_in_movement() {
+        let mut world = World::new();
+        // Create a map with road at (5,5)
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        map.set(5, 5, Terrain::Road);
+        map.set(6, 5, Terrain::Road);
+
+        // Spawn entity on road tile moving right
+        let e = world.spawn((
+            Position { x: 5.0, y: 5.0 },
+            Velocity { dx: 0.1, dy: 0.0 },
+        ));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        // On road: moved 0.1 * 1.5 = 0.15
+        assert!((pos.x - 5.15).abs() < 0.001, "road should give 1.5x speed: got {}", pos.x);
+    }
+
+    #[test]
+    fn grass_no_speed_bonus_in_movement() {
+        let mut world = World::new();
+        let map = TileMap::new(20, 20, Terrain::Grass);
+
+        let e = world.spawn((
+            Position { x: 5.0, y: 5.0 },
+            Velocity { dx: 0.1, dy: 0.0 },
+        ));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        // On grass: moved 0.1 * 1.0 = 0.1
+        assert!((pos.x - 5.1).abs() < 0.001, "grass should give 1.0x speed: got {}", pos.x);
     }
 }

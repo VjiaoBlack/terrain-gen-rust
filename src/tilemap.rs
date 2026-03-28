@@ -12,13 +12,14 @@ pub enum Terrain {
     Snow,
     BuildingFloor,
     BuildingWall,
+    Road,
 }
 
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
             Terrain::Water | Terrain::Mountain | Terrain::Snow | Terrain::BuildingWall => false,
-            Terrain::Sand | Terrain::Grass | Terrain::Forest | Terrain::BuildingFloor => true,
+            Terrain::Sand | Terrain::Grass | Terrain::Forest | Terrain::BuildingFloor | Terrain::Road => true,
         }
     }
 
@@ -33,6 +34,7 @@ impl Terrain {
             Terrain::Snow => '·',
             Terrain::BuildingFloor => '░',
             Terrain::BuildingWall => '█',
+            Terrain::Road => '=',
         }
     }
 
@@ -47,6 +49,7 @@ impl Terrain {
             Terrain::Snow => Color(220, 220, 240),
             Terrain::BuildingFloor => Color(140, 120, 90),
             Terrain::BuildingWall => Color(160, 140, 110),
+            Terrain::Road => Color(160, 130, 80),
         }
     }
 
@@ -61,6 +64,15 @@ impl Terrain {
             Terrain::Snow => Some(Color(200, 200, 215)),
             Terrain::BuildingFloor => Some(Color(100, 80, 60)),
             Terrain::BuildingWall => Some(Color(120, 100, 80)),
+            Terrain::Road => Some(Color(130, 105, 65)),
+        }
+    }
+
+    /// Movement speed multiplier for this terrain. Roads give a 1.5x bonus.
+    pub fn speed_multiplier(&self) -> f64 {
+        match self {
+            Terrain::Road => 1.5,
+            _ => 1.0,
         }
     }
 }
@@ -233,5 +245,20 @@ mod tests {
         assert_eq!(r.get_cell(0, 0).unwrap().ch, '~');
         assert_eq!(r.get_cell(1, 0).unwrap().ch, '·');
         assert_eq!(r.get_cell(2, 0).unwrap().ch, ':');
+    }
+
+    #[test]
+    fn road_terrain_properties() {
+        assert!(Terrain::Road.is_walkable());
+        assert_eq!(Terrain::Road.ch(), '=');
+        assert!(Terrain::Road.bg().is_some());
+        assert_eq!(Terrain::Road.speed_multiplier(), 1.5);
+    }
+
+    #[test]
+    fn non_road_terrain_normal_speed() {
+        assert_eq!(Terrain::Grass.speed_multiplier(), 1.0);
+        assert_eq!(Terrain::Sand.speed_multiplier(), 1.0);
+        assert_eq!(Terrain::Forest.speed_multiplier(), 1.0);
     }
 }

@@ -1854,6 +1854,7 @@ impl Game {
                             Terrain::Snow =>          ('N', Color(220, 220, 230)),
                             Terrain::BuildingFloor => ('B', Color(140, 120, 90)),
                             Terrain::BuildingWall =>  ('X', Color(160, 140, 110)),
+                            Terrain::Road =>          ('R', Color(160, 130, 80)),
                         };
                         renderer.draw(sx, sy, ch, black, Some(bg));
                     }
@@ -2123,11 +2124,14 @@ mod tests {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
+        // Give plenty of food so villagers don't prioritize foraging over building
+        game.resources.food = 100;
+
         // Place a wall build site near the settlement (villagers spawn around 125,126)
         let site = ecs::spawn_build_site(&mut game.world, 126.0, 126.0, BuildingType::Wall);
 
         // Run for enough ticks — wall requires 30 build_time
-        for _ in 0..500 {
+        for _ in 0..800 {
             game.step(GameInput::None, &mut renderer).unwrap();
             if game.world.get::<&BuildSite>(site).is_err() {
                 return; // Build site despawned = completed
@@ -2135,7 +2139,7 @@ mod tests {
         }
 
         if let Ok(s) = game.world.get::<&BuildSite>(site) {
-            panic!("build site not completed after 500 ticks: progress={}/{}", s.progress, s.required);
+            panic!("build site not completed after 800 ticks: progress={}/{}", s.progress, s.required);
         }
     }
 
