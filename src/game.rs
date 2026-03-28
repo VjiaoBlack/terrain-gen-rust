@@ -85,6 +85,7 @@ pub enum GameInput {
     Load,
     Restart,
     ToggleAutoBuild,
+    CycleOverlay,
     /// Mouse click at screen coordinates (x, y)
     MouseClick { x: u16, y: u16 },
     None,
@@ -92,6 +93,12 @@ pub enum GameInput {
 
 /// Width of the left-side UI panel in screen columns.
 pub const PANEL_WIDTH: u16 = 24;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OverlayMode {
+    None,
+    Tasks,      // Color-code villagers by current activity
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CivSkills {
@@ -166,6 +173,7 @@ pub struct Game {
     pub peak_population: u32,
     pub auto_build: bool,
     pub skills: CivSkills,
+    pub overlay: OverlayMode,
 }
 
 impl Game {
@@ -287,6 +295,7 @@ impl Game {
             peak_population: 3,
             auto_build: false,
             skills: CivSkills::default(),
+            overlay: OverlayMode::None,
         };
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
@@ -361,6 +370,7 @@ impl Game {
             peak_population: state.peak_population,
             auto_build: state.auto_build,
             skills: state.skills,
+            overlay: OverlayMode::None,
         })
     }
 
@@ -436,6 +446,12 @@ impl Game {
             },
             GameInput::Drain => self.water.drain(),
             GameInput::ToggleAutoBuild => self.auto_build = !self.auto_build,
+            GameInput::CycleOverlay => {
+                self.overlay = match self.overlay {
+                    OverlayMode::None => OverlayMode::Tasks,
+                    OverlayMode::Tasks => OverlayMode::None,
+                };
+            }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
             GameInput::Save => { let _ = self.save("savegame.json"); },
             GameInput::Load => {} // handled in main.rs loop
@@ -486,7 +502,7 @@ impl Game {
                 gather_stone_speed: 1.0 + self.skills.mining / 50.0,
                 build_speed: (self.skills.building / 50.0).floor() as u32,
             };
-            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, self.resources.wood, self.resources.stone, self.resources.grain, &skill_mults, settlement_defended);
+            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, self.resources.wood, self.resources.stone, self.resources.grain, &skill_mults, settlement_defended, self.day_night.is_night());
             let mut deposited_food = 0u32;
             let mut deposited_wood = 0u32;
             let mut deposited_stone = 0u32;
@@ -915,14 +931,31 @@ impl Game {
     }
 
     /// Check conditions and spawn a new villager if met.
+    /// Births require: 2+ villagers, food >= 5, and housing capacity.
+    /// More surplus housing = shorter birth cooldown (min 200, max 800 ticks).
     fn try_population_growth(&mut self) {
-        if self.tick - self.last_birth_tick <= 500 {
-            return;
-        }
-
         let villager_count = self.world.query::<&Creature>().iter()
             .filter(|c| c.species == Species::Villager)
-            .count();
+            .count() as u32;
+
+        // Count total hut capacity
+        let total_capacity: u32 = self.world.query::<&HutBuilding>().iter()
+            .map(|h| h.capacity)
+            .sum();
+
+        // Housing surplus determines birth rate
+        let housing_surplus = total_capacity.saturating_sub(villager_count);
+        let birth_cooldown = if housing_surplus == 0 {
+            return; // No births without housing surplus
+        } else if housing_surplus >= 4 {
+            200 // Fast growth when lots of empty housing
+        } else {
+            800 / housing_surplus as u64 // 800, 400, 266 for surplus 1, 2, 3
+        };
+
+        if self.tick - self.last_birth_tick <= birth_cooldown {
+            return;
+        }
 
         if villager_count < 2 || self.resources.food < 5 {
             return;
@@ -1233,6 +1266,16 @@ impl Game {
         row += 1;
         row += 1;
 
+        // Overlay toggle
+        let ov_str = match self.overlay {
+            OverlayMode::None => "off",
+            OverlayMode::Tasks => "TASKS",
+        };
+        draw_line(renderer, row, &format!(" Overlay [o]: {}", ov_str),
+            if self.overlay != OverlayMode::None { green } else { fg });
+        row += 1;
+        row += 1;
+
         // Controls
         draw_line(renderer, row, " Controls", highlight); row += 1;
         draw_line(renderer, row, "  arrows: scroll", dim); row += 1;
@@ -1398,6 +1441,26 @@ impl Game {
                         (sprite.fg.2 as f64 * tb).clamp(0.0, 255.0) as u8,
                     )
                 };
+                // Task overlay: color-code villagers by activity
+                let fg = if self.overlay == OverlayMode::Tasks {
+                    if let Some(creature) = self.world.get::<&Creature>(e).ok() {
+                        if creature.species == Species::Villager {
+                            match bstate {
+                                Some(BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }) => Color(139, 90, 43),   // brown
+                                Some(BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }) => Color(150, 150, 150), // gray
+                                Some(BehaviorState::Gathering { resource_type: ResourceType::Food, .. }) => Color(50, 200, 50),   // green
+                                Some(BehaviorState::Hauling { .. }) => Color(200, 180, 50),   // gold
+                                Some(BehaviorState::Building { .. }) => Color(255, 220, 50),   // yellow
+                                Some(BehaviorState::Eating { .. }) => Color(50, 200, 50),      // green
+                                Some(BehaviorState::Sleeping { .. }) => Color(100, 100, 200),  // blue
+                                Some(BehaviorState::FleeHome) => Color(255, 50, 50),           // red
+                                Some(BehaviorState::Idle { .. }) | Some(BehaviorState::Wander { .. }) => Color(80, 80, 180),  // dim blue
+                                Some(BehaviorState::Seek { .. }) => Color(180, 180, 50),       // dim yellow
+                                _ => fg,
+                            }
+                        } else { fg }
+                    } else { fg }
+                } else { fg };
                 renderer.draw(sx as u16, sy as u16, sprite.ch, fg, None);
             }
         }
@@ -2132,5 +2195,76 @@ mod tests {
         game.resources.masonry = 5;
         assert!(game.resources.can_afford(&cost),
             "should afford garrison with refined resources");
+    }
+
+    #[test]
+    fn population_growth_requires_housing() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Give lots of food
+        game.resources.food = 100;
+        game.last_birth_tick = 0;
+
+        // Count initial villagers
+        let initial = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        // Run without any huts — no growth should happen
+        for _ in 0..1000 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        let after_no_huts = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        // Now add a hut with capacity for growth
+        ecs::spawn_hut(&mut game.world, 125.0, 125.0);
+        game.resources.food = 100;
+        game.last_birth_tick = 0;
+
+        for _ in 0..1000 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        let after_hut = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        // With a hut providing surplus capacity, population should grow
+        assert!(after_hut > after_no_huts || after_hut > initial,
+            "population should grow when housing is available: initial={} no_huts={} with_hut={}",
+            initial, after_no_huts, after_hut);
+    }
+
+    #[test]
+    fn overlay_cycles_through_modes() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        assert_eq!(game.overlay, OverlayMode::None);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Tasks);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::None);
+    }
+
+    #[test]
+    fn villagers_sleep_at_night() {
+        let mut world = hecs::World::new();
+        let map = TileMap::new(30, 30, Terrain::Grass);
+
+        let v = ecs::spawn_villager(&mut world, 10.0, 10.0);
+        ecs::spawn_stockpile(&mut world, 5.0, 5.0);
+        ecs::spawn_hut(&mut world, 10.0, 10.0);
+
+        // Run AI with is_night=true
+        let result = ecs::system_ai(&mut world, &map, 0.4, 10, 0, 0, 0,
+            &SkillMults::default(), false, true);
+
+        let state = world.get::<&Behavior>(v).unwrap().state;
+        assert!(matches!(state, BehaviorState::Sleeping { .. }),
+            "villager should sleep at night when hut is nearby, got: {:?}", state);
     }
 }
