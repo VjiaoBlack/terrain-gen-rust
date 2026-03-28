@@ -72,10 +72,35 @@ impl super::Game {
         let sep: String = std::iter::repeat('-').take(pw).collect();
         draw_line(renderer, row, &sep, dim); row += 1;
 
-        // Date / Season
+        // Season + Date
+        let season_icon = match self.day_night.season {
+            Season::Spring => "🌱",
+            Season::Summer => "☀",
+            Season::Autumn => "🍂",
+            Season::Winter => "❄",
+        };
+        draw_line(renderer, row, &format!(" {} {}", season_icon, self.day_night.season.name()), highlight); row += 1;
         let date = self.day_night.date_string();
         let time = self.day_night.time_string();
         draw_line(renderer, row, &format!(" {} {}", date, time), fg); row += 1;
+
+        // Temperature feel based on season
+        let temp = match self.day_night.season {
+            Season::Spring => "Mild",
+            Season::Summer => "Warm",
+            Season::Autumn => "Cool",
+            Season::Winter => "Freezing",
+        };
+        let night_str = if self.day_night.is_night() { " (night)" } else { "" };
+        draw_line(renderer, row, &format!(" {}{}", temp, night_str), dim); row += 1;
+        row += 1;
+
+        // Population
+        let villager_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+        let wolf_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        draw_line(renderer, row, &format!(" Pop: {}  Wolves: {}", villager_count, wolf_count), fg); row += 1;
         row += 1;
 
         // Resources

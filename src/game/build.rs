@@ -23,6 +23,57 @@ impl super::Game {
                 }
             }
         }
+        // Check for overlapping build sites
+        for (pos, site) in self.world.query::<(&Position, &BuildSite)>().iter() {
+            let (sw, sh) = site.building_type.size();
+            let sx = pos.x as i32;
+            let sy = pos.y as i32;
+            // Check if footprints overlap
+            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
+                return false;
+            }
+        }
+
+        // Check for overlapping finished buildings (huts, farms, garrisons, etc.)
+        for pos in self.world.query::<(&Position, &HutBuilding)>().iter().map(|(p, _)| p) {
+            let (sw, sh) = BuildingType::Hut.size();
+            let sx = pos.x as i32 - sw / 2;
+            let sy = pos.y as i32 - sh / 2;
+            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
+                return false;
+            }
+        }
+        for pos in self.world.query::<(&Position, &FarmPlot)>().iter().map(|(p, _)| p) {
+            let (sw, sh) = BuildingType::Farm.size();
+            let sx = pos.x as i32 - sw / 2;
+            let sy = pos.y as i32 - sh / 2;
+            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
+                return false;
+            }
+        }
+        for pos in self.world.query::<(&Position, &GarrisonBuilding)>().iter().map(|(p, _)| p) {
+            let (sw, sh) = BuildingType::Garrison.size();
+            let sx = pos.x as i32 - sw / 2;
+            let sy = pos.y as i32 - sh / 2;
+            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
+                return false;
+            }
+        }
+        for pos in self.world.query::<(&Position, &ProcessingBuilding)>().iter().map(|(p, _)| p) {
+            let sx = pos.x as i32 - 1;
+            let sy = pos.y as i32 - 1;
+            if bx < sx + 3 && bx + w > sx && by < sy + 3 && by + h > sy {
+                return false;
+            }
+        }
+        for pos in self.world.query::<(&Position, &Stockpile)>().iter().map(|(p, _)| p) {
+            let sx = pos.x as i32;
+            let sy = pos.y as i32;
+            if bx < sx + 2 && bx + w > sx && by < sy + 2 && by + h > sy {
+                return false;
+            }
+        }
+
         // Must be within settlement influence (any tile of building footprint)
         let in_territory = (0..h).any(|dy| (0..w).any(|dx| {
             let tx = bx + dx;
