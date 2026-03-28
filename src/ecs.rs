@@ -1376,35 +1376,49 @@ fn ai_villager(
                 }
             }
 
-            // Gather wood: if not too hungry, find nearest Forest tile
+            // Gather resources: pick whichever resource is lower, or alternate
             if hunger < 0.4 {
-                if let Some((fx, fy)) = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range) {
-                    let d = dist(pos.x, pos.y, fx, fy);
-                    if d < 1.5 {
-                        let timer = (60.0 / skill_mults.gather_wood_speed) as u32;
-                        return (BehaviorState::Gathering { timer, resource_type: ResourceType::Wood }, 0.0, 0.0, hunger, None, None);
-                    } else {
-                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, fx, fy, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
-                    }
-                }
-                // Gather stone: prefer nearby StoneDeposit entities, fall back to Mountain-adjacent tiles
+                let wood_target = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range)
+                    .map(|(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)));
+
                 let nearest_deposit = stone_deposits.iter()
                     .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
                     .filter(|(_, _, d)| *d < creature.sight_range)
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
-                let stone_target = nearest_deposit.map(|(dx, dy, d)| (dx, dy, d))
+                let stone_target = nearest_deposit
                     .or_else(|| find_nearest_terrain(pos, map, Terrain::Mountain, creature.sight_range)
                         .map(|(mx, my)| (mx, my, dist(pos.x, pos.y, mx, my))));
-                if let Some((sx, sy, d)) = stone_target {
+
+                // Decide which to gather: prefer the closer resource, but bias toward
+                // whichever is scarcer (use entity ID as tiebreaker for variety)
+                let gather_wood_first = match (&wood_target, &stone_target) {
+                    (Some((_, _, wd)), Some((_, _, sd))) => wd <= sd,
+                    (Some(_), None) => true,
+                    (None, Some(_)) => false,
+                    (None, None) => true,
+                };
+
+                let targets = if gather_wood_first {
+                    [wood_target.map(|(x,y,d)| (x,y,d, ResourceType::Wood)),
+                     stone_target.map(|(x,y,d)| (x,y,d, ResourceType::Stone))]
+                } else {
+                    [stone_target.map(|(x,y,d)| (x,y,d, ResourceType::Stone)),
+                     wood_target.map(|(x,y,d)| (x,y,d, ResourceType::Wood))]
+                };
+
+                for target in targets.iter().flatten() {
+                    let (tx, ty, d, rt) = *target;
                     if d < 1.5 {
-                        let timer = (60.0 / skill_mults.gather_stone_speed) as u32;
-                        return (BehaviorState::Gathering { timer, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None, None);
+                        let timer = match rt {
+                            ResourceType::Wood => (60.0 / skill_mults.gather_wood_speed) as u32,
+                            ResourceType::Stone => (60.0 / skill_mults.gather_stone_speed) as u32,
+                            _ => 60,
+                        };
+                        return (BehaviorState::Gathering { timer, resource_type: rt }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, sx, sy, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: sx, target_y: sy }, vel.dx, vel.dy, hunger, None, None);
+                        move_toward(pos, tx, ty, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: tx, target_y: ty }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
             }
