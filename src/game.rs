@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::{Serialize, Deserialize};
 
-use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
+use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -459,12 +459,34 @@ impl Game {
             let mods = self.day_night.season_modifiers();
 
             ecs::system_hunger(&mut self.world, mods.hunger_mult);
+
+            // Siege model: compute if settlement is defended
+            let defense_rating = self.compute_defense_rating();
+            let (scx, scy) = self.settlement_center();
+            let wolves_near_count = self.world.query::<(&Position, &Creature)>().iter()
+                .filter(|(_, c)| c.species == Species::Predator)
+                .filter(|(p, _)| {
+                    let dx = p.x - scx as f64;
+                    let dy = p.y - scy as f64;
+                    dx * dx + dy * dy < 900.0 // within ~30 tiles
+                })
+                .count();
+            let attack_str = wolves_near_count as f64 * 0.5;
+            let settlement_defended = defense_rating > attack_str;
+            if wolves_near_count > 0 && settlement_defended {
+                // Only notify once per ~200 ticks to avoid spam
+                if self.tick % 200 == 0 {
+                    self.notify("Wolf pack repelled by defenses!".to_string());
+                }
+                self.skills.military += 0.002 * wolves_near_count as f64;
+            }
+
             let skill_mults = SkillMults {
                 gather_wood_speed: 1.0 + self.skills.woodcutting / 50.0,
                 gather_stone_speed: 1.0 + self.skills.mining / 50.0,
                 build_speed: (self.skills.building / 50.0).floor() as u32,
             };
-            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, &skill_mults);
+            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, &skill_mults, settlement_defended);
             let mut deposited_food = 0u32;
             let mut deposited_wood = 0u32;
             let mut deposited_stone = 0u32;
@@ -769,6 +791,43 @@ impl Game {
         }
     }
 
+    /// Compute the average position of all villagers as the settlement center.
+    fn settlement_center(&self) -> (i32, i32) {
+        let positions: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if positions.is_empty() {
+            return (128, 128);
+        }
+        let cx = positions.iter().map(|p| p.0).sum::<f64>() / positions.len() as f64;
+        let cy = positions.iter().map(|p| p.1).sum::<f64>() / positions.len() as f64;
+        (cx as i32, cy as i32)
+    }
+
+    /// Compute a defense rating from garrison buildings, wall tiles, and military skill.
+    fn compute_defense_rating(&self) -> f64 {
+        let garrison_defense: f64 = self.world.query::<&GarrisonBuilding>().iter()
+            .map(|g| g.defense_bonus)
+            .sum();
+
+        let (cx, cy) = self.settlement_center();
+        let mut wall_tiles = 0u32;
+        for dy in -20i32..=20 {
+            for dx in -20i32..=20 {
+                let tx = cx + dx;
+                let ty = cy + dy;
+                if tx >= 0 && ty >= 0 {
+                    if let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize) {
+                        wall_tiles += 1;
+                    }
+                }
+            }
+        }
+
+        garrison_defense + wall_tiles as f64 * 0.5 + self.skills.military * 0.2
+    }
+
     /// Check for completed build sites and apply their tiles to the map.
     fn check_build_completion(&mut self) {
         let mut completed: Vec<(hecs::Entity, Position, BuildSite)> = Vec::new();
@@ -797,6 +856,9 @@ impl Game {
             }
             if site.building_type == BuildingType::Smithy {
                 ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::StoneToMasonry);
+            }
+            if site.building_type == BuildingType::Garrison {
+                ecs::spawn_garrison(&mut self.world, pos.x, pos.y);
             }
             self.world.despawn(e).ok();
         }
@@ -1923,5 +1985,20 @@ mod tests {
         assert_eq!(villager_count_after, villager_count_before);
 
         let _ = std::fs::remove_file("/tmp/test_savegame.json");
+    }
+
+    #[test]
+    fn defense_rating_increases_with_garrison() {
+        let mut game = Game::new(60, 42);
+
+        let base_defense = game.compute_defense_rating();
+
+        ecs::spawn_garrison(&mut game.world, 125.0, 125.0);
+
+        let new_defense = game.compute_defense_rating();
+        assert!(new_defense > base_defense,
+            "defense rating should increase with garrison: base={}, new={}", base_defense, new_defense);
+        assert!((new_defense - base_defense - 5.0).abs() < 0.01,
+            "garrison should add 5.0 defense, got difference: {}", new_defense - base_defense);
     }
 }

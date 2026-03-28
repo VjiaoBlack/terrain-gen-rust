@@ -125,6 +125,7 @@ pub enum BuildingType {
     Stockpile,
     Workshop,
     Smithy,
+    Garrison,
 }
 
 impl BuildingType {
@@ -136,6 +137,7 @@ impl BuildingType {
             BuildingType::Stockpile => (0, 2, 0),
             BuildingType::Workshop => (0, 8, 4),
             BuildingType::Smithy => (0, 5, 8),
+            BuildingType::Garrison => (0, 5, 5),
         }
     }
 
@@ -147,6 +149,7 @@ impl BuildingType {
             BuildingType::Stockpile => 40,
             BuildingType::Workshop => 150,
             BuildingType::Smithy => 180,
+            BuildingType::Garrison => 120,
         }
     }
 
@@ -158,6 +161,7 @@ impl BuildingType {
             BuildingType::Stockpile => (2, 2),
             BuildingType::Workshop => (3, 3),
             BuildingType::Smithy => (3, 3),
+            BuildingType::Garrison => (3, 3),
         }
     }
 
@@ -206,11 +210,22 @@ impl BuildingType {
                 tiles.push((1, 0, Terrain::BuildingFloor)); // door on north side
                 tiles
             }
+            BuildingType::Garrison => {
+                let mut tiles = Vec::new();
+                for dx in 0..3 {
+                    tiles.push((dx, 0, Terrain::BuildingWall));
+                    tiles.push((dx, 2, Terrain::BuildingWall));
+                }
+                tiles.push((0, 1, Terrain::BuildingWall));
+                tiles.push((2, 1, Terrain::BuildingWall));
+                tiles.push((1, 1, Terrain::BuildingFloor));
+                tiles
+            }
         }
     }
 
     pub fn all() -> &'static [BuildingType] {
-        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy]
+        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison]
     }
 
     pub fn name(&self) -> &'static str {
@@ -221,6 +236,7 @@ impl BuildingType {
             BuildingType::Stockpile => "Stockpile",
             BuildingType::Workshop => "Workshop",
             BuildingType::Smithy => "Smithy",
+            BuildingType::Garrison => "Garrison",
         }
     }
 }
@@ -244,6 +260,12 @@ pub struct FarmPlot {
 /// Marker component for berry bushes (food source for prey).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FoodSource;
+
+/// Marker component for completed garrison buildings — provides defense bonus.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct GarrisonBuilding {
+    pub defense_bonus: f64,
+}
 
 /// Marker component for stone deposits (mineable by villagers).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -281,6 +303,7 @@ pub enum SerializedEntity {
     BuildSiteEntity { pos: Position, sprite: Sprite, site: BuildSite },
     FarmPlotEntity { pos: Position, sprite: Sprite, farm: FarmPlot },
     ProcessingBuildingEntity { pos: Position, sprite: Sprite, building: ProcessingBuilding },
+    GarrisonEntity { pos: Position, sprite: Sprite, garrison: GarrisonBuilding },
 }
 
 pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
@@ -324,6 +347,9 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
     for (pos, sprite, building) in world.query::<(&Position, &Sprite, &ProcessingBuilding)>().iter() {
         entities.push(SerializedEntity::ProcessingBuildingEntity { pos: *pos, sprite: *sprite, building: *building });
     }
+    for (pos, sprite, garrison) in world.query::<(&Position, &Sprite, &GarrisonBuilding)>().iter() {
+        entities.push(SerializedEntity::GarrisonEntity { pos: *pos, sprite: *sprite, garrison: *garrison });
+    }
 
     entities
 }
@@ -361,6 +387,9 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
             }
             SerializedEntity::ProcessingBuildingEntity { pos, sprite, building } => {
                 world.spawn((*pos, *sprite, *building));
+            }
+            SerializedEntity::GarrisonEntity { pos, sprite, garrison } => {
+                world.spawn((*pos, *sprite, *garrison));
             }
         }
     }
@@ -469,7 +498,7 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32, skill_mults: &SkillMults) -> AiResult {
+pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32, skill_mults: &SkillMults, settlement_defended: bool) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
@@ -574,9 +603,14 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                 (s, vx, vy, h, None, None)
             }
             Species::Predator => {
+                let effective_aggression = if settlement_defended {
+                    1.0 // wolves won't hunt villagers unless at max hunger
+                } else {
+                    wolf_aggression
+                };
                 let (s, vx, vy, h, k) = ai_predator(
                     &pos, &creature, &behavior_state, speed,
-                    &prey_positions, &villager_positions, wolf_aggression,
+                    &prey_positions, &villager_positions, effective_aggression,
                     map, &mut rng,
                 );
                 (s, vx, vy, h, k, None)
@@ -1049,6 +1083,14 @@ pub fn spawn_farm_plot(world: &mut World, x: f64, y: f64) -> Entity {
         Position { x, y },
         Sprite { ch: '·', fg: Color(120, 80, 30) }, // starts as dirt
         FarmPlot { growth: 0.0, harvest_ready: false },
+    ))
+}
+
+pub fn spawn_garrison(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '⚔', fg: Color(180, 50, 50) },
+        GarrisonBuilding { defense_bonus: 5.0 },
     ))
 }
 
@@ -1652,7 +1694,7 @@ mod tests {
 
         // Run AI + movement for many ticks — NPC will wander eventually
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -1674,7 +1716,7 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -1698,7 +1740,7 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
-            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -1722,7 +1764,7 @@ mod tests {
         // Check position each tick; NPC should get close before transitioning to Idle
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
-            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
             let dist = ((pos.x - 15.0).powi(2) + (pos.y - 15.0).powi(2)).sqrt();
@@ -1764,7 +1806,7 @@ mod tests {
         }
 
         // Run AI — should start seeking food
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
@@ -1789,7 +1831,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1808,7 +1850,7 @@ mod tests {
             b.state = BehaviorState::FleeHome;
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::AtHome { .. }),
@@ -1830,7 +1872,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(matches!(state, BehaviorState::Hunting { .. }),
@@ -1852,7 +1894,7 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(!matches!(state, BehaviorState::Hunting { .. }),
@@ -1879,7 +1921,7 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
-            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
 
             let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1930,7 +1972,7 @@ mod tests {
 
         for tick in 0..1000 {
             system_hunger(&mut world, 1.0);
-            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
 
             let ws = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1968,7 +2010,7 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
@@ -1990,7 +2032,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -2016,7 +2058,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -2042,7 +2084,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
@@ -2062,7 +2104,7 @@ mod tests {
             b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -2088,7 +2130,7 @@ mod tests {
             b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
         }
 
-        let result = system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        let result = system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
         assert_eq!(result.deposited[0], ResourceType::Wood, "should deposit wood");
@@ -2140,7 +2182,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Building { .. }),
@@ -2169,7 +2211,7 @@ mod tests {
             b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         // Build site should now be complete (progress >= required)
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -2241,7 +2283,7 @@ mod tests {
         // With low aggression threshold (winter: 0.8), wolf should target villagers
         // since hunger (0.9) > threshold (0.8)
         for _ in 0..5 {
-            system_ai(&mut world, &map, 0.8, 0, &SkillMults::default());
+            system_ai(&mut world, &map, 0.8, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -2423,7 +2465,7 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
-            let r = system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+            let r = system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
             system_death(&mut world);
@@ -2479,7 +2521,7 @@ mod tests {
         }
 
         // Pass stockpile_food=10 so villager knows food is available
-        let result = system_ai(&mut world, &map, 0.4, 10, &SkillMults::default());
+        let result = system_ai(&mut world, &map, 0.4, 10, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Eating { .. }),
@@ -2505,7 +2547,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),
@@ -2672,5 +2714,89 @@ mod tests {
 
         assert_eq!(resources.wood, 8, "should have consumed 2 wood at double speed");
         assert_eq!(resources.planks, 1, "should have produced 1 planks at double speed");
+    }
+
+    #[test]
+    fn garrison_building_has_correct_cost_and_size() {
+        let garrison = BuildingType::Garrison;
+        assert_eq!(garrison.cost(), (0, 5, 5), "garrison cost should be (0, 5, 5)");
+        assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
+        assert_eq!(garrison.build_time(), 120, "garrison build time should be 120");
+        assert_eq!(garrison.name(), "Garrison");
+        assert!(BuildingType::all().contains(&BuildingType::Garrison));
+    }
+
+    #[test]
+    fn garrison_tiles_have_wall_perimeter() {
+        let tiles = BuildingType::Garrison.tiles();
+        let wall_count = tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingWall).count();
+        let floor_count = tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingFloor).count();
+        assert!(wall_count >= 7, "garrison should have at least 7 wall tiles, got {}", wall_count);
+        assert!(floor_count >= 1, "garrison should have at least 1 floor tile, got {}", floor_count);
+    }
+
+    #[test]
+    fn spawn_garrison_creates_entity_with_defense_bonus() {
+        let mut world = World::new();
+        let e = spawn_garrison(&mut world, 10.0, 10.0);
+        let garrison = world.get::<&GarrisonBuilding>(e).unwrap();
+        assert_eq!(garrison.defense_bonus, 5.0);
+        let pos = world.get::<&Position>(e).unwrap();
+        assert_eq!(pos.x, 10.0);
+        assert_eq!(pos.y, 10.0);
+    }
+
+    #[test]
+    fn wolves_repelled_when_settlement_defended() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let wolf = spawn_predator(&mut world, 10.0, 10.0);
+        let villager = spawn_villager(&mut world, 12.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        {
+            let mut c = world.get::<&mut Creature>(wolf).unwrap();
+            c.hunger = 0.7;
+        }
+        {
+            let mut c = world.get::<&mut Creature>(villager).unwrap();
+            c.hunger = 0.1;
+        }
+
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), true);
+
+        let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
+        let is_hunting_villager = match wolf_state {
+            BehaviorState::Hunting { target_x, target_y } => {
+                let dx = target_x - 12.0;
+                let dy = target_y - 10.0;
+                dx.abs() < 0.1 && dy.abs() < 0.1
+            }
+            _ => false,
+        };
+        assert!(!is_hunting_villager,
+            "wolf should not hunt villagers when settlement is defended, state: {:?}", wolf_state);
+    }
+
+    #[test]
+    fn wolves_can_hunt_when_defense_insufficient() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let wolf = spawn_predator(&mut world, 10.0, 10.0);
+        let _villager = spawn_villager(&mut world, 12.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        {
+            let mut c = world.get::<&mut Creature>(wolf).unwrap();
+            c.hunger = 0.7;
+        }
+
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default(), false);
+
+        let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
+        assert!(matches!(wolf_state, BehaviorState::Hunting { .. }),
+            "wolf should hunt when defense is insufficient, got: {:?}", wolf_state);
     }
 }
