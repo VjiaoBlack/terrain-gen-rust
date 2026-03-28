@@ -39,7 +39,7 @@ pub fn spawn_prey(world: &mut World, x: f64, y: f64, home_x: f64, home_y: f64) -
             hunger: 0.2,
             home_x,
             home_y,
-            sight_range: 12.0,
+            sight_range: 18.0,
         },
     ))
 }
@@ -58,7 +58,7 @@ pub fn spawn_predator(world: &mut World, x: f64, y: f64) -> Entity {
             hunger: 0.3,
             home_x: x,
             home_y: y,
-            sight_range: 18.0,
+            sight_range: 25.0,
         },
     ))
 }
@@ -103,7 +103,7 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
             hunger: 0.1,
             home_x: x,
             home_y: y,
-            sight_range: 15.0,
+            sight_range: 22.0,
         },
     ))
 }
