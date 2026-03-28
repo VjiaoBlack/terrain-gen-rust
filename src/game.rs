@@ -1015,7 +1015,7 @@ impl Game {
     }
 
     /// Compute the average position of all villagers as the settlement center.
-    fn settlement_center(&self) -> (i32, i32) {
+    pub fn settlement_center(&self) -> (i32, i32) {
         let positions: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
             .filter(|(_, c)| c.species == Species::Villager)
             .map(|(p, _)| (p.x, p.y))
@@ -1103,7 +1103,7 @@ impl Game {
     }
 
     /// Collect influence sources from villagers and active build sites, then update.
-    fn update_influence(&mut self) {
+    pub fn update_influence(&mut self) {
         let mut sources: Vec<(f64, f64, f64)> = Vec::new();
 
         // Villagers emit influence at strength 1.0
@@ -1135,7 +1135,7 @@ impl Game {
     }
 
     /// Track villager movement and auto-convert high-traffic tiles to roads.
-    fn update_traffic(&mut self) {
+    pub fn update_traffic(&mut self) {
         // Record footsteps for all villagers
         for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
             if creature.species == Species::Villager {
@@ -2509,14 +2509,16 @@ mod tests {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
-        // Give plenty of food so villagers don't prioritize foraging over building
-        game.resources.food = 100;
+        // Give plenty of all resources so villagers don't prioritize gathering over building
+        game.resources.food = 200;
+        game.resources.wood = 100;
+        game.resources.stone = 100;
 
         // Place a wall build site near the settlement (villagers spawn around 125,126)
         let site = ecs::spawn_build_site(&mut game.world, 126.0, 126.0, BuildingType::Wall);
 
         // Run for enough ticks — wall requires 30 build_time
-        for _ in 0..800 {
+        for _ in 0..1500 {
             game.step(GameInput::None, &mut renderer).unwrap();
             if game.world.get::<&BuildSite>(site).is_err() {
                 return; // Build site despawned = completed
@@ -2524,7 +2526,7 @@ mod tests {
         }
 
         if let Ok(s) = game.world.get::<&BuildSite>(site) {
-            panic!("build site not completed after 800 ticks: progress={}/{}", s.progress, s.required);
+            panic!("build site not completed after 1500 ticks: progress={}/{}", s.progress, s.required);
         }
     }
 

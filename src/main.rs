@@ -1,11 +1,12 @@
-mod renderer;
 mod crossterm_renderer;
-mod headless_renderer;
-mod game;
-mod ecs;
-mod tilemap;
-mod terrain_gen;
-mod simulation;
+
+use terrain_gen_rust::renderer;
+use terrain_gen_rust::headless_renderer;
+use terrain_gen_rust::game;
+use terrain_gen_rust::ecs;
+use terrain_gen_rust::tilemap;
+use terrain_gen_rust::terrain_gen;
+use terrain_gen_rust::simulation;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
