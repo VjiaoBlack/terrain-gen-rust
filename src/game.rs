@@ -1428,6 +1428,32 @@ impl Game {
         draw_line(renderer, row, &format!(" Overlay [o]: {}", ov_str),
             if self.overlay != OverlayMode::None { green } else { fg });
         row += 1;
+
+        // Active events
+        if !self.events.active_events.is_empty() {
+            row += 1;
+            draw_line(renderer, row, " Events", Color(255, 200, 50)); row += 1;
+            for event in &self.events.active_events {
+                let (name, remaining) = match event {
+                    GameEvent::Drought { ticks_remaining } => ("Drought", *ticks_remaining),
+                    GameEvent::BountifulHarvest { ticks_remaining } => ("Harvest+", *ticks_remaining),
+                    GameEvent::WolfSurge { ticks_remaining } => ("Wolf Surge", *ticks_remaining),
+                    GameEvent::Migration { count } => {
+                        draw_line(renderer, row, &format!("  +{} migrants", count), green);
+                        row += 1;
+                        continue;
+                    }
+                };
+                let color = match event {
+                    GameEvent::Drought { .. } => Color(200, 100, 50),
+                    GameEvent::BountifulHarvest { .. } => Color(50, 200, 50),
+                    GameEvent::WolfSurge { .. } => Color(200, 50, 50),
+                    _ => fg,
+                };
+                draw_line(renderer, row, &format!("  {} ({}t)", name, remaining), color);
+                row += 1;
+            }
+        }
         row += 1;
 
         // Controls
