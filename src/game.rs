@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
-use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, Season, SimConfig, VegetationMap, WaterMap};
+use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, Season, SimConfig, TrafficMap, VegetationMap, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
 
@@ -101,6 +101,7 @@ pub enum OverlayMode {
     Tasks,      // Color-code villagers by current activity
     Resources,  // Show resource locations with color markers
     Threats,    // Show wolf positions and danger zones
+    Traffic,    // Show foot traffic heatmap
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +187,8 @@ pub struct SaveState {
     pub terrain_config: TerrainGenConfig,
     #[serde(default)]
     pub events: EventSystem,
+    #[serde(default)]
+    pub traffic: TrafficMap,
 }
 
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
@@ -227,7 +230,11 @@ pub struct Game {
     pub skills: CivSkills,
     pub overlay: OverlayMode,
     pub events: EventSystem,
+    pub traffic: TrafficMap,
 }
+
+/// Traffic above this threshold converts walkable terrain to road.
+const ROAD_TRAFFIC_THRESHOLD: f64 = 150.0;
 
 impl Game {
     pub fn new(target_fps: u32, seed: u32) -> Self {
@@ -350,6 +357,7 @@ impl Game {
             skills: CivSkills::default(),
             overlay: OverlayMode::None,
             events: EventSystem::default(),
+            traffic: TrafficMap::new(256, 256),
         };
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
@@ -470,6 +478,7 @@ impl Game {
             sim_config: self.sim_config.clone(),
             terrain_config: serde_json::from_value(serde_json::to_value(&self.terrain_config)?)?,
             events: self.events.clone(),
+            traffic: serde_json::from_value(serde_json::to_value(&self.traffic)?)?,
         };
         let file = std::fs::File::create(path)?;
         serde_json::to_writer(file, &state)?;
@@ -514,6 +523,7 @@ impl Game {
             skills: state.skills,
             overlay: OverlayMode::None,
             events: state.events,
+            traffic: state.traffic,
         })
     }
 
@@ -594,7 +604,8 @@ impl Game {
                     OverlayMode::None => OverlayMode::Tasks,
                     OverlayMode::Tasks => OverlayMode::Resources,
                     OverlayMode::Resources => OverlayMode::Threats,
-                    OverlayMode::Threats => OverlayMode::None,
+                    OverlayMode::Threats => OverlayMode::Traffic,
+                    OverlayMode::Traffic => OverlayMode::None,
                 };
             }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
@@ -800,6 +811,9 @@ impl Game {
 
             // Update influence map: villagers emit 1.0, active build sites emit 0.5
             self.update_influence();
+
+            // Track villager foot traffic and auto-build roads
+            self.update_traffic();
 
             // Population growth check
             self.try_population_growth();
@@ -1118,6 +1132,31 @@ impl Game {
         }
 
         self.influence.update(&sources);
+    }
+
+    /// Track villager movement and auto-convert high-traffic tiles to roads.
+    fn update_traffic(&mut self) {
+        // Record footsteps for all villagers
+        for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+            if creature.species == Species::Villager {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                self.traffic.step_on(ix, iy);
+            }
+        }
+
+        // Slow decay every 10 ticks
+        if self.tick % 10 == 0 {
+            self.traffic.decay();
+        }
+
+        // Check for road conversion every 100 ticks
+        if self.tick % 100 == 0 {
+            let candidates = self.traffic.road_candidates(&self.map, ROAD_TRAFFIC_THRESHOLD);
+            for (x, y) in candidates {
+                self.map.set(x, y, Terrain::Road);
+            }
+        }
     }
 
     /// Check conditions and spawn a new villager if met.
@@ -1465,6 +1504,7 @@ impl Game {
             OverlayMode::Tasks => "TASKS",
             OverlayMode::Resources => "RESOURCES",
             OverlayMode::Threats => "THREATS",
+            OverlayMode::Traffic => "TRAFFIC",
         };
         draw_line(renderer, row, &format!(" Overlay [o]: {}", ov_str),
             if self.overlay != OverlayMode::None { green } else { fg });
@@ -1691,6 +1731,8 @@ impl Game {
             self.draw_resource_overlay(renderer);
         } else if self.overlay == OverlayMode::Threats {
             self.draw_threat_overlay(renderer);
+        } else if self.overlay == OverlayMode::Traffic {
+            self.draw_traffic_overlay(renderer);
         }
 
         if self.query_mode {
@@ -2142,6 +2184,31 @@ impl Game {
         }
     }
 
+    fn draw_traffic_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x as i32 + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y as i32 + sy as i32;
+                if wx < 0 || wy < 0 { continue; }
+                let traffic = self.traffic.get(wx as usize, wy as usize);
+                if traffic > 1.0 {
+                    // Intensity scales from dim yellow to bright orange
+                    let intensity = (traffic / ROAD_TRAFFIC_THRESHOLD).min(1.0);
+                    let r = (80.0 + 175.0 * intensity) as u8;
+                    let g = (60.0 + 140.0 * intensity) as u8;
+                    let b = (10.0 + 20.0 * intensity) as u8;
+                    let ch = if traffic >= ROAD_TRAFFIC_THRESHOLD { '=' } else { '·' };
+                    renderer.draw(sx_raw as u16, sy, ch, Color(r, g, b), Some(Color(40, 30, 5)));
+                }
+            }
+        }
+    }
+
     /// Debug view: high-contrast, no lighting, single letter per terrain type.
     /// Shows terrain, water depth, entity positions, and collision-relevant info.
     pub fn draw_debug(&self, renderer: &mut dyn Renderer) {
@@ -2575,6 +2642,9 @@ mod tests {
         assert_eq!(game.overlay, OverlayMode::Threats);
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Traffic);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::None);
     }
 
@@ -2747,5 +2817,60 @@ mod tests {
         let (cx, cy) = game.settlement_center();
         assert!(game.can_place_building(cx + 2, cy + 2, BuildingType::Wall),
             "should be able to build within influence");
+    }
+
+    #[test]
+    fn traffic_converts_grass_to_road() {
+        let mut game = Game::new(60, 42);
+
+        // Manually accumulate traffic on a grass tile
+        let tx = 130usize;
+        let ty = 130usize;
+        // Ensure the tile is grass
+        game.map.set(tx, ty, Terrain::Grass);
+
+        // Simulate heavy foot traffic
+        for _ in 0..200 {
+            game.traffic.step_on(tx, ty);
+        }
+
+        // Trigger road conversion check
+        game.tick = 100; // align to conversion interval
+        game.update_traffic();
+
+        assert_eq!(*game.map.get(tx, ty).unwrap(), Terrain::Road,
+            "heavily trafficked grass should become road");
+    }
+
+    #[test]
+    fn traffic_does_not_convert_water_to_road() {
+        let mut game = Game::new(60, 42);
+        let tx = 130usize;
+        let ty = 130usize;
+        game.map.set(tx, ty, Terrain::Water);
+
+        for _ in 0..200 {
+            game.traffic.step_on(tx, ty);
+        }
+
+        game.tick = 100;
+        game.update_traffic();
+
+        assert_eq!(*game.map.get(tx, ty).unwrap(), Terrain::Water,
+            "water should not convert to road");
+    }
+
+    #[test]
+    fn traffic_overlay_renders_without_panic() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        game.overlay = OverlayMode::Traffic;
+
+        // Add some traffic
+        game.traffic.step_on(105, 105);
+        game.traffic.step_on(105, 105);
+
+        game.step(GameInput::None, &mut renderer).unwrap();
+        // Just verify no panic
     }
 }

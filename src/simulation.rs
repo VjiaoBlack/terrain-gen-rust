@@ -868,6 +868,71 @@ impl InfluenceMap {
     }
 }
 
+/// Tracks accumulated foot traffic from villager movement.
+/// High-traffic walkable tiles automatically convert to roads.
+#[derive(Serialize, Deserialize)]
+pub struct TrafficMap {
+    pub width: usize,
+    pub height: usize,
+    traffic: Vec<f64>,
+}
+
+impl TrafficMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            traffic: vec![0.0; width * height],
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.traffic[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Record a footstep at the given position.
+    pub fn step_on(&mut self, x: usize, y: usize) {
+        if x < self.width && y < self.height {
+            self.traffic[y * self.width + x] += 1.0;
+        }
+    }
+
+    /// Slow decay so old paths fade if villagers stop using them.
+    pub fn decay(&mut self) {
+        for v in self.traffic.iter_mut() {
+            *v *= 0.999;
+        }
+    }
+
+    /// Return tiles that exceed the road threshold and are eligible for conversion.
+    /// Only converts walkable non-road terrain (grass, sand, forest, building floor).
+    pub fn road_candidates(&self, map: &crate::tilemap::TileMap, threshold: f64) -> Vec<(usize, usize)> {
+        let mut result = Vec::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.traffic[y * self.width + x] >= threshold {
+                    if let Some(terrain) = map.get(x, y) {
+                        if terrain.is_walkable() && *terrain != crate::tilemap::Terrain::Road {
+                            result.push((x, y));
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+}
+
+impl Default for TrafficMap {
+    fn default() -> Self {
+        Self::new(0, 0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1384,5 +1449,60 @@ mod tests {
             vm.apply_season(0.0);
         }
         assert!(vm.get(2, 2) < 0.3, "vegetation should decay in winter: got {}", vm.get(2, 2));
+    }
+
+    #[test]
+    fn traffic_map_accumulates() {
+        let mut tm = TrafficMap::new(10, 10);
+        assert_eq!(tm.get(5, 5), 0.0);
+        tm.step_on(5, 5);
+        tm.step_on(5, 5);
+        tm.step_on(5, 5);
+        assert_eq!(tm.get(5, 5), 3.0);
+    }
+
+    #[test]
+    fn traffic_map_decay() {
+        let mut tm = TrafficMap::new(10, 10);
+        for _ in 0..100 {
+            tm.step_on(3, 3);
+        }
+        let before = tm.get(3, 3);
+        for _ in 0..1000 {
+            tm.decay();
+        }
+        let after = tm.get(3, 3);
+        assert!(after < before * 0.5, "traffic should decay over time: {} -> {}", before, after);
+    }
+
+    #[test]
+    fn traffic_road_candidates_only_walkable() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(2, 2, Terrain::Water); // unwalkable
+        map.set(3, 3, Terrain::Road);  // already road
+
+        let mut tm = TrafficMap::new(10, 10);
+        // Accumulate traffic on grass, water, and road tiles
+        for _ in 0..200 {
+            tm.step_on(1, 1); // grass — should be candidate
+            tm.step_on(2, 2); // water — should NOT
+            tm.step_on(3, 3); // road — should NOT
+        }
+
+        let candidates = tm.road_candidates(&map, 100.0);
+        assert!(candidates.contains(&(1, 1)), "grass tile with high traffic should be candidate");
+        assert!(!candidates.contains(&(2, 2)), "water tile should not be candidate");
+        assert!(!candidates.contains(&(3, 3)), "existing road should not be candidate");
+    }
+
+    #[test]
+    fn traffic_below_threshold_no_candidates() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        let mut tm = TrafficMap::new(10, 10);
+        tm.step_on(5, 5);
+        tm.step_on(5, 5);
+
+        let candidates = tm.road_candidates(&map, 100.0);
+        assert!(candidates.is_empty(), "low traffic should not produce road candidates");
     }
 }
