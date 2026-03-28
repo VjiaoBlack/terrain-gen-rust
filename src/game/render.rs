@@ -1,4 +1,4 @@
-use crate::ecs::{self, Behavior, BehaviorState, BuildingType, Creature, Den, FarmPlot, FoodSource, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Species, Sprite, Stockpile, StoneDeposit, ResourceType};
+use crate::ecs::{self, Behavior, BehaviorState, BuildingType, Creature, Den, FarmPlot, FoodSource, GarrisonBuilding, Position, ProcessingBuilding, Species, Sprite, Stockpile, StoneDeposit, ResourceType};
 use crate::renderer::{Color, Renderer};
 use crate::simulation::Season;
 use crate::tilemap::Terrain;
@@ -47,7 +47,7 @@ impl super::Game {
 
         // Helper: draw a line of text in the panel
         let mut row = 0u16;
-        let mut draw_line = |r: &mut dyn Renderer, y: u16, text: &str, color: Color| {
+        let draw_line = |r: &mut dyn Renderer, y: u16, text: &str, color: Color| {
             for (i, ch) in text.chars().enumerate() {
                 if i < pw {
                     r.draw(i as u16, y, ch, color, Some(bg));
@@ -455,7 +455,6 @@ impl super::Game {
     fn draw_weather(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let status_h = 1u16;
-        let aspect = CELL_ASPECT;
 
         let is_winter = self.day_night.season == Season::Winter;
         let has_blizzard = self.events.active_events.iter().any(|e| matches!(e, GameEvent::Blizzard { .. }));

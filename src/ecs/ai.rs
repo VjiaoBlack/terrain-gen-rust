@@ -1,5 +1,4 @@
 use hecs::Entity;
-use rand::RngExt;
 
 use crate::tilemap::{TileMap, Terrain};
 use super::components::*;

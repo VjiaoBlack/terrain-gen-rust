@@ -3,10 +3,6 @@ mod crossterm_renderer;
 use terrain_gen_rust::renderer;
 use terrain_gen_rust::headless_renderer;
 use terrain_gen_rust::game;
-use terrain_gen_rust::ecs;
-use terrain_gen_rust::tilemap;
-use terrain_gen_rust::terrain_gen;
-use terrain_gen_rust::simulation;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
@@ -177,7 +173,6 @@ fn main() -> Result<()> {
         }
 
         // Emit ANSI-colored output
-        use crate::renderer::Renderer;
         for y in 0..h {
             for x in 0..w {
                 if let Some(cell) = r.get_cell(x, y) {

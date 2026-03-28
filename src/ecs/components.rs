@@ -1,4 +1,3 @@
-use hecs::Entity;
 use serde::{Serialize, Deserialize};
 
 use crate::renderer::Color;

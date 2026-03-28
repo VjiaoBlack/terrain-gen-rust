@@ -327,7 +327,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         match rt {
             ResourceType::Food => {
                 let mut best: Option<(Entity, f64)> = None;
-                for (e, pos, _fs, ry) in world.query::<(Entity, &Position, &FoodSource, &mut ResourceYield)>().iter() {
+                for (e, pos, _fs, _ry) in world.query::<(Entity, &Position, &FoodSource, &mut ResourceYield)>().iter() {
                     let d = dist(pos.x, pos.y, hx, hy);
                     if d < 3.0 && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
                         best = Some((e, d));
@@ -344,7 +344,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
             }
             ResourceType::Stone => {
                 let mut best: Option<(Entity, f64)> = None;
-                for (e, pos, _sd, ry) in world.query::<(Entity, &Position, &StoneDeposit, &mut ResourceYield)>().iter() {
+                for (e, pos, _sd, _ry) in world.query::<(Entity, &Position, &StoneDeposit, &mut ResourceYield)>().iter() {
                     let d = dist(pos.x, pos.y, hx, hy);
                     if d < 3.0 && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
                         best = Some((e, d));
