@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // some used only in demolish_at
 use crate::ecs::{self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Species, Stockpile};
 use crate::renderer::Renderer;
 use crate::tilemap::Terrain;
@@ -23,53 +24,13 @@ impl super::Game {
                 }
             }
         }
-        // Check for overlapping build sites
+        // Check for overlapping build sites (finished buildings already rejected
+        // by terrain check above — they set tiles to BuildingFloor/BuildingWall)
         for (pos, site) in self.world.query::<(&Position, &BuildSite)>().iter() {
             let (sw, sh) = site.building_type.size();
             let sx = pos.x as i32;
             let sy = pos.y as i32;
-            // Check if footprints overlap
             if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
-                return false;
-            }
-        }
-
-        // Check for overlapping finished buildings (huts, farms, garrisons, etc.)
-        for pos in self.world.query::<(&Position, &HutBuilding)>().iter().map(|(p, _)| p) {
-            let (sw, sh) = BuildingType::Hut.size();
-            let sx = pos.x as i32 - sw / 2;
-            let sy = pos.y as i32 - sh / 2;
-            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
-                return false;
-            }
-        }
-        for pos in self.world.query::<(&Position, &FarmPlot)>().iter().map(|(p, _)| p) {
-            let (sw, sh) = BuildingType::Farm.size();
-            let sx = pos.x as i32 - sw / 2;
-            let sy = pos.y as i32 - sh / 2;
-            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
-                return false;
-            }
-        }
-        for pos in self.world.query::<(&Position, &GarrisonBuilding)>().iter().map(|(p, _)| p) {
-            let (sw, sh) = BuildingType::Garrison.size();
-            let sx = pos.x as i32 - sw / 2;
-            let sy = pos.y as i32 - sh / 2;
-            if bx < sx + sw && bx + w > sx && by < sy + sh && by + h > sy {
-                return false;
-            }
-        }
-        for pos in self.world.query::<(&Position, &ProcessingBuilding)>().iter().map(|(p, _)| p) {
-            let sx = pos.x as i32 - 1;
-            let sy = pos.y as i32 - 1;
-            if bx < sx + 3 && bx + w > sx && by < sy + 3 && by + h > sy {
-                return false;
-            }
-        }
-        for pos in self.world.query::<(&Position, &Stockpile)>().iter().map(|(p, _)| p) {
-            let sx = pos.x as i32;
-            let sy = pos.y as i32;
-            if bx < sx + 2 && bx + w > sx && by < sy + 2 && by + h > sy {
                 return false;
             }
         }
