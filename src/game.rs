@@ -99,6 +99,8 @@ pub const PANEL_WIDTH: u16 = 24;
 pub enum OverlayMode {
     None,
     Tasks,      // Color-code villagers by current activity
+    Resources,  // Show resource locations with color markers
+    Threats,    // Show wolf positions and danger zones
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -590,7 +592,9 @@ impl Game {
             GameInput::CycleOverlay => {
                 self.overlay = match self.overlay {
                     OverlayMode::None => OverlayMode::Tasks,
-                    OverlayMode::Tasks => OverlayMode::None,
+                    OverlayMode::Tasks => OverlayMode::Resources,
+                    OverlayMode::Resources => OverlayMode::Threats,
+                    OverlayMode::Threats => OverlayMode::None,
                 };
             }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
@@ -1418,6 +1422,8 @@ impl Game {
         let ov_str = match self.overlay {
             OverlayMode::None => "off",
             OverlayMode::Tasks => "TASKS",
+            OverlayMode::Resources => "RESOURCES",
+            OverlayMode::Threats => "THREATS",
         };
         draw_line(renderer, row, &format!(" Overlay [o]: {}", ov_str),
             if self.overlay != OverlayMode::None { green } else { fg });
@@ -1611,6 +1617,13 @@ impl Game {
                 } else { fg };
                 renderer.draw(sx as u16, sy as u16, sprite.ch, fg, None);
             }
+        }
+
+        // Overlay pass: draw additional markers on top
+        if self.overlay == OverlayMode::Resources {
+            self.draw_resource_overlay(renderer);
+        } else if self.overlay == OverlayMode::Threats {
+            self.draw_threat_overlay(renderer);
         }
 
         if self.query_mode {
@@ -1974,6 +1987,89 @@ impl Game {
         }
         for i in status.len()..w as usize {
             renderer.draw(i as u16, h - 1, ' ', Color(0, 0, 0), Some(Color(180, 180, 180)));
+        }
+    }
+
+    fn draw_resource_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        // Collect resource positions with colors
+        let mut markers: Vec<(f64, f64, char, Color)> = Vec::new();
+        for (pos, sprite, _) in self.world.query::<(&Position, &Sprite, &FoodSource)>().iter() {
+            markers.push((pos.x, pos.y, sprite.ch, Color(255, 50, 200))); // magenta
+        }
+        for (pos, sprite, _) in self.world.query::<(&Position, &Sprite, &StoneDeposit)>().iter() {
+            markers.push((pos.x, pos.y, sprite.ch, Color(220, 220, 220))); // white
+        }
+        for (pos, sprite, _) in self.world.query::<(&Position, &Sprite, &Stockpile)>().iter() {
+            markers.push((pos.x, pos.y, sprite.ch, Color(255, 220, 50))); // yellow
+        }
+
+        for (px, py, ch, fg) in &markers {
+            let sx = (*px as i32 - self.camera.x as i32) * aspect + panel_w;
+            let sy = *py as i32 - self.camera.y as i32;
+            if sx >= panel_w && sx < w as i32 && sy >= 0 && sy < (h - status_h) as i32 {
+                renderer.draw(sx as u16, sy as u16, *ch, *fg, None);
+            }
+        }
+    }
+
+    fn draw_threat_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        // Collect wolf den positions for danger zone
+        let den_positions: Vec<(f64, f64)> = self.world.query::<(&Position, &Den)>().iter()
+            .map(|(p, _)| (p.x, p.y)).collect();
+
+        // Draw danger zone background tint (8 tile radius around dens)
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x as i32 + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y as i32 + sy as i32;
+                let in_danger = den_positions.iter().any(|&(dx, dy)| {
+                    let ddx = wx as f64 - dx;
+                    let ddy = wy as f64 - dy;
+                    ddx * ddx + ddy * ddy < 64.0 // 8 tile radius
+                });
+                if in_danger {
+                    // Draw a dim red tint
+                    renderer.draw(sx_raw as u16, sy, '·', Color(180, 40, 40), Some(Color(60, 10, 10)));
+                }
+            }
+        }
+
+        // Draw wolves as bright red 'W'
+        for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+            if creature.species != Species::Predator { continue; }
+            let sx = (pos.x as i32 - self.camera.x as i32) * aspect + panel_w;
+            let sy = pos.y as i32 - self.camera.y as i32;
+            if sx >= panel_w && sx < w as i32 && sy >= 0 && sy < (h - status_h) as i32 {
+                renderer.draw(sx as u16, sy as u16, 'W', Color(255, 50, 50), Some(Color(80, 0, 0)));
+            }
+        }
+
+        // Draw dens as bright red 'D'
+        for (pos, _) in self.world.query::<(&Position, &Den)>().iter() {
+            let sx = (pos.x as i32 - self.camera.x as i32) * aspect + panel_w;
+            let sy = pos.y as i32 - self.camera.y as i32;
+            if sx >= panel_w && sx < w as i32 && sy >= 0 && sy < (h - status_h) as i32 {
+                renderer.draw(sx as u16, sy as u16, 'D', Color(255, 80, 80), Some(Color(80, 0, 0)));
+            }
+        }
+
+        // Draw garrison/wall buildings as bright green
+        for (pos, _) in self.world.query::<(&Position, &GarrisonBuilding)>().iter() {
+            let sx = (pos.x as i32 - self.camera.x as i32) * aspect + panel_w;
+            let sy = pos.y as i32 - self.camera.y as i32;
+            if sx >= panel_w && sx < w as i32 && sy >= 0 && sy < (h - status_h) as i32 {
+                renderer.draw(sx as u16, sy as u16, 'G', Color(50, 255, 50), None);
+            }
         }
     }
 
@@ -2389,7 +2485,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_cycles_through_modes() {
+    fn overlay_cycles_through_all_modes() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
@@ -2397,6 +2493,12 @@ mod tests {
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::Tasks);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Resources);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Threats);
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::None);
@@ -2486,5 +2588,37 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_file("/tmp/test_events_save.json");
+    }
+
+    #[test]
+    fn threat_overlay_marks_wolves() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        game.overlay = OverlayMode::Threats;
+
+        // Spawn a wolf in view
+        ecs::spawn_predator(&mut game.world, (game.camera.x + 5) as f64, (game.camera.y + 5) as f64);
+
+        game.draw(&mut renderer);
+
+        // The wolf should be rendered as 'W' somewhere on screen
+        let frame = renderer.frame_as_string();
+        assert!(frame.contains('W'), "threat overlay should show wolves as 'W'");
+    }
+
+    #[test]
+    fn resource_overlay_marks_food_sources() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        game.overlay = OverlayMode::Resources;
+
+        // Spawn berry bush in view
+        ecs::spawn_berry_bush(&mut game.world, (game.camera.x + 5) as f64, (game.camera.y + 5) as f64);
+
+        game.draw(&mut renderer);
+
+        // Berry bush char '♦' should appear
+        let frame = renderer.frame_as_string();
+        assert!(frame.contains('♦'), "resource overlay should show berry bushes");
     }
 }
