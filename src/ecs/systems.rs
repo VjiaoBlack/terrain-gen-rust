@@ -726,7 +726,7 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
 }
 
 /// Breeding system: prey breed at dens in spring/summer, wolves breed when well-fed.
-pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64) {
+pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64, year: u32) {
     let mut rng = rand::rng();
 
     // Only breed in Spring and Summer
@@ -785,7 +785,8 @@ pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64)
         .filter(|c| c.species == Species::Predator)
         .count();
 
-    if wolf_count < 6 {
+    let wolf_cap = (4 + 2 * year) as usize;
+    if wolf_count < wolf_cap {
         let wolf_candidates: Vec<(f64, f64)> = world
             .query::<(&Position, &Creature, &Behavior)>()
             .iter()
@@ -816,7 +817,7 @@ pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64)
 /// Coordinated wolf raid system: when 5+ wolves are within range of each other,
 /// they attack as a pack toward the settlement center.
 /// Returns true if a raid was launched this tick.
-pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64, tick: u64) -> bool {
+pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64, tick: u64, year: u32) -> bool {
     // Only check every 50 ticks to avoid constant scanning
     if tick % 50 != 0 { return false; }
 
@@ -828,9 +829,10 @@ pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64
         .map(|(e, p, _)| (e, p.x, p.y))
         .collect();
 
-    if wolves.len() < 5 { return false; }
+    let raid_threshold = 3u32.max(5u32.saturating_sub(year)) as usize;
+    if wolves.len() < raid_threshold { return false; }
 
-    // Find clusters of 5+ wolves within 15 tiles of each other
+    // Find clusters of raid_threshold+ wolves within 15 tiles of each other
     let cluster_radius = 15.0;
     for &(_, wx, wy) in &wolves {
         let pack: Vec<Entity> = wolves.iter()
@@ -838,7 +840,7 @@ pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64
             .map(|(e, _, _)| *e)
             .collect();
 
-        if pack.len() >= 5 {
+        if pack.len() >= raid_threshold {
             // Launch raid: set all pack wolves to hunt toward settlement
             for wolf_e in pack {
                 if let Ok(mut behavior) = world.get::<&mut Behavior>(wolf_e) {

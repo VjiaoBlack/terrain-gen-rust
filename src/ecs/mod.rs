@@ -786,7 +786,7 @@ mod tests {
         assert_eq!(initial_count, 1);
 
         for _ in 0..5000 {
-            system_breeding(&mut world, Season::Spring, 1.0);
+            system_breeding(&mut world, Season::Spring, 1.0, 0);
         }
 
         let final_count = world.query::<&Creature>().iter()
@@ -806,7 +806,7 @@ mod tests {
         assert_eq!(initial_count, 1);
 
         for _ in 0..10000 {
-            system_breeding(&mut world, Season::Summer, 1.0);
+            system_breeding(&mut world, Season::Summer, 1.0, 0);
         }
 
         let final_count = world.query::<&Creature>().iter()
@@ -822,7 +822,7 @@ mod tests {
         world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::AtHome { timer: 100 };
 
         for _ in 0..5000 {
-            system_breeding(&mut world, Season::Winter, 1.0);
+            system_breeding(&mut world, Season::Winter, 1.0, 0);
         }
 
         let count = world.query::<&Creature>().iter()
@@ -840,7 +840,7 @@ mod tests {
         }
 
         for _ in 0..5000 {
-            system_breeding(&mut world, Season::Spring, 1.0);
+            system_breeding(&mut world, Season::Spring, 1.0, 0);
         }
 
         let count = world.query::<&Creature>().iter()
@@ -1513,5 +1513,68 @@ mod tests {
             .map(|(_, ry)| ry.remaining)
             .collect();
         assert_eq!(stone_yield, vec![5], "stone yield should round-trip");
+    }
+
+    #[test]
+    fn wolf_cap_scales_with_year() {
+        // Year 0: cap = 4 + 2*0 = 4
+        let mut world = World::new();
+        for _ in 0..5 {
+            let e = spawn_predator(&mut world, 15.0, 15.0);
+            world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
+            world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::Wander { timer: 50 };
+        }
+        // At year 0, cap is 4 — breeding should not increase past 4
+        // We already have 5 wolves, so no breeding should occur
+        let before = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        for _ in 0..5000 {
+            system_breeding(&mut world, Season::Summer, 1.0, 0);
+        }
+        let after = world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        assert_eq!(after, before, "year 0: wolves above cap 4 should not breed, got {}", after);
+
+        // Year 2: cap = 4 + 2*2 = 8
+        let mut world2 = World::new();
+        for _ in 0..5 {
+            let e = spawn_predator(&mut world2, 15.0, 15.0);
+            world2.get::<&mut Creature>(e).unwrap().hunger = 0.1;
+            world2.get::<&mut Behavior>(e).unwrap().state = BehaviorState::Wander { timer: 50 };
+        }
+        // At year 2, cap is 8 — 5 wolves should be able to breed
+        for _ in 0..10000 {
+            system_breeding(&mut world2, Season::Summer, 1.0, 2);
+        }
+        let after2 = world2.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Predator).count();
+        assert!(after2 > 5, "year 2: wolves below cap 8 should breed, got {}", after2);
+    }
+
+    #[test]
+    fn raid_threshold_decreases_over_time() {
+        // Year 0: threshold = max(3, 5-0) = 5, so 4 wolves should NOT raid
+        let mut world = World::new();
+        for i in 0..4 {
+            spawn_predator(&mut world, 30.0 + i as f64, 30.0);
+        }
+        let raided = system_wolf_raids(&mut world, 25.0, 25.0, 50, 0);
+        assert!(!raided, "year 0: 4 wolves should not raid (threshold 5)");
+
+        // Year 2: threshold = max(3, 5-2) = 3, so 4 wolves SHOULD raid
+        let mut world2 = World::new();
+        for i in 0..4 {
+            spawn_predator(&mut world2, 30.0 + i as f64, 30.0);
+        }
+        let raided2 = system_wolf_raids(&mut world2, 25.0, 25.0, 50, 2);
+        assert!(raided2, "year 2: 4 wolves should raid (threshold 3)");
+
+        // Year 10: threshold = max(3, 5-10) = 3 (clamped), so 3 wolves SHOULD raid
+        let mut world3 = World::new();
+        for i in 0..3 {
+            spawn_predator(&mut world3, 30.0 + i as f64, 30.0);
+        }
+        let raided3 = system_wolf_raids(&mut world3, 25.0, 25.0, 50, 10);
+        assert!(raided3, "year 10: 3 wolves should raid (threshold 3, clamped)");
     }
 }

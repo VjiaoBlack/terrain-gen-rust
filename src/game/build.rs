@@ -251,7 +251,7 @@ impl super::Game {
             sources.push((pos.x, pos.y, 1.0));
         }
 
-        self.influence.update(&sources);
+        self.influence.update(&sources, None);
     }
 
     /// Track villager movement and auto-convert high-traffic tiles to roads.
