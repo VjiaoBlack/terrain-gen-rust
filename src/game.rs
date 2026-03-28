@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
+use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, ProcessingBuilding, Recipe, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -85,12 +85,7 @@ pub enum GameInput {
     None,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Resources {
-    pub food: u32,
-    pub wood: u32,
-    pub stone: u32,
-}
+pub use crate::ecs::Resources;
 
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
 /// screen columns so the grid looks square.
@@ -355,6 +350,7 @@ impl Game {
                     ResourceType::Food => { self.resources.food += 1; deposited_food += 1; },
                     ResourceType::Wood => { self.resources.wood += 1; deposited_wood += 1; },
                     ResourceType::Stone => { self.resources.stone += 1; deposited_stone += 1; },
+                    _ => {} // Refined resources (Planks, Masonry, Grain) not gathered by villagers
                 }
             }
             if deposited_food > 0 {
@@ -439,6 +435,10 @@ impl Game {
             if farm_food > 0 {
                 self.notify(format!("Farm harvested: +{} food", farm_food));
             }
+
+            // Processing buildings auto-process resources
+            let process_mult = 1.0;
+            ecs::system_processing(&mut self.world, &mut self.resources, process_mult);
 
             // Check for completed buildings
             self.check_build_completion();
@@ -579,6 +579,12 @@ impl Game {
                 let cx = pos.x + sw as f64 / 2.0;
                 let cy = pos.y + sh as f64 / 2.0;
                 ecs::spawn_farm_plot(&mut self.world, cx, cy);
+            }
+            if site.building_type == BuildingType::Workshop {
+                ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::WoodToPlanks);
+            }
+            if site.building_type == BuildingType::Smithy {
+                ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::StoneToMasonry);
             }
             self.world.despawn(e).ok();
         }
@@ -1037,6 +1043,12 @@ impl Game {
                 if self.world.get::<&Stockpile>(e).is_ok() {
                     lines.push(format!("Stockpile (F:{} W:{} S:{})",
                         self.resources.food, self.resources.wood, self.resources.stone));
+                    lines.push(format!("  Planks:{} Masonry:{} Grain:{}",
+                        self.resources.planks, self.resources.masonry, self.resources.grain));
+                }
+                if let Ok(pb) = self.world.get::<&ProcessingBuilding>(e) {
+                    lines.push(format!("Processing: {:?} ({}/{})",
+                        pb.recipe, pb.progress, pb.required));
                 }
             }
         }
@@ -1114,8 +1126,9 @@ impl Game {
             ("", dim),
             (&format!("Survived to {} ({} ticks)", self.day_night.date_string(), self.tick), dim),
             (&format!("Peak population: {}", self.peak_population), dim),
-            (&format!("Resources: {} food, {} wood, {} stone",
-                self.resources.food, self.resources.wood, self.resources.stone), dim),
+            (&format!("Resources: {} food, {} wood, {} stone, {} planks, {} masonry, {} grain",
+                self.resources.food, self.resources.wood, self.resources.stone,
+                self.resources.planks, self.resources.masonry, self.resources.grain), dim),
             ("", dim),
             ("Press [r] to restart, [q] to quit", white),
         ];
@@ -1171,8 +1184,9 @@ impl Game {
             .filter(|c| c.species == Species::Predator).count();
 
         let status2 = format!(
-            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}  |  Pop: {}  Prey: {}  Wolves: {}  |  drain: [d]",
+            " arrows: scroll  |  Food: {}  Wood: {}  Stone: {}  Planks: {}  Masonry: {}  Grain: {}  |  Pop: {}  Prey: {}  Wolves: {}  |  drain: [d]",
             self.resources.food, self.resources.wood, self.resources.stone,
+            self.resources.planks, self.resources.masonry, self.resources.grain,
             villager_count, prey_count, wolf_count,
         );
 
@@ -1320,7 +1334,7 @@ mod tests {
             .count();
         assert_eq!(initial_count, 2);
 
-        let mut resources = Resources { food: 10, wood: 0, stone: 0 };
+        let mut resources = Resources { food: 10, ..Default::default() };
 
         let villager_count = world.query::<&Creature>().iter()
             .filter(|c| c.species == Species::Villager)
