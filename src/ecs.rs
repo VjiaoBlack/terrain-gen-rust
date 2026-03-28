@@ -616,9 +616,11 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                 (s, vx, vy, h, k, None)
             }
             Species::Villager => {
+                // Villagers only flee wolves within close threat range (not full sight range)
+                let threat_range = 8.0_f64.min(creature.sight_range);
                 let predator_nearby = predator_positions
                     .iter()
-                    .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
+                    .any(|&(px, py)| dist(pos.x, pos.y, px, py) < threat_range);
 
                 let has_food = stockpile_food.saturating_sub(food_consumed) > 0;
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
@@ -1357,10 +1359,9 @@ fn ai_villager(
                 }
             }
 
-            // Build: if not too hungry and there are unassigned build sites
+            // Build: if not too hungry and there are build sites
             if hunger < 0.4 {
                 let nearest_site = build_sites.iter()
-                    .filter(|(_, _, _, assigned)| !assigned)
                     .map(|&(e, bx, by, _)| (e, bx, by, dist(pos.x, pos.y, bx, by)))
                     .filter(|(_, _, _, d)| *d < creature.sight_range)
                     .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap());

@@ -2003,4 +2003,25 @@ mod tests {
         assert!((new_defense - base_defense - 5.0).abs() < 0.01,
             "garrison should add 5.0 defense, got difference: {}", new_defense - base_defense);
     }
+
+    #[test]
+    fn build_site_gets_completed_in_game() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Place a wall build site near the settlement (villagers spawn around 125,126)
+        let site = ecs::spawn_build_site(&mut game.world, 126.0, 126.0, BuildingType::Wall);
+
+        // Run for enough ticks — wall requires 30 build_time
+        for _ in 0..500 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+            if game.world.get::<&BuildSite>(site).is_err() {
+                return; // Build site despawned = completed
+            }
+        }
+
+        if let Ok(s) = game.world.get::<&BuildSite>(site) {
+            panic!("build site not completed after 500 ticks: progress={}/{}", s.progress, s.required);
+        }
+    }
 }
