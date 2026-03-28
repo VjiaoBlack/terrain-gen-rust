@@ -68,7 +68,7 @@ pub fn spawn_berry_bush(world: &mut World, x: f64, y: f64) -> Entity {
         Position { x, y },
         Sprite { ch: '♦', fg: Color(200, 40, 80) }, // red berries
         FoodSource,
-        ResourceYield { remaining: 30, max: 30 },
+        ResourceYield { remaining: 12, max: 12 },
     ))
 }
 

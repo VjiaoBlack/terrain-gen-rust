@@ -947,7 +947,7 @@ mod tests {
         let v3 = spawn_villager(&mut world, 19.0, 20.0);
 
         let mut deposits = Vec::new();
-        let mut any_ate = false;
+        let mut any_gathered = false;
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
@@ -958,33 +958,17 @@ mod tests {
 
             for (creature, behavior) in world.query::<(&Creature, &Behavior)>().iter() {
                 if creature.species == Species::Villager {
-                    if matches!(behavior.state, BehaviorState::Eating { .. }) {
-                        any_ate = true;
+                    if matches!(behavior.state, BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. }) {
+                        any_gathered = true;
                     }
                 }
-            }
-
-            if tick % 500 == 0 {
-                let alive = world.query::<&Creature>().iter()
-                    .filter(|c| c.species == Species::Villager).count();
-                let hungers: Vec<f64> = world.query::<&Creature>().iter()
-                    .filter(|c| c.species == Species::Villager)
-                    .map(|c| c.hunger)
-                    .collect();
-                let states: Vec<String> = world.query::<(&Creature, &Behavior)>().iter()
-                    .filter(|(c, _)| c.species == Species::Villager)
-                    .map(|(_, b)| format!("{:?}", b.state).split('{').next().unwrap_or("?").split('(').next().unwrap_or("?").trim().to_string())
-                    .collect();
-                eprintln!("tick {}: alive={} hunger={:?} states={:?} deposits={}",
-                    tick, alive, hungers, states, deposits.len());
             }
         }
 
         let final_alive = world.query::<&Creature>().iter()
             .filter(|c| c.species == Species::Villager).count();
 
-        eprintln!("Final: alive={}, total_deposits={}, any_ate={}", final_alive, deposits.len(), any_ate);
-        assert!(any_ate, "villagers should eat at berry bushes");
+        assert!(any_gathered, "villagers should gather from berry bushes");
         assert!(final_alive >= 2, "at least 2 villagers should survive 3000 ticks, got {}", final_alive);
     }
 
@@ -1438,8 +1422,8 @@ mod tests {
         let mut world = World::new();
         let bush = spawn_berry_bush(&mut world, 5.0, 5.0);
         let ry = world.get::<&ResourceYield>(bush).unwrap();
-        assert_eq!(ry.remaining, 30);
-        assert_eq!(ry.max, 30);
+        assert_eq!(ry.remaining, 12);
+        assert_eq!(ry.max, 12);
     }
 
     #[test]

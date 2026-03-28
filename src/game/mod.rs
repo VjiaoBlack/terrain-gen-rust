@@ -334,7 +334,7 @@ impl Game {
         ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Berry bushes near settlement so villagers have food access
-        for &(bsx, bsy) in &[(124, 124), (126, 127), (123, 126), (127, 124)] {
+        for &(bsx, bsy) in &[(124, 124), (126, 127)] {
             let (bx, by) = find_walkable(&map, bsx, bsy);
             ecs::spawn_berry_bush(&mut world, bx, by);
         }
@@ -686,10 +686,11 @@ impl Game {
             let process_mult = 1.0;
             ecs::system_processing(&mut self.world, &mut self.resources, process_mult);
 
-            // Winter food decay: raw food spoils, grain is preserved
-            if self.day_night.season == Season::Winter && self.tick % 50 == 0 && self.resources.food > 0 {
-                self.resources.food -= 1;
-                self.notify("Food spoiled in winter (-1)".to_string());
+            // Winter food decay: percentage-based spoilage, grain is preserved
+            if self.day_night.season == Season::Winter && self.tick % 30 == 0 && self.resources.food > 0 {
+                let decay = std::cmp::max(1, self.resources.food * 2 / 100); // 2% per 30 ticks, min 1
+                self.resources.food = self.resources.food.saturating_sub(decay);
+                self.notify(format!("Food spoiled in winter (-{})", decay));
             }
 
             // Resource regrowth
@@ -1448,5 +1449,49 @@ mod tests {
 
         assert!(game.exploration.is_revealed(far_x, far_y),
             "tile under villager should be revealed after step");
+    }
+
+    #[test]
+    fn berry_bush_yield_is_12() {
+        let mut world = hecs::World::new();
+        let e = ecs::spawn_berry_bush(&mut world, 10.0, 10.0);
+        let ry = world.get::<&ecs::ResourceYield>(e).unwrap();
+        assert_eq!(ry.remaining, 12, "berry bush yield should be 12");
+        assert_eq!(ry.max, 12);
+    }
+
+    #[test]
+    fn winter_food_decay_is_percentage_based() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Give lots of food so percentage decay is visible
+        game.resources.food = 200;
+        game.day_night.season = Season::Winter;
+
+        // Tick to a multiple of 30 so decay fires
+        game.tick = 29;
+        game.step(GameInput::None, &mut renderer).unwrap();
+        // At tick 30: 2% of 200 = 4 decay (before villagers eat)
+        // Food should be noticeably less than 200
+        assert!(game.resources.food < 200, "percentage decay should reduce food");
+        // With 200 food, decay should be at least 4 (2%), not just 1
+        assert!(game.resources.food <= 197, "decay should be percentage-based, not flat -1");
+    }
+
+    #[test]
+    fn settlement_starts_with_two_nearby_berry_bushes() {
+        let mut game = Game::new(60, 42);
+        // Count berry bushes very close to settlement center (within ~4 tiles of 125,125)
+        // This catches the 2 settlement bushes but not the ecosystem bushes further out
+        let mut near_bushes = 0;
+        for (pos, _fs) in game.world.query_mut::<(&ecs::Position, &ecs::FoodSource)>() {
+            let dx = pos.x - 125.0;
+            let dy = pos.y - 125.0;
+            if dx * dx + dy * dy < 16.0 { // within 4 tiles
+                near_bushes += 1;
+            }
+        }
+        assert_eq!(near_bushes, 2, "should have exactly 2 berry bushes near settlement center");
     }
 }
