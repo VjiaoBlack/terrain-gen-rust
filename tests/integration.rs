@@ -1,4 +1,4 @@
-use terrain_gen_rust::ecs::{self, BuildingType, Creature, FoodSource, Species};
+use terrain_gen_rust::ecs::{self, BuildingType, Creature, FarmPlot, FoodSource, Species};
 use terrain_gen_rust::game::{Game, GameInput, OverlayMode};
 use terrain_gen_rust::headless_renderer::HeadlessRenderer;
 use terrain_gen_rust::tilemap::Terrain;
@@ -94,6 +94,16 @@ fn starvation_causes_game_over_eventually() {
         .map(|(e, _)| e)
         .collect();
     for e in food_entities {
+        let _ = game.world.despawn(e);
+    }
+
+    // Despawn all farms so villagers can't grow food
+    let farm_entities: Vec<hecs::Entity> = game.world
+        .query::<(hecs::Entity, &FarmPlot)>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect();
+    for e in farm_entities {
         let _ = game.world.despawn(e);
     }
 

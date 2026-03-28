@@ -238,8 +238,9 @@ const ROAD_TRAFFIC_THRESHOLD: f64 = 150.0;
 
 impl Game {
     pub fn new(target_fps: u32, seed: u32) -> Self {
-        let terrain_config = TerrainGenConfig { seed, ..Default::default() };
-        let (map, heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
+        // Reduce terrain noise scale for larger biomes — buildings feel right-sized
+        let terrain_config = TerrainGenConfig { seed, scale: 0.008, ..Default::default() };
+        let (mut map, heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
         let mut water = WaterMap::new(256, 256);
         // Seed water at terrain-Water tiles so ocean/lake areas have actual water
         for y in 0..256 {
@@ -303,6 +304,28 @@ impl Game {
         // Settlement: stockpile + villagers near center, with nearby food
         let (sx, sy) = find_walkable(&map, 125, 125);
         ecs::spawn_stockpile(&mut world, sx, sy);
+        // Set stockpile terrain tiles (2x2)
+        for dy in 0..2 {
+            for dx in 0..2 {
+                map.set(sx as usize + dx, sy as usize + dy, Terrain::BuildingFloor);
+            }
+        }
+
+        // Pre-built hut near stockpile
+        let (hx, hy) = find_walkable(&map, 122, 123);
+        for (dx, dy, terrain) in BuildingType::Hut.tiles() {
+            map.set(hx as usize + dx as usize, hy as usize + dy as usize, terrain);
+        }
+        let (hsw, hsh) = BuildingType::Hut.size();
+        ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
+
+        // Pre-built farm near stockpile
+        let (fx, fy) = find_walkable(&map, 128, 123);
+        for (dx, dy, terrain) in BuildingType::Farm.tiles() {
+            map.set(fx as usize + dx as usize, fy as usize + dy as usize, terrain);
+        }
+        let (fsw, fsh) = BuildingType::Farm.size();
+        ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Berry bushes near settlement so villagers have food access
         for &(bsx, bsy) in &[(124, 124), (126, 127), (123, 126), (127, 124)] {
@@ -343,7 +366,7 @@ impl Game {
             query_cx: 128,
             query_cy: 128,
             display_fps: None,
-            resources: Resources { food: 10, wood: 10, stone: 5, ..Default::default() },
+            resources: Resources { food: 20, wood: 20, stone: 10, ..Default::default() },
             build_mode: false,
             build_cursor_x: 128,
             build_cursor_y: 128,
