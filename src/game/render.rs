@@ -406,7 +406,7 @@ impl super::Game {
                                 Some(BehaviorState::Working { .. }) => Color(200, 120, 50),    // workshop orange
                                 Some(BehaviorState::Eating { .. }) => Color(50, 200, 50),      // green
                                 Some(BehaviorState::Sleeping { .. }) => Color(100, 100, 200),  // blue
-                                Some(BehaviorState::FleeHome) => Color(255, 50, 50),           // red
+                                Some(BehaviorState::FleeHome { .. }) => Color(255, 50, 50),    // red
                                 Some(BehaviorState::Idle { .. }) | Some(BehaviorState::Wander { .. }) => Color(80, 80, 180),  // dim blue
                                 Some(BehaviorState::Seek { .. }) => Color(180, 180, 50),       // dim yellow
                                 _ => fg,
@@ -663,7 +663,7 @@ impl super::Game {
                         BehaviorState::Seek { target_x, target_y } => format!("Seek ({:.0},{:.0})", target_x, target_y),
                         BehaviorState::Idle { timer } => format!("Idle ({})", timer),
                         BehaviorState::Eating { timer } => format!("Eating ({})", timer),
-                        BehaviorState::FleeHome => "Fleeing home!".to_string(),
+                        BehaviorState::FleeHome { timer } => format!("Fleeing home! ({})", timer),
                         BehaviorState::AtHome { timer } => format!("At home ({})", timer),
                         BehaviorState::Hunting { target_x, target_y } => format!("Hunting ({:.0},{:.0})", target_x, target_y),
                         BehaviorState::Captured => "CAPTURED!".to_string(),

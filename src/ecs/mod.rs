@@ -363,7 +363,7 @@ mod tests {
         system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
-        assert!(matches!(state, BehaviorState::FleeHome),
+        assert!(matches!(state, BehaviorState::FleeHome { .. }),
             "prey should flee when predator nearby, got: {:?}", state);
     }
 
@@ -375,7 +375,7 @@ mod tests {
 
         {
             let mut b = world.get::<&mut Behavior>(prey).unwrap();
-            b.state = BehaviorState::FleeHome;
+            b.state = BehaviorState::FleeHome { timer: 120 };
         }
 
         system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
@@ -579,7 +579,7 @@ mod tests {
         system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::FleeHome),
+        assert!(matches!(state, BehaviorState::FleeHome { .. }),
             "villager should flee when predator nearby, got: {:?}", state);
     }
 

@@ -202,26 +202,30 @@ pub(super) fn ai_prey(
         BehaviorState::Eating { timer } => {
             hunger = (hunger - 0.01).max(0.0);
             if predator_nearby {
-                (BehaviorState::FleeHome, 0.0, 0.0, hunger)
+                (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger)
             } else if *timer == 0 || hunger <= 0.0 {
-                (BehaviorState::FleeHome, 0.0, 0.0, hunger)
+                (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger)
             } else {
                 (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, hunger)
             }
         }
-        BehaviorState::FleeHome => {
+        BehaviorState::FleeHome { timer } => {
+            if *timer == 0 {
+                // Give up fleeing, go idle
+                return (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger);
+            }
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let d = move_toward(pos, creature.home_x, creature.home_y, speed * 1.5, &mut vel);
             if d < 1.5 {
                 (BehaviorState::AtHome { timer: rng.random_range(60..180) }, 0.0, 0.0, hunger)
             } else {
-                (BehaviorState::FleeHome, vel.dx, vel.dy, hunger)
+                (BehaviorState::FleeHome { timer: timer - 1 }, vel.dx, vel.dy, hunger)
             }
         }
         _ => {
             // Wander/Seek/Idle — check for threats and food
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger);
+                return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger);
             }
             if hunger > 0.5 {
                 let nearest = food.iter()
@@ -360,14 +364,18 @@ pub(super) fn ai_villager(
         BehaviorState::Eating { timer } => {
             hunger = (hunger - 0.01).max(0.0);
             if predator_nearby {
-                (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None)
+                (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger, None, None)
             } else if *timer == 0 || hunger <= 0.0 {
                 (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None, None)
             } else {
                 (BehaviorState::Eating { timer: timer - 1 }, 0.0, 0.0, hunger, None, None)
             }
         }
-        BehaviorState::FleeHome => {
+        BehaviorState::FleeHome { timer } => {
+            if *timer == 0 {
+                // Give up fleeing, go idle
+                return (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None, None);
+            }
             // Flee toward nearest stockpile (or home)
             let (hx, hy) = stockpile.iter()
                 .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
@@ -380,12 +388,12 @@ pub(super) fn ai_villager(
             if d < 1.5 {
                 (BehaviorState::Idle { timer: rng.random_range(30..90) }, 0.0, 0.0, hunger, None, None)
             } else {
-                (BehaviorState::FleeHome, vel.dx, vel.dy, hunger, None, None)
+                (BehaviorState::FleeHome { timer: timer - 1 }, vel.dx, vel.dy, hunger, None, None)
             }
         }
         BehaviorState::Gathering { timer, resource_type } => {
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+                return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger, None, None);
             }
             if *timer == 0 {
                 // Done gathering — haul to nearest stockpile
@@ -420,7 +428,7 @@ pub(super) fn ai_villager(
         }
         BehaviorState::Building { target_x, target_y, timer } => {
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+                return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger, None, None);
             }
             if *timer == 0 {
                 // Done building this round — short pause then re-evaluate
@@ -431,7 +439,7 @@ pub(super) fn ai_villager(
         }
         BehaviorState::Farming { target_x, target_y } => {
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+                return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger, None, None);
             }
             if hunger > 0.6 {
                 // Too hungry to farm — go eat
@@ -449,7 +457,7 @@ pub(super) fn ai_villager(
         }
         BehaviorState::Working { target_x, target_y } => {
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+                return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger, None, None);
             }
             if hunger > 0.6 {
                 return (BehaviorState::Idle { timer: 5 }, 0.0, 0.0, hunger, None, None);
@@ -510,7 +518,7 @@ pub(super) fn ai_villager(
 
             // Wander/Seek/Idle — check for threats, food, and gathering
             if predator_nearby {
-                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+                return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger, None, None);
             }
 
             // Eat: if hungry and near food (eat early to avoid starvation)

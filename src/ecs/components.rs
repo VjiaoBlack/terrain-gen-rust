@@ -81,8 +81,8 @@ pub enum BehaviorState {
     Idle { timer: u32 },
     /// Prey: eating at a food source.
     Eating { timer: u32 },
-    /// Prey: fleeing home because predator is nearby.
-    FleeHome,
+    /// Prey/villager: fleeing home because predator is nearby. Timer prevents getting stuck.
+    FleeHome { timer: u32 },
     /// Prey: safe at home, resting until hungry.
     AtHome { timer: u32 },
     /// Predator: chasing a prey it spotted.

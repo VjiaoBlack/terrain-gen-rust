@@ -297,7 +297,7 @@ impl Game {
 
     pub fn new_with_size(target_fps: u32, seed: u32, map_width: usize, map_height: usize) -> Self {
         // Reduce terrain noise scale for larger biomes — buildings feel right-sized
-        let terrain_config = TerrainGenConfig { seed, scale: 0.02, ..Default::default() };
+        let terrain_config = TerrainGenConfig { seed, scale: 0.015, ..Default::default() };
         let (mut map, heights) = terrain_gen::generate_terrain(map_width, map_height, &terrain_config);
         let mut water = WaterMap::new(map_width, map_height);
         // Seed water at terrain-Water tiles so ocean/lake areas have actual water
