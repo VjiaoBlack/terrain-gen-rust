@@ -446,8 +446,58 @@ impl super::Game {
         }
 
         self.draw_notifications(renderer);
+        self.draw_weather(renderer);
         self.draw_minimap(renderer);
         self.draw_status(renderer);
+    }
+
+    /// Draw weather effects: rain drops, snowflakes, or fog overlay.
+    fn draw_weather(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+
+        let is_winter = self.day_night.season == Season::Winter;
+        let has_blizzard = self.events.active_events.iter().any(|e| matches!(e, GameEvent::Blizzard { .. }));
+
+        if self.raining || has_blizzard {
+            // Scatter weather particles pseudo-randomly across the screen
+            // Use tick for animation so particles "fall"
+            let density = if has_blizzard { 12 } else { 8 }; // more particles in blizzard
+            let panel = PANEL_WIDTH;
+
+            for i in 0..density {
+                // Pseudo-random positions using tick + index, shifting each frame
+                let seed = self.tick.wrapping_mul(7919).wrapping_add(i as u64 * 6271);
+                let sx = ((seed % (w.saturating_sub(panel) as u64)) as u16) + panel;
+                let sy = ((seed.wrapping_mul(3) / 7) % h.saturating_sub(status_h) as u64) as u16;
+
+                if sx >= w || sy >= h.saturating_sub(status_h) { continue; }
+
+                if is_winter || has_blizzard {
+                    // Snow: white dots/asterisks
+                    let ch = if i % 3 == 0 { '*' } else { '.' };
+                    renderer.draw(sx, sy, ch, Color(220, 230, 255), None);
+                } else {
+                    // Rain: blue streaks
+                    let ch = if i % 2 == 0 { '|' } else { '/' };
+                    renderer.draw(sx, sy, ch, Color(100, 140, 200), None);
+                }
+            }
+        }
+
+        // Fog overlay in autumn mornings (light dimming)
+        if self.day_night.season == Season::Autumn && self.day_night.is_night() {
+            // Very sparse fog wisps
+            for i in 0..4 {
+                let seed = self.tick.wrapping_mul(4201).wrapping_add(i as u64 * 8731);
+                let sx = ((seed % w as u64) as u16).max(PANEL_WIDTH);
+                let sy = ((seed.wrapping_mul(5) / 9) % h.saturating_sub(status_h) as u64) as u16;
+                if sx < w && sy < h.saturating_sub(status_h) {
+                    renderer.draw(sx, sy, '~', Color(180, 180, 190), None);
+                }
+            }
+        }
     }
 
     fn draw_build_mode(&self, renderer: &mut dyn Renderer) {
