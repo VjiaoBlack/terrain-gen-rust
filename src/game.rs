@@ -1056,6 +1056,12 @@ impl Game {
             if site.building_type == BuildingType::Garrison {
                 ecs::spawn_garrison(&mut self.world, pos.x, pos.y);
             }
+            if site.building_type == BuildingType::Granary {
+                ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::FoodToGrain);
+            }
+            if site.building_type == BuildingType::Bakery {
+                ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::GrainToBread);
+            }
             self.world.despawn(e).ok();
         }
         for &(_, _, site) in &completed {
@@ -1361,10 +1367,13 @@ impl Game {
         draw_line(renderer, row, &format!("  Food:  {}", self.resources.food), fg); row += 1;
         draw_line(renderer, row, &format!("  Wood:  {}", self.resources.wood), fg); row += 1;
         draw_line(renderer, row, &format!("  Stone: {}", self.resources.stone), fg); row += 1;
-        if self.resources.planks > 0 || self.resources.masonry > 0 || self.resources.grain > 0 {
+        if self.resources.planks > 0 || self.resources.masonry > 0 || self.resources.grain > 0 || self.resources.bread > 0 {
             draw_line(renderer, row, &format!("  Planks:  {}", self.resources.planks), dim); row += 1;
             draw_line(renderer, row, &format!("  Masonry: {}", self.resources.masonry), dim); row += 1;
             draw_line(renderer, row, &format!("  Grain:   {}", self.resources.grain), dim); row += 1;
+            if self.resources.bread > 0 {
+                draw_line(renderer, row, &format!("  Bread:   {}", self.resources.bread), dim); row += 1;
+            }
         }
         row += 1;
 
@@ -1878,11 +1887,13 @@ impl Game {
                         ecs::Recipe::WoodToPlanks => "2 Wood -> 1 Planks",
                         ecs::Recipe::StoneToMasonry => "2 Stone -> 1 Masonry",
                         ecs::Recipe::FoodToGrain => "3 Food -> 2 Grain",
+                        ecs::Recipe::GrainToBread => "2 Grain+1 Wood -> 3 Bread",
                     };
                     let has_input = match pb.recipe {
                         ecs::Recipe::WoodToPlanks => self.resources.wood >= 2,
                         ecs::Recipe::StoneToMasonry => self.resources.stone >= 2,
                         ecs::Recipe::FoodToGrain => self.resources.food >= 3,
+                        ecs::Recipe::GrainToBread => self.resources.grain >= 2 && self.resources.wood >= 1,
                     };
                     let status = if has_input { "ACTIVE" } else { "IDLE" };
                     lines.push(format!("Recipe: {}", recipe_str));

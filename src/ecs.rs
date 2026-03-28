@@ -128,6 +128,8 @@ pub enum BuildingType {
     Smithy,
     Garrison,
     Road,
+    Granary,
+    Bakery,
 }
 
 impl BuildingType {
@@ -141,6 +143,8 @@ impl BuildingType {
             BuildingType::Smithy => Resources { wood: 5, stone: 8, ..Default::default() },
             BuildingType::Garrison => Resources { planks: 5, masonry: 5, ..Default::default() },
             BuildingType::Road => Resources { stone: 1, ..Default::default() },
+            BuildingType::Granary => Resources { wood: 6, stone: 4, planks: 2, ..Default::default() },
+            BuildingType::Bakery => Resources { wood: 4, stone: 3, planks: 3, ..Default::default() },
         }
     }
 
@@ -154,6 +158,8 @@ impl BuildingType {
             BuildingType::Smithy => 180,
             BuildingType::Garrison => 120,
             BuildingType::Road => 20,
+            BuildingType::Granary => 160,
+            BuildingType::Bakery => 140,
         }
     }
 
@@ -167,6 +173,8 @@ impl BuildingType {
             BuildingType::Smithy => (3, 3),
             BuildingType::Garrison => (3, 3),
             BuildingType::Road => (1, 1),
+            BuildingType::Granary => (3, 3),
+            BuildingType::Bakery => (3, 3),
         }
     }
 
@@ -227,11 +235,23 @@ impl BuildingType {
                 tiles
             }
             BuildingType::Road => vec![(0, 0, Terrain::Road)],
+            BuildingType::Granary | BuildingType::Bakery => {
+                let mut tiles = Vec::new();
+                for dx in 0..3 {
+                    tiles.push((dx, 0, Terrain::BuildingWall));
+                    tiles.push((dx, 2, Terrain::BuildingWall));
+                }
+                tiles.push((0, 1, Terrain::BuildingWall));
+                tiles.push((2, 1, Terrain::BuildingWall));
+                tiles.push((1, 1, Terrain::BuildingFloor));
+                tiles.push((1, 0, Terrain::BuildingFloor)); // door
+                tiles
+            }
         }
     }
 
     pub fn all() -> &'static [BuildingType] {
-        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison, BuildingType::Road]
+        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison, BuildingType::Road, BuildingType::Granary, BuildingType::Bakery]
     }
 
     pub fn name(&self) -> &'static str {
@@ -244,6 +264,8 @@ impl BuildingType {
             BuildingType::Smithy => "Smithy",
             BuildingType::Garrison => "Garrison",
             BuildingType::Road => "Road",
+            BuildingType::Granary => "Granary",
+            BuildingType::Bakery => "Bakery",
         }
     }
 }
@@ -301,6 +323,7 @@ pub enum Recipe {
     WoodToPlanks,    // 2 Wood -> 1 Planks
     StoneToMasonry,  // 2 Stone -> 1 Masonry
     FoodToGrain,     // 3 Food -> 2 Grain
+    GrainToBread,    // 2 Grain + 1 Wood -> 3 Bread (highest food value)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -436,12 +459,15 @@ pub struct Resources {
     pub planks: u32,
     pub masonry: u32,
     pub grain: u32,
+    #[serde(default)]
+    pub bread: u32,
 }
 
 impl Resources {
     pub fn can_afford(&self, cost: &Resources) -> bool {
         self.food >= cost.food && self.wood >= cost.wood && self.stone >= cost.stone
             && self.planks >= cost.planks && self.masonry >= cost.masonry && self.grain >= cost.grain
+            && self.bread >= cost.bread
     }
 
     pub fn deduct(&mut self, cost: &Resources) {
@@ -451,6 +477,7 @@ impl Resources {
         self.planks -= cost.planks;
         self.masonry -= cost.masonry;
         self.grain -= cost.grain;
+        self.bread -= cost.bread;
     }
 }
 
@@ -1329,6 +1356,7 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
             Recipe::WoodToPlanks => resources.wood >= 2,
             Recipe::StoneToMasonry => resources.stone >= 2,
             Recipe::FoodToGrain => resources.food >= 3,
+            Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
         };
         if has_input {
             building.progress += 1;
@@ -1356,6 +1384,13 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
                     if resources.food >= 3 {
                         resources.food -= 3;
                         resources.grain += 2;
+                    }
+                }
+                Recipe::GrainToBread => {
+                    if resources.grain >= 2 && resources.wood >= 1 {
+                        resources.grain -= 2;
+                        resources.wood -= 1;
+                        resources.bread += 3;
                     }
                 }
             }
@@ -2994,6 +3029,34 @@ mod tests {
         let all = BuildingType::all();
         assert!(all.contains(&BuildingType::Workshop), "all() should contain Workshop");
         assert!(all.contains(&BuildingType::Smithy), "all() should contain Smithy");
+        assert!(all.contains(&BuildingType::Granary), "all() should contain Granary");
+        assert!(all.contains(&BuildingType::Bakery), "all() should contain Bakery");
+    }
+
+    #[test]
+    fn bakery_converts_grain_to_bread() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 5.0, 5.0, Recipe::GrainToBread);
+        let mut resources = Resources { grain: 4, wood: 2, ..Default::default() };
+
+        for _ in 0..150 {
+            system_processing(&mut world, &mut resources, 1.0);
+        }
+
+        assert!(resources.bread > 0, "bakery should produce bread");
+        assert!(resources.grain < 4, "bakery should consume grain");
+    }
+
+    #[test]
+    fn granary_and_bakery_building_properties() {
+        assert_eq!(BuildingType::Granary.size(), (3, 3));
+        assert_eq!(BuildingType::Bakery.size(), (3, 3));
+        assert_eq!(BuildingType::Granary.name(), "Granary");
+        assert_eq!(BuildingType::Bakery.name(), "Bakery");
+        // Granary requires planks (needs Workshop first)
+        assert!(BuildingType::Granary.cost().planks > 0);
+        // Bakery also requires planks
+        assert!(BuildingType::Bakery.cost().planks > 0);
     }
 
     #[test]
@@ -3106,7 +3169,7 @@ mod tests {
 
     #[test]
     fn resources_can_afford_and_deduct() {
-        let mut res = Resources { food: 10, wood: 5, stone: 3, planks: 2, masonry: 1, grain: 4 };
+        let mut res = Resources { food: 10, wood: 5, stone: 3, planks: 2, masonry: 1, grain: 4, bread: 0 };
         let cost = Resources { wood: 3, stone: 2, ..Default::default() };
         assert!(res.can_afford(&cost));
         res.deduct(&cost);
