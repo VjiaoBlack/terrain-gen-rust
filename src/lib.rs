@@ -5,3 +5,5 @@ pub mod ecs;
 pub mod tilemap;
 pub mod terrain_gen;
 pub mod simulation;
+#[cfg(feature = "lua")]
+pub mod scripting;
