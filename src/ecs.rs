@@ -26,6 +26,7 @@ impl Default for SkillMults {
 pub struct AiResult {
     pub deposited: Vec<ResourceType>,
     pub food_consumed: u32,
+    pub grain_consumed: u32,
     pub farming_ticks: u32,
     pub mining_ticks: u32,
     pub woodcutting_ticks: u32,
@@ -129,15 +130,15 @@ pub enum BuildingType {
 }
 
 impl BuildingType {
-    pub fn cost(&self) -> (u32, u32, u32) {
+    pub fn cost(&self) -> Resources {
         match self {
-            BuildingType::Hut => (0, 5, 2),
-            BuildingType::Wall => (0, 1, 1),
-            BuildingType::Farm => (0, 3, 0),
-            BuildingType::Stockpile => (0, 2, 0),
-            BuildingType::Workshop => (0, 8, 4),
-            BuildingType::Smithy => (0, 5, 8),
-            BuildingType::Garrison => (0, 5, 5),
+            BuildingType::Hut => Resources { wood: 5, stone: 2, ..Default::default() },
+            BuildingType::Wall => Resources { wood: 1, stone: 1, ..Default::default() },
+            BuildingType::Farm => Resources { wood: 3, ..Default::default() },
+            BuildingType::Stockpile => Resources { wood: 2, ..Default::default() },
+            BuildingType::Workshop => Resources { wood: 8, stone: 4, ..Default::default() },
+            BuildingType::Smithy => Resources { wood: 5, stone: 8, ..Default::default() },
+            BuildingType::Garrison => Resources { planks: 5, masonry: 5, ..Default::default() },
         }
     }
 
@@ -398,7 +399,7 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
 
 // --- Resources ---
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Resources {
     pub food: u32,
     pub wood: u32,
@@ -406,6 +407,22 @@ pub struct Resources {
     pub planks: u32,
     pub masonry: u32,
     pub grain: u32,
+}
+
+impl Resources {
+    pub fn can_afford(&self, cost: &Resources) -> bool {
+        self.food >= cost.food && self.wood >= cost.wood && self.stone >= cost.stone
+            && self.planks >= cost.planks && self.masonry >= cost.masonry && self.grain >= cost.grain
+    }
+
+    pub fn deduct(&mut self, cost: &Resources) {
+        self.food -= cost.food;
+        self.wood -= cost.wood;
+        self.stone -= cost.stone;
+        self.planks -= cost.planks;
+        self.masonry -= cost.masonry;
+        self.grain -= cost.grain;
+    }
 }
 
 // --- Systems ---
@@ -507,10 +524,11 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32, stockpile_wood: u32, stockpile_stone: u32, skill_mults: &SkillMults, settlement_defended: bool) -> AiResult {
+pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32, stockpile_wood: u32, stockpile_stone: u32, stockpile_grain: u32, skill_mults: &SkillMults, settlement_defended: bool) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
+    let mut grain_consumed: u32 = 0;
     let mut farming_ticks: u32 = 0;
     let mut mining_ticks: u32 = 0;
     let mut woodcutting_ticks: u32 = 0;
@@ -631,7 +649,9 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                     .iter()
                     .any(|&(px, py)| dist(pos.x, pos.y, px, py) < threat_range);
 
-                let has_food = stockpile_food.saturating_sub(food_consumed) > 0;
+                let remaining_grain = stockpile_grain.saturating_sub(grain_consumed);
+                let remaining_food = stockpile_food.saturating_sub(food_consumed);
+                let has_food = remaining_grain > 0 || remaining_food > 0;
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
                 let near_food_source = food_positions.iter()
                     .any(|&(fx, fy)| dist(pos.x, pos.y, fx, fy) < 2.0);
@@ -643,9 +663,13 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                     map, skill_mults, &mut rng,
                 );
 
-                // If villager just started eating near stockpile (not near berry bush), consume food
+                // If villager just started eating near stockpile (not near berry bush), consume grain first, then food
                 if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
-                    food_consumed += 1;
+                    if remaining_grain > 0 {
+                        grain_consumed += 1;
+                    } else {
+                        food_consumed += 1;
+                    }
                 }
                 // If villager claims a build site, mark it assigned
                 if let Some(site_entity) = claim_site {
@@ -736,6 +760,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
     AiResult {
         deposited: deposited_resources,
         food_consumed,
+        grain_consumed,
         farming_ticks,
         mining_ticks,
         woodcutting_ticks,
@@ -1157,8 +1182,18 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
 /// Process resources in processing buildings (workshops, smithies).
 /// Converts raw resources into refined ones based on recipe.
 pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
-    for building in world.query_mut::<&mut ProcessingBuilding>() {
-        building.progress += 1;
+    for (building, sprite) in world.query_mut::<(&mut ProcessingBuilding, &mut Sprite)>() {
+        let has_input = match building.recipe {
+            Recipe::WoodToPlanks => resources.wood >= 2,
+            Recipe::StoneToMasonry => resources.stone >= 2,
+            Recipe::FoodToGrain => resources.food >= 3,
+        };
+        if has_input {
+            building.progress += 1;
+            sprite.fg = Color(255, 200, 50); // bright yellow when active
+        } else {
+            sprite.fg = Color(100, 100, 100); // dim gray when idle
+        }
         let speed_required = (building.required as f64 / skill_mult).max(1.0) as u32;
         if building.progress >= speed_required {
             building.progress = 0;
@@ -1758,7 +1793,7 @@ mod tests {
 
         // Run AI + movement for many ticks — NPC will wander eventually
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -1780,7 +1815,7 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -1804,7 +1839,7 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -1828,7 +1863,7 @@ mod tests {
         // Check position each tick; NPC should get close before transitioning to Idle
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
             let dist = ((pos.x - 15.0).powi(2) + (pos.y - 15.0).powi(2)).sqrt();
@@ -1870,7 +1905,7 @@ mod tests {
         }
 
         // Run AI — should start seeking food
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
@@ -1895,7 +1930,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1914,7 +1949,7 @@ mod tests {
             b.state = BehaviorState::FleeHome;
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::AtHome { .. }),
@@ -1936,7 +1971,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(matches!(state, BehaviorState::Hunting { .. }),
@@ -1958,7 +1993,7 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(!matches!(state, BehaviorState::Hunting { .. }),
@@ -1985,7 +2020,7 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
 
             let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2036,7 +2071,7 @@ mod tests {
 
         for tick in 0..1000 {
             system_hunger(&mut world, 1.0);
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
 
             let ws = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2074,7 +2109,7 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
@@ -2096,7 +2131,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -2122,7 +2157,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -2148,7 +2183,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
@@ -2168,7 +2203,7 @@ mod tests {
             b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -2194,7 +2229,7 @@ mod tests {
             b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
         }
 
-        let result = system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        let result = system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
         assert_eq!(result.deposited[0], ResourceType::Wood, "should deposit wood");
@@ -2246,7 +2281,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Building { .. }),
@@ -2275,7 +2310,7 @@ mod tests {
             b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         // Build site should now be complete (progress >= required)
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -2285,10 +2320,10 @@ mod tests {
 
     #[test]
     fn building_type_costs_and_sizes() {
-        assert_eq!(BuildingType::Hut.cost(), (0, 5, 2));
-        assert_eq!(BuildingType::Wall.cost(), (0, 1, 1));
-        assert_eq!(BuildingType::Farm.cost(), (0, 3, 0));
-        assert_eq!(BuildingType::Stockpile.cost(), (0, 2, 0));
+        assert_eq!(BuildingType::Hut.cost(), Resources { wood: 5, stone: 2, ..Default::default() });
+        assert_eq!(BuildingType::Wall.cost(), Resources { wood: 1, stone: 1, ..Default::default() });
+        assert_eq!(BuildingType::Farm.cost(), Resources { wood: 3, ..Default::default() });
+        assert_eq!(BuildingType::Stockpile.cost(), Resources { wood: 2, ..Default::default() });
 
         assert_eq!(BuildingType::Hut.size(), (3, 3));
         assert_eq!(BuildingType::Wall.size(), (1, 1));
@@ -2347,7 +2382,7 @@ mod tests {
         // With low aggression threshold (winter: 0.8), wolf should target villagers
         // since hunger (0.9) > threshold (0.8)
         for _ in 0..5 {
-            system_ai(&mut world, &map, 0.8, 0, 0, 0, &SkillMults::default(), false);
+            system_ai(&mut world, &map, 0.8, 0, 0, 0, 0, &SkillMults::default(), false);
             system_movement(&mut world, &map);
         }
 
@@ -2529,7 +2564,7 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
-            let r = system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+            let r = system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
             system_death(&mut world);
@@ -2585,7 +2620,7 @@ mod tests {
         }
 
         // Pass stockpile_food=10 so villager knows food is available
-        let result = system_ai(&mut world, &map, 0.4, 10, 0, 0, &SkillMults::default(), false);
+        let result = system_ai(&mut world, &map, 0.4, 10, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Eating { .. }),
@@ -2611,7 +2646,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),
@@ -2677,7 +2712,7 @@ mod tests {
 
     #[test]
     fn workshop_building_type_properties() {
-        assert_eq!(BuildingType::Workshop.cost(), (0, 8, 4));
+        assert_eq!(BuildingType::Workshop.cost(), Resources { wood: 8, stone: 4, ..Default::default() });
         assert_eq!(BuildingType::Workshop.size(), (3, 3));
         assert_eq!(BuildingType::Workshop.build_time(), 150);
         assert_eq!(BuildingType::Workshop.name(), "Workshop");
@@ -2685,7 +2720,7 @@ mod tests {
 
     #[test]
     fn smithy_building_type_properties() {
-        assert_eq!(BuildingType::Smithy.cost(), (0, 5, 8));
+        assert_eq!(BuildingType::Smithy.cost(), Resources { wood: 5, stone: 8, ..Default::default() });
         assert_eq!(BuildingType::Smithy.size(), (3, 3));
         assert_eq!(BuildingType::Smithy.build_time(), 180);
         assert_eq!(BuildingType::Smithy.name(), "Smithy");
@@ -2783,7 +2818,7 @@ mod tests {
     #[test]
     fn garrison_building_has_correct_cost_and_size() {
         let garrison = BuildingType::Garrison;
-        assert_eq!(garrison.cost(), (0, 5, 5), "garrison cost should be (0, 5, 5)");
+        assert_eq!(garrison.cost(), Resources { planks: 5, masonry: 5, ..Default::default() }, "garrison cost should be 5 planks, 5 masonry");
         assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
         assert_eq!(garrison.build_time(), 120, "garrison build time should be 120");
         assert_eq!(garrison.name(), "Garrison");
@@ -2828,7 +2863,7 @@ mod tests {
             c.hunger = 0.1;
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), true);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), true);
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
         let is_hunting_villager = match wolf_state {
@@ -2857,10 +2892,86 @@ mod tests {
             c.hunger = 0.7;
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, &SkillMults::default(), false);
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false);
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
         assert!(matches!(wolf_state, BehaviorState::Hunting { .. }),
             "wolf should hunt when defense is insufficient, got: {:?}", wolf_state);
+    }
+
+    #[test]
+    fn resources_can_afford_and_deduct() {
+        let mut res = Resources { food: 10, wood: 5, stone: 3, planks: 2, masonry: 1, grain: 4 };
+        let cost = Resources { wood: 3, stone: 2, ..Default::default() };
+        assert!(res.can_afford(&cost));
+        res.deduct(&cost);
+        assert_eq!(res.wood, 2);
+        assert_eq!(res.stone, 1);
+
+        let expensive = Resources { planks: 10, ..Default::default() };
+        assert!(!res.can_afford(&expensive));
+    }
+
+    #[test]
+    fn garrison_requires_refined_resources() {
+        let cost = BuildingType::Garrison.cost();
+        assert_eq!(cost.planks, 5);
+        assert_eq!(cost.masonry, 5);
+        assert_eq!(cost.wood, 0, "garrison should not require raw wood");
+        assert_eq!(cost.stone, 0, "garrison should not require raw stone");
+
+        // A settlement with only raw resources can't afford a garrison
+        let raw_only = Resources { food: 100, wood: 100, stone: 100, ..Default::default() };
+        assert!(!raw_only.can_afford(&cost), "raw resources alone should not afford garrison");
+
+        // But with refined resources, it works
+        let refined = Resources { planks: 5, masonry: 5, ..Default::default() };
+        assert!(refined.can_afford(&cost));
+    }
+
+    #[test]
+    fn processing_building_changes_color_based_on_input() {
+        let mut world = World::new();
+        let pb = spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
+
+        // With wood available, processing should make sprite bright
+        let mut resources = Resources { wood: 10, ..Default::default() };
+        system_processing(&mut world, &mut resources, 1.0);
+        {
+            let sprite = world.get::<&Sprite>(pb).unwrap();
+            assert_eq!(sprite.fg, Color(255, 200, 50), "should be bright yellow when active");
+        }
+
+        // Drain wood — next tick should be dim
+        resources.wood = 0;
+        system_processing(&mut world, &mut resources, 1.0);
+        {
+            let sprite = world.get::<&Sprite>(pb).unwrap();
+            assert_eq!(sprite.fg, Color(100, 100, 100), "should be dim gray when idle");
+        }
+    }
+
+    #[test]
+    fn villager_prefers_grain_over_food() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 10.0, 10.0);
+
+        // Make villager hungry so it eats
+        {
+            let mut c = world.get::<&mut Creature>(v).unwrap();
+            c.hunger = 0.6;
+        }
+
+        // Provide both grain and food
+        let result = system_ai(&mut world, &map, 0.4, 5, 0, 0, 5, &SkillMults::default(), false);
+
+        // If villager ate, it should have consumed grain first
+        if result.grain_consumed > 0 || result.food_consumed > 0 {
+            assert!(result.grain_consumed > 0, "should prefer grain over raw food");
+            assert_eq!(result.food_consumed, 0, "should not consume food when grain available");
+        }
     }
 }
