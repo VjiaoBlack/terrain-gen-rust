@@ -933,6 +933,53 @@ impl Default for TrafficMap {
     }
 }
 
+/// Tracks which tiles have been explored (revealed) by creatures.
+/// Unexplored tiles are rendered as dark fog.
+pub struct ExplorationMap {
+    pub revealed: Vec<bool>,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl ExplorationMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            revealed: vec![false; width * height],
+            width,
+            height,
+        }
+    }
+
+    /// Mark all tiles within `radius` of (cx, cy) as revealed.
+    /// Uses simple Euclidean distance check (no raycasting).
+    pub fn reveal(&mut self, cx: usize, cy: usize, radius: usize) {
+        let r = radius as i32;
+        let r_sq = (radius * radius) as i32;
+        let min_x = (cx as i32 - r).max(0) as usize;
+        let max_x = ((cx as i32 + r) as usize).min(self.width.saturating_sub(1));
+        let min_y = (cy as i32 - r).max(0) as usize;
+        let max_y = ((cy as i32 + r) as usize).min(self.height.saturating_sub(1));
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let dx = x as i32 - cx as i32;
+                let dy = y as i32 - cy as i32;
+                if dx * dx + dy * dy <= r_sq {
+                    self.revealed[y * self.width + x] = true;
+                }
+            }
+        }
+    }
+
+    /// Returns true if the tile at (x, y) has been revealed.
+    pub fn is_revealed(&self, x: usize, y: usize) -> bool {
+        if x < self.width && y < self.height {
+            self.revealed[y * self.width + x]
+        } else {
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1504,5 +1551,78 @@ mod tests {
 
         let candidates = tm.road_candidates(&map, 100.0);
         assert!(candidates.is_empty(), "low traffic should not produce road candidates");
+    }
+
+    // --- ExplorationMap tests ---
+
+    #[test]
+    fn exploration_starts_all_unrevealed() {
+        let em = ExplorationMap::new(32, 32);
+        for y in 0..32 {
+            for x in 0..32 {
+                assert!(!em.is_revealed(x, y), "tile ({}, {}) should start unrevealed", x, y);
+            }
+        }
+    }
+
+    #[test]
+    fn exploration_reveal_marks_correct_tiles() {
+        let mut em = ExplorationMap::new(32, 32);
+        em.reveal(16, 16, 3);
+
+        // Center should be revealed
+        assert!(em.is_revealed(16, 16));
+        // Tiles within radius 3
+        assert!(em.is_revealed(16, 14)); // 2 tiles up
+        assert!(em.is_revealed(18, 16)); // 2 tiles right
+        assert!(em.is_revealed(14, 16)); // 2 tiles left
+        assert!(em.is_revealed(16, 18)); // 2 tiles down
+
+        // Tile at distance exactly 3 (on axis) should be revealed
+        assert!(em.is_revealed(16, 13)); // 3 tiles up
+        assert!(em.is_revealed(19, 16)); // 3 tiles right
+
+        // Tile at distance > 3 should NOT be revealed
+        assert!(!em.is_revealed(16, 12)); // 4 tiles up
+        assert!(!em.is_revealed(20, 16)); // 4 tiles right
+
+        // Far corner should not be revealed
+        assert!(!em.is_revealed(0, 0));
+        assert!(!em.is_revealed(31, 31));
+    }
+
+    #[test]
+    fn exploration_reveal_near_edges() {
+        let mut em = ExplorationMap::new(10, 10);
+        // Reveal near corner — should not panic
+        em.reveal(0, 0, 3);
+        assert!(em.is_revealed(0, 0));
+        assert!(em.is_revealed(2, 2));
+        assert!(!em.is_revealed(4, 0)); // distance 4 > 3
+
+        em.reveal(9, 9, 2);
+        assert!(em.is_revealed(9, 9));
+        assert!(em.is_revealed(8, 8));
+    }
+
+    #[test]
+    fn exploration_is_revealed_out_of_bounds() {
+        let em = ExplorationMap::new(10, 10);
+        assert!(!em.is_revealed(100, 100));
+        assert!(!em.is_revealed(10, 0));
+        assert!(!em.is_revealed(0, 10));
+    }
+
+    #[test]
+    fn exploration_multiple_reveals_accumulate() {
+        let mut em = ExplorationMap::new(32, 32);
+        em.reveal(5, 16, 2);
+        em.reveal(25, 16, 2);
+
+        // Both areas should be revealed
+        assert!(em.is_revealed(5, 16));
+        assert!(em.is_revealed(25, 16));
+        // Gap between them should not be revealed
+        assert!(!em.is_revealed(15, 16));
     }
 }

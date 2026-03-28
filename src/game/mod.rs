@@ -11,7 +11,7 @@ use serde::{Serialize, Deserialize};
 use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
-use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, Season, SimConfig, TrafficMap, VegetationMap, WaterMap};
+use crate::simulation::{DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, Season, SimConfig, TrafficMap, VegetationMap, WaterMap};
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
 
@@ -236,6 +236,7 @@ pub struct Game {
     pub overlay: OverlayMode,
     pub events: EventSystem,
     pub traffic: TrafficMap,
+    pub exploration: ExplorationMap,
 }
 
 /// Traffic above this threshold converts walkable terrain to road.
@@ -386,7 +387,10 @@ impl Game {
             overlay: OverlayMode::None,
             events: EventSystem::default(),
             traffic: TrafficMap::new(256, 256),
+            exploration: ExplorationMap::new(256, 256),
         };
+        // Pre-reveal settlement start area (around map center)
+        g.exploration.reveal(128, 128, 15);
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
     }
@@ -586,6 +590,13 @@ impl Game {
             self.skills.military = self.skills.military.clamp(0.0, 100.0);
 
             ecs::system_movement(&mut self.world, &self.map);
+
+            // Update exploration: creatures reveal tiles around them
+            for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+                let x = pos.x as usize;
+                let y = pos.y as usize;
+                self.exploration.reveal(x, y, creature.sight_range as usize);
+            }
 
             // Count creatures before breeding to detect new spawns
             let prey_before = self.world.query::<&Creature>().iter()
@@ -1403,5 +1414,39 @@ mod tests {
         renderer.clear();
         game.draw(&mut renderer);
         // No panic = pass
+    }
+
+    #[test]
+    fn settlement_start_area_is_pre_revealed() {
+        let game = Game::new(60, 42);
+        // Center of the map (128, 128) should be revealed
+        assert!(game.exploration.is_revealed(128, 128));
+        // Tiles within radius 15 of center should be revealed
+        assert!(game.exploration.is_revealed(120, 128));
+        assert!(game.exploration.is_revealed(128, 115));
+        // Tiles far from center should NOT be revealed
+        assert!(!game.exploration.is_revealed(0, 0));
+        assert!(!game.exploration.is_revealed(200, 200));
+    }
+
+    #[test]
+    fn exploration_expands_as_villagers_move() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Pick a tile far from the settlement that is definitely not revealed
+        let far_x = 50usize;
+        let far_y = 50usize;
+        assert!(!game.exploration.is_revealed(far_x, far_y),
+            "far tile should start unrevealed");
+
+        // Spawn a villager at that far location
+        ecs::spawn_villager(&mut game.world, far_x as f64, far_y as f64);
+
+        // Run one game step — the villager's sight should reveal tiles around it
+        game.step(GameInput::None, &mut renderer).unwrap();
+
+        assert!(game.exploration.is_revealed(far_x, far_y),
+            "tile under villager should be revealed after step");
     }
 }

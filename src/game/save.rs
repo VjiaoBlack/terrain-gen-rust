@@ -1,6 +1,7 @@
 use anyhow::Result;
 use crate::ecs::{self, BuildingType};
 use crate::tilemap::Camera;
+use crate::simulation::ExplorationMap;
 use super::{Game, OverlayMode, SaveState};
 
 impl Game {
@@ -34,6 +35,8 @@ impl Game {
     pub fn load(path: &str, target_fps: u32) -> Result<Game> {
         let file = std::fs::File::open(path)?;
         let state: SaveState = serde_json::from_reader(file)?;
+        let map_w = state.map.width;
+        let map_h = state.map.height;
         Ok(Game {
             target_fps,
             tick: state.tick,
@@ -70,6 +73,7 @@ impl Game {
             overlay: OverlayMode::None,
             events: state.events,
             traffic: state.traffic,
+            exploration: ExplorationMap::new(map_w, map_h),
         })
     }
 }

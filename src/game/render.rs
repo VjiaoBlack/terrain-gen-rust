@@ -221,6 +221,11 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
+                    // Fog of exploration: unrevealed tiles render as dark fog
+                    if !self.exploration.is_revealed(wx as usize, wy as usize) {
+                        renderer.draw(sx, sy, '░', Color(30, 30, 30), Some(Color(10, 10, 10)));
+                        continue;
+                    }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
                         if *terrain == Terrain::Water {
                             // Water terrain: animated character + blue shimmer
@@ -257,6 +262,7 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.vegetation.width && (wy as usize) < self.vegetation.height {
+                    if !self.exploration.is_revealed(wx as usize, wy as usize) { continue; }
                     let v = self.vegetation.get(wx as usize, wy as usize);
                     if v > 0.2 {
                         let (ch, fg) = if v > 0.8 {
@@ -284,6 +290,7 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.water.width && (wy as usize) < self.water.height {
+                    if !self.exploration.is_revealed(wx as usize, wy as usize) { continue; }
                     // Skip ocean tiles — they already have their own water appearance
                     if matches!(self.map.get(wx as usize, wy as usize), Some(Terrain::Water)) {
                         continue;
@@ -322,6 +329,7 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 && (wx as usize) < self.influence.width && (wy as usize) < self.influence.height {
+                    if !self.exploration.is_revealed(wx as usize, wy as usize) { continue; }
                     let inf = self.influence.get(wx as usize, wy as usize);
                     if inf > 0.1 {
                         let alpha = (inf * 0.3).min(0.3);
@@ -344,6 +352,10 @@ impl super::Game {
         for (e, (pos, sprite)) in self.world.query::<(hecs::Entity, (&Position, &Sprite))>().iter() {
             let bstate = self.world.get::<&Behavior>(e).ok().map(|b| b.state);
             if matches!(bstate, Some(BehaviorState::AtHome { .. })) {
+                continue;
+            }
+            // Hide entities on unexplored tiles
+            if !self.exploration.is_revealed(pos.x.round() as usize, pos.y.round() as usize) {
                 continue;
             }
             let sx = (pos.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
@@ -793,6 +805,7 @@ impl super::Game {
         }
 
         for (px, py, ch, fg) in &markers {
+            if !self.exploration.is_revealed(*px as usize, *py as usize) { continue; }
             let sx = (*px as i32 - self.camera.x as i32) * aspect + panel_w;
             let sy = *py as i32 - self.camera.y as i32;
             if sx >= panel_w && sx < w as i32 && sy >= 0 && sy < (h - status_h) as i32 {
@@ -816,6 +829,7 @@ impl super::Game {
             for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
                 let wx = self.camera.x as i32 + (sx_raw - panel_w) / aspect;
                 let wy = self.camera.y as i32 + sy as i32;
+                if !self.exploration.is_revealed(wx as usize, wy as usize) { continue; }
                 let in_danger = den_positions.iter().any(|&(dx, dy)| {
                     let ddx = wx as f64 - dx;
                     let ddy = wy as f64 - dy;
@@ -868,6 +882,7 @@ impl super::Game {
                 let wx = self.camera.x as i32 + (sx_raw - panel_w) / aspect;
                 let wy = self.camera.y as i32 + sy as i32;
                 if wx < 0 || wy < 0 { continue; }
+                if !self.exploration.is_revealed(wx as usize, wy as usize) { continue; }
                 let traffic = self.traffic.get(wx as usize, wy as usize);
                 if traffic > 1.0 {
                     // Intensity scales from dim yellow to bright orange
