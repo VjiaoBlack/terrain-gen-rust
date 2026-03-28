@@ -289,21 +289,25 @@ const ROAD_TRAFFIC_THRESHOLD: f64 = 150.0;
 
 impl Game {
     pub fn new(target_fps: u32, seed: u32) -> Self {
+        Self::new_with_size(target_fps, seed, 256, 256)
+    }
+
+    pub fn new_with_size(target_fps: u32, seed: u32, map_width: usize, map_height: usize) -> Self {
         // Reduce terrain noise scale for larger biomes — buildings feel right-sized
         let terrain_config = TerrainGenConfig { seed, scale: 0.008, ..Default::default() };
-        let (mut map, heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
-        let mut water = WaterMap::new(256, 256);
+        let (mut map, heights) = terrain_gen::generate_terrain(map_width, map_height, &terrain_config);
+        let mut water = WaterMap::new(map_width, map_height);
         // Seed water at terrain-Water tiles so ocean/lake areas have actual water
-        for y in 0..256 {
-            for x in 0..256 {
+        for y in 0..map_height {
+            for x in 0..map_width {
                 if let Some(Terrain::Water) = map.get(x, y) {
-                    let depth = (terrain_config.water_level - heights[y * 256 + x]).max(0.01);
+                    let depth = (terrain_config.water_level - heights[y * map_width + x]).max(0.01);
                     water.set(x, y, depth);
                 }
             }
         }
-        let moisture = MoistureMap::new(256, 256);
-        let vegetation = VegetationMap::new(256, 256);
+        let moisture = MoistureMap::new(map_width, map_height);
+        let vegetation = VegetationMap::new(map_width, map_height);
         let camera = Camera::new(100, 100);
         let mut world = World::new();
 
@@ -324,36 +328,52 @@ impl Game {
             (cx as f64, cy as f64) // fallback
         };
 
+        // Map center for entity placement
+        let cx = map_width / 2;
+        let cy = map_height / 2;
+
         // Player
-        let (px, py) = find_walkable(&map, 128, 128);
+        let (px, py) = find_walkable(&map, cx, cy);
         ecs::spawn_entity(&mut world, px, py, 0.0, 0.0, '@', Color(255, 255, 0));
 
-        // Ecosystem: dens, berry bushes, prey, predators
-        let den_spots = [(115, 110), (135, 120), (120, 140), (108, 130)];
-        let bush_spots = [(125, 105), (140, 115), (110, 125), (130, 135), (118, 118), (132, 128)];
+        // Ecosystem: dens, berry bushes, prey, predators (offset from center)
+        let den_spots = [
+            (cx.wrapping_sub(13), cy.wrapping_sub(18)),
+            (cx + 7, cy.wrapping_sub(8)),
+            (cx.wrapping_sub(8), cy + 12),
+            (cx.wrapping_sub(20), cy + 2),
+        ];
+        let bush_spots = [
+            (cx.wrapping_sub(3), cy.wrapping_sub(23)),
+            (cx + 12, cy.wrapping_sub(13)),
+            (cx.wrapping_sub(18), cy.wrapping_sub(3)),
+            (cx + 2, cy + 7),
+            (cx.wrapping_sub(10), cy.wrapping_sub(10)),
+            (cx + 4, cy),
+        ];
 
-        for &(cx, cy) in &den_spots {
-            let (dx, dy) = find_walkable(&map, cx, cy);
-            ecs::spawn_den(&mut world, dx, dy);
-            // Spawn a prey near its den
-            let (rx, ry) = find_walkable(&map, cx + 1, cy + 1);
-            ecs::spawn_prey(&mut world, rx, ry, dx, dy);
+        for &(dx, dy) in &den_spots {
+            let (ddx, ddy) = find_walkable(&map, dx, dy);
+            ecs::spawn_den(&mut world, ddx, ddy);
+            let (rx, ry) = find_walkable(&map, dx + 1, dy + 1);
+            ecs::spawn_prey(&mut world, rx, ry, ddx, ddy);
         }
 
-        for &(cx, cy) in &bush_spots {
-            let (bx, by) = find_walkable(&map, cx, cy);
-            ecs::spawn_berry_bush(&mut world, bx, by);
+        for &(bx, by) in &bush_spots {
+            let (bbx, bby) = find_walkable(&map, bx, by);
+            ecs::spawn_berry_bush(&mut world, bbx, bby);
         }
 
         // Predators — fewer, roam wider
-        let pred_spots = [(120, 108), (130, 130)];
-        for &(cx, cy) in &pred_spots {
-            let (wx, wy) = find_walkable(&map, cx, cy);
+        let pred_spots = [(cx.wrapping_sub(8), cy.wrapping_sub(20)), (cx + 2, cy + 2)];
+        for &(px, py) in &pred_spots {
+            let (wx, wy) = find_walkable(&map, px, py);
             ecs::spawn_predator(&mut world, wx, wy);
         }
 
         // Settlement: stockpile + villagers near center, with nearby food
-        let (sx, sy) = find_walkable(&map, 125, 125);
+        let sc = cx.wrapping_sub(3); // settlement center offset
+        let (sx, sy) = find_walkable(&map, sc, sc);
         ecs::spawn_stockpile(&mut world, sx, sy);
         // Set stockpile terrain tiles (2x2)
         for dy in 0..2 {
@@ -363,7 +383,7 @@ impl Game {
         }
 
         // Pre-built hut near stockpile
-        let (hx, hy) = find_walkable(&map, 122, 123);
+        let (hx, hy) = find_walkable(&map, sc.wrapping_sub(3), sc.wrapping_sub(2));
         for (dx, dy, terrain) in BuildingType::Hut.tiles() {
             map.set(hx as usize + dx as usize, hy as usize + dy as usize, terrain);
         }
@@ -371,7 +391,7 @@ impl Game {
         ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
 
         // Pre-built farm near stockpile
-        let (fx, fy) = find_walkable(&map, 128, 123);
+        let (fx, fy) = find_walkable(&map, sc + 3, sc.wrapping_sub(2));
         for (dx, dy, terrain) in BuildingType::Farm.tiles() {
             map.set(fx as usize + dx as usize, fy as usize + dy as usize, terrain);
         }
@@ -379,20 +399,20 @@ impl Game {
         ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Berry bushes near settlement so villagers have food access
-        for &(bsx, bsy) in &[(124, 124), (126, 127)] {
+        for &(bsx, bsy) in &[(sc.wrapping_sub(1), sc.wrapping_sub(1)), (sc + 1, sc + 2)] {
             let (bx, by) = find_walkable(&map, bsx, bsy);
             ecs::spawn_berry_bush(&mut world, bx, by);
         }
 
         // Stone deposits near settlement so villagers can gather stone
-        for &(dsx, dsy) in &[(122, 125), (128, 126)] {
+        for &(dsx, dsy) in &[(sc.wrapping_sub(3), sc), (sc + 3, sc + 1)] {
             let (dx, dy) = find_walkable(&map, dsx, dsy);
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
         // Spawn 3 villagers near the stockpile
         for i in 0..3 {
-            let (vx, vy) = find_walkable(&map, 125 + i * 2, 126);
+            let (vx, vy) = find_walkable(&map, sc + i * 2, sc + 1);
             ecs::spawn_villager(&mut world, vx, vy);
         }
 
@@ -408,21 +428,21 @@ impl Game {
             terrain_config,
             camera,
             world,
-            day_night: DayNightCycle::new(256, 256),
+            day_night: DayNightCycle::new(map_width, map_height),
             scroll_speed: 2,
             raining: false,
             paused: false,
             debug_view: false,
             query_mode: false,
-            query_cx: 128,
-            query_cy: 128,
+            query_cx: cx as i32,
+            query_cy: cy as i32,
             display_fps: None,
             resources: Resources { food: 20, wood: 20, stone: 10, ..Default::default() },
             build_mode: false,
-            build_cursor_x: 128,
-            build_cursor_y: 128,
+            build_cursor_x: cx as i32,
+            build_cursor_y: cy as i32,
             selected_building: BuildingType::Wall,
-            influence: InfluenceMap::new(256, 256),
+            influence: InfluenceMap::new(map_width, map_height),
             last_birth_tick: 0,
             notifications: Vec::new(),
             game_over: false,
@@ -431,15 +451,15 @@ impl Game {
             skills: CivSkills::default(),
             overlay: OverlayMode::None,
             events: EventSystem::default(),
-            traffic: TrafficMap::new(256, 256),
-            exploration: ExplorationMap::new(256, 256),
+            traffic: TrafficMap::new(map_width, map_height),
+            exploration: ExplorationMap::new(map_width, map_height),
             particles: Vec::new(),
             difficulty: DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
         // Pre-reveal settlement start area (around map center)
-        g.exploration.reveal(128, 128, 15);
+        g.exploration.reveal(cx, cy, 15);
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
     }
@@ -1886,5 +1906,28 @@ mod tests {
 
         game.events.active_events.push(GameEvent::Blizzard { ticks_remaining: 100 });
         assert_eq!(game.events.movement_multiplier(), 0.5);
+    }
+
+    #[test]
+    fn configurable_map_size_128() {
+        let game = Game::new_with_size(60, 42, 128, 128);
+        assert_eq!(game.map.width, 128);
+        assert_eq!(game.map.height, 128);
+        // Entities should exist
+        let villagers = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+        assert!(villagers >= 3, "should have villagers on 128x128 map");
+    }
+
+    #[test]
+    fn configurable_map_size_512() {
+        let mut game = Game::new_with_size(60, 42, 512, 512);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        assert_eq!(game.map.width, 512);
+        assert_eq!(game.map.height, 512);
+        // Run a few ticks — should not panic
+        for _ in 0..10 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
     }
 }
