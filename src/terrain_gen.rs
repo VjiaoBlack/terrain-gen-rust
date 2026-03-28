@@ -1,7 +1,9 @@
 use noise::{NoiseFn, Perlin};
+use serde::{Serialize, Deserialize};
 
 use crate::tilemap::{Terrain, TileMap};
 
+#[derive(Serialize, Deserialize)]
 pub struct TerrainGenConfig {
     pub seed: u32,
     pub scale: f64,

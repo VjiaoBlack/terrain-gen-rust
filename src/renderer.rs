@@ -1,7 +1,7 @@
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Color(pub u8, pub u8, pub u8);
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]

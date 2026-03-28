@@ -1,5 +1,5 @@
 use hecs::{Entity, World};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 use rand::RngExt;
 
@@ -9,25 +9,25 @@ use crate::tilemap::{TileMap, Terrain};
 
 // --- Components ---
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Position {
     pub x: f64,
     pub y: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Velocity {
     pub dx: f64,
     pub dy: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Sprite {
     pub ch: char,
     pub fg: Color,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Species {
     Prey,
     Predator,
@@ -35,21 +35,21 @@ pub enum Species {
 }
 
 // Resource types
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ResourceType { Food, Wood, Stone }
 
 /// Marker for stockpile location (where villagers deposit resources).
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Stockpile;
 
 /// Resource carried by a villager or stored at stockpile.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CarriedResource {
     pub resource_type: ResourceType,
     pub amount: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum BehaviorState {
     /// Wander randomly. Timer counts down to next direction change.
     Wander { timer: u32 },
@@ -77,13 +77,13 @@ pub enum BehaviorState {
     Building { target_x: f64, target_y: f64, timer: u32 },
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Behavior {
     pub state: BehaviorState,
     pub speed: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Creature {
     pub species: Species,
     pub hunger: f64,       // 0.0 = full, 1.0 = starving
@@ -92,7 +92,7 @@ pub struct Creature {
     pub sight_range: f64,  // how far this creature can see
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum BuildingType {
     Hut,
     Wall,
@@ -179,7 +179,7 @@ impl BuildingType {
 }
 
 /// A build site entity — placed by the player, worked on by villagers.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BuildSite {
     pub building_type: BuildingType,
     pub progress: u32,
@@ -188,23 +188,128 @@ pub struct BuildSite {
 }
 
 /// Marker for a completed farm plot — grows crops and produces food.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FarmPlot {
     pub growth: f64,        // 0.0 to 1.0
     pub harvest_ready: bool,
 }
 
 /// Marker component for berry bushes (food source for prey).
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FoodSource;
 
 /// Marker component for stone deposits (mineable by villagers).
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct StoneDeposit;
 
 /// Marker component for dens (safe home for prey).
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Den;
+
+// --- Serialization ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SerializedEntity {
+    Villager { pos: Position, vel: Velocity, sprite: Sprite, behavior: Behavior, creature: Creature },
+    Prey { pos: Position, vel: Velocity, sprite: Sprite, behavior: Behavior, creature: Creature },
+    Predator { pos: Position, vel: Velocity, sprite: Sprite, behavior: Behavior, creature: Creature },
+    FoodSource { pos: Position, sprite: Sprite },
+    StoneDeposit { pos: Position, sprite: Sprite },
+    Den { pos: Position, sprite: Sprite },
+    StockpileEntity { pos: Position, sprite: Sprite },
+    BuildSiteEntity { pos: Position, sprite: Sprite, site: BuildSite },
+    FarmPlotEntity { pos: Position, sprite: Sprite, farm: FarmPlot },
+}
+
+pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
+    let mut entities = Vec::new();
+
+    // Creatures (Villager/Prey/Predator)
+    for (pos, vel, sprite, behavior, creature) in
+        world.query::<(&Position, &Velocity, &Sprite, &Behavior, &Creature)>().iter()
+    {
+        let se = match creature.species {
+            Species::Villager => SerializedEntity::Villager {
+                pos: *pos, vel: *vel, sprite: *sprite, behavior: *behavior, creature: *creature,
+            },
+            Species::Prey => SerializedEntity::Prey {
+                pos: *pos, vel: *vel, sprite: *sprite, behavior: *behavior, creature: *creature,
+            },
+            Species::Predator => SerializedEntity::Predator {
+                pos: *pos, vel: *vel, sprite: *sprite, behavior: *behavior, creature: *creature,
+            },
+        };
+        entities.push(se);
+    }
+
+    // FoodSource entities (Position + Sprite + FoodSource marker, no Velocity/Behavior/Creature)
+    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &FoodSource)>().iter() {
+        entities.push(SerializedEntity::FoodSource { pos: *pos, sprite: *sprite });
+    }
+
+    // StoneDeposit entities
+    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &StoneDeposit)>().iter() {
+        entities.push(SerializedEntity::StoneDeposit { pos: *pos, sprite: *sprite });
+    }
+
+    // Den entities
+    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &Den)>().iter() {
+        entities.push(SerializedEntity::Den { pos: *pos, sprite: *sprite });
+    }
+
+    // Stockpile entities
+    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &Stockpile)>().iter() {
+        entities.push(SerializedEntity::StockpileEntity { pos: *pos, sprite: *sprite });
+    }
+
+    // BuildSite entities
+    for (pos, sprite, site) in world.query::<(&Position, &Sprite, &BuildSite)>().iter() {
+        entities.push(SerializedEntity::BuildSiteEntity { pos: *pos, sprite: *sprite, site: *site });
+    }
+
+    // FarmPlot entities
+    for (pos, sprite, farm) in world.query::<(&Position, &Sprite, &FarmPlot)>().iter() {
+        entities.push(SerializedEntity::FarmPlotEntity { pos: *pos, sprite: *sprite, farm: *farm });
+    }
+
+    entities
+}
+
+pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
+    let mut world = World::new();
+    for entity in entities {
+        match entity {
+            SerializedEntity::Villager { pos, vel, sprite, behavior, creature } => {
+                world.spawn((*pos, *vel, *sprite, *behavior, *creature));
+            }
+            SerializedEntity::Prey { pos, vel, sprite, behavior, creature } => {
+                world.spawn((*pos, *vel, *sprite, *behavior, *creature));
+            }
+            SerializedEntity::Predator { pos, vel, sprite, behavior, creature } => {
+                world.spawn((*pos, *vel, *sprite, *behavior, *creature));
+            }
+            SerializedEntity::FoodSource { pos, sprite } => {
+                world.spawn((*pos, *sprite, FoodSource));
+            }
+            SerializedEntity::StoneDeposit { pos, sprite } => {
+                world.spawn((*pos, *sprite, StoneDeposit));
+            }
+            SerializedEntity::Den { pos, sprite } => {
+                world.spawn((*pos, *sprite, Den));
+            }
+            SerializedEntity::StockpileEntity { pos, sprite } => {
+                world.spawn((*pos, *sprite, Stockpile));
+            }
+            SerializedEntity::BuildSiteEntity { pos, sprite, site } => {
+                world.spawn((*pos, *sprite, *site));
+            }
+            SerializedEntity::FarmPlotEntity { pos, sprite, farm } => {
+                world.spawn((*pos, *sprite, *farm));
+            }
+        }
+    }
+    world
+}
 
 // --- Systems ---
 
@@ -2265,5 +2370,62 @@ mod tests {
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),
             "villager near stone deposit with low hunger should gather stone, got: {:?}", state);
+    }
+
+    #[test]
+    fn serialize_deserialize_world_round_trip() {
+        let mut world = World::new();
+
+        // Spawn various entity types
+        spawn_villager(&mut world, 10.0, 10.0);
+        spawn_prey(&mut world, 20.0, 20.0, 15.0, 15.0);
+        spawn_predator(&mut world, 30.0, 30.0);
+        spawn_berry_bush(&mut world, 5.0, 5.0);
+        spawn_stone_deposit(&mut world, 7.0, 7.0);
+        spawn_den(&mut world, 15.0, 15.0);
+        spawn_stockpile(&mut world, 12.0, 12.0);
+        spawn_build_site(&mut world, 8.0, 8.0, BuildingType::Hut);
+        spawn_farm_plot(&mut world, 9.0, 9.0);
+
+        let serialized = serialize_world(&world);
+
+        // Count entities by type in original
+        let villager_count = world.query::<(&Creature,)>().iter()
+            .filter(|(c,)| c.species == Species::Villager).count();
+        let prey_count = world.query::<(&Creature,)>().iter()
+            .filter(|(c,)| c.species == Species::Prey).count();
+        let predator_count = world.query::<(&Creature,)>().iter()
+            .filter(|(c,)| c.species == Species::Predator).count();
+        let food_count = world.query::<(&FoodSource,)>().iter().count();
+        let stone_count = world.query::<(&StoneDeposit,)>().iter().count();
+        let den_count = world.query::<(&Den,)>().iter().count();
+        let stockpile_count = world.query::<(&Stockpile,)>().iter().count();
+        let build_site_count = world.query::<(&BuildSite,)>().iter().count();
+        let farm_count = world.query::<(&FarmPlot,)>().iter().count();
+
+        // Deserialize into new world
+        let new_world = deserialize_world(&serialized);
+
+        // Verify counts match
+        assert_eq!(new_world.query::<(&Creature,)>().iter()
+            .filter(|(c,)| c.species == Species::Villager).count(), villager_count);
+        assert_eq!(new_world.query::<(&Creature,)>().iter()
+            .filter(|(c,)| c.species == Species::Prey).count(), prey_count);
+        assert_eq!(new_world.query::<(&Creature,)>().iter()
+            .filter(|(c,)| c.species == Species::Predator).count(), predator_count);
+        assert_eq!(new_world.query::<(&FoodSource,)>().iter().count(), food_count);
+        assert_eq!(new_world.query::<(&StoneDeposit,)>().iter().count(), stone_count);
+        assert_eq!(new_world.query::<(&Den,)>().iter().count(), den_count);
+        assert_eq!(new_world.query::<(&Stockpile,)>().iter().count(), stockpile_count);
+        assert_eq!(new_world.query::<(&BuildSite,)>().iter().count(), build_site_count);
+        assert_eq!(new_world.query::<(&FarmPlot,)>().iter().count(), farm_count);
+
+        // Verify a villager's position was preserved
+        let mut query = new_world.query::<(&Position, &Creature)>();
+        let (pos, _creature) = query.iter()
+            .find(|(_, c)| c.species == Species::Villager)
+            .unwrap();
+        assert!((pos.x - 10.0).abs() < 0.01);
+        assert!((pos.y - 10.0).abs() < 0.01);
     }
 }

@@ -67,6 +67,8 @@ fn map_key(code: KeyCode, query_mode: bool, build_mode: bool, game_over: bool) -
             KeyCode::Char('b') => GameInput::ToggleBuildMode,
             KeyCode::Char(' ') => GameInput::TogglePause,
             KeyCode::Char('d') => GameInput::Drain,
+            KeyCode::Char('s') => GameInput::Save,
+            KeyCode::Char('l') => GameInput::Load,
             _ => GameInput::None,
         }
     }
@@ -111,6 +113,13 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         }
 
         game.step(input, renderer)?;
+
+        // Handle Load after step (replaces game state)
+        if input == GameInput::Load {
+            if let Ok(loaded) = Game::load("savegame.json", game.target_fps) {
+                *game = loaded;
+            }
+        }
 
         // FPS counter
         frame_count += 1;

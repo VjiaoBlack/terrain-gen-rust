@@ -1,8 +1,8 @@
 use anyhow::Result;
 use hecs::World;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
-use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
+use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -81,15 +81,36 @@ pub enum GameInput {
     BuildLeft,
     BuildRight,
     Drain,
+    Save,
+    Load,
     Restart,
     None,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Resources {
     pub food: u32,
     pub wood: u32,
     pub stone: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SaveState {
+    pub tick: u64,
+    pub resources: Resources,
+    pub day_night: DayNightCycle,
+    pub map: TileMap,
+    pub heights: Vec<f64>,
+    pub water: WaterMap,
+    pub moisture: MoistureMap,
+    pub vegetation: VegetationMap,
+    pub influence: InfluenceMap,
+    pub entities: Vec<SerializedEntity>,
+    pub last_birth_tick: u64,
+    pub peak_population: u32,
+    pub raining: bool,
+    pub sim_config: SimConfig,
+    pub terrain_config: TerrainGenConfig,
 }
 
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
@@ -259,6 +280,66 @@ impl Game {
         }
     }
 
+    pub fn save(&self, path: &str) -> Result<()> {
+        let state = SaveState {
+            tick: self.tick,
+            resources: self.resources.clone(),
+            day_night: serde_json::from_value(serde_json::to_value(&self.day_night)?)?,
+            map: serde_json::from_value(serde_json::to_value(&self.map)?)?,
+            heights: self.heights.clone(),
+            water: serde_json::from_value(serde_json::to_value(&self.water)?)?,
+            moisture: serde_json::from_value(serde_json::to_value(&self.moisture)?)?,
+            vegetation: serde_json::from_value(serde_json::to_value(&self.vegetation)?)?,
+            influence: serde_json::from_value(serde_json::to_value(&self.influence)?)?,
+            entities: ecs::serialize_world(&self.world),
+            last_birth_tick: self.last_birth_tick,
+            peak_population: self.peak_population,
+            raining: self.raining,
+            sim_config: self.sim_config.clone(),
+            terrain_config: serde_json::from_value(serde_json::to_value(&self.terrain_config)?)?,
+        };
+        let file = std::fs::File::create(path)?;
+        serde_json::to_writer(file, &state)?;
+        Ok(())
+    }
+
+    pub fn load(path: &str, target_fps: u32) -> Result<Game> {
+        let file = std::fs::File::open(path)?;
+        let state: SaveState = serde_json::from_reader(file)?;
+        Ok(Game {
+            target_fps,
+            tick: state.tick,
+            map: state.map,
+            heights: state.heights,
+            water: state.water,
+            moisture: state.moisture,
+            vegetation: state.vegetation,
+            sim_config: state.sim_config,
+            terrain_config: state.terrain_config,
+            camera: Camera { x: 0, y: 0 },
+            world: ecs::deserialize_world(&state.entities),
+            day_night: state.day_night,
+            scroll_speed: 2,
+            raining: state.raining,
+            debug_view: false,
+            paused: false,
+            query_mode: false,
+            query_cx: 0,
+            query_cy: 0,
+            display_fps: None,
+            resources: state.resources,
+            build_mode: false,
+            build_cursor_x: 0,
+            build_cursor_y: 0,
+            selected_building: BuildingType::Wall,
+            influence: state.influence,
+            last_birth_tick: state.last_birth_tick,
+            notifications: vec![],
+            game_over: false,
+            peak_population: state.peak_population,
+        })
+    }
+
     pub fn step(&mut self, input: GameInput, renderer: &mut dyn Renderer) -> Result<()> {
         // In game-over state, only allow quit/restart
         if self.game_over {
@@ -327,6 +408,8 @@ impl Game {
                 self.try_place_building();
             },
             GameInput::Drain => self.water.drain(),
+            GameInput::Save => { let _ = self.save("savegame.json"); },
+            GameInput::Load => {} // handled in main.rs loop
             GameInput::Quit | GameInput::Restart | GameInput::None => {}
         }
 
@@ -1303,6 +1386,7 @@ impl Game {
 mod tests {
     use super::*;
     use crate::ecs::{self, Creature, Species};
+    use crate::headless_renderer::HeadlessRenderer;
     use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
@@ -1377,5 +1461,31 @@ mod tests {
 
         assert!(game.game_over, "game should be over when all villagers die");
         assert!(game.paused, "game should pause on game over");
+    }
+
+    #[test]
+    fn save_load_round_trip() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        // Run a few ticks
+        for _ in 0..50 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        let tick_before = game.tick;
+        let food_before = game.resources.food;
+        let villager_count_before = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        game.save("/tmp/test_savegame.json").unwrap();
+        let loaded = Game::load("/tmp/test_savegame.json", 60).unwrap();
+
+        assert_eq!(loaded.tick, tick_before);
+        assert_eq!(loaded.resources.food, food_before);
+        let villager_count_after = loaded.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+        assert_eq!(villager_count_after, villager_count_before);
+
+        // Clean up
+        let _ = std::fs::remove_file("/tmp/test_savegame.json");
     }
 }
