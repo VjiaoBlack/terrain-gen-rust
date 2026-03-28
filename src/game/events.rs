@@ -4,6 +4,15 @@ use crate::simulation::Season;
 use super::{Game, GameEvent};
 
 impl Game {
+    /// Fire a Lua on_event hook with the given event name.
+    #[cfg(feature = "lua")]
+    pub(super) fn fire_event_hook(&self, event_name: &str) {
+        if let Some(ref engine) = self.script_engine {
+            let _ = engine.set_global("event_name", event_name);
+            let _ = engine.call_hook("on_event");
+        }
+    }
+
     pub(super) fn update_events(&mut self) {
         // Tick down duration-based events, remove expired
         self.events.active_events.retain_mut(|event| {
@@ -53,6 +62,8 @@ impl Game {
                     self.events.active_events.push(GameEvent::Drought { ticks_remaining: 300 });
                     self.events.event_log.push("Drought! Farm yields halved.".to_string());
                     self.notify("Drought! Farm yields halved.".to_string());
+                    #[cfg(feature = "lua")]
+                    self.fire_event_hook("drought");
                 }
             }
             Season::Autumn => {
@@ -60,6 +71,8 @@ impl Game {
                     self.events.active_events.push(GameEvent::BountifulHarvest { ticks_remaining: 200 });
                     self.events.event_log.push("Bountiful harvest! Farm yields doubled.".to_string());
                     self.notify("Bountiful harvest! Farm yields doubled.".to_string());
+                    #[cfg(feature = "lua")]
+                    self.fire_event_hook("harvest");
                 }
             }
             Season::Spring => {
@@ -79,6 +92,8 @@ impl Game {
                     }
                     self.events.event_log.push(format!("{} migrants arrived!", count));
                     self.notify(format!("{} migrants arrived!", count));
+                    #[cfg(feature = "lua")]
+                    self.fire_event_hook("migration");
                 }
             }
             Season::Winter => {
@@ -86,6 +101,8 @@ impl Game {
                     self.events.active_events.push(GameEvent::WolfSurge { ticks_remaining: 400 });
                     self.events.event_log.push("Wolf surge! Pack activity increases.".to_string());
                     self.notify("Wolf surge! Pack activity increases.".to_string());
+                    #[cfg(feature = "lua")]
+                    self.fire_event_hook("wolf_surge");
                 }
             }
         }

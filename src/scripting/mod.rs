@@ -49,6 +49,25 @@ impl ScriptEngine {
         self.lua.load(code).exec()
     }
 
+    /// Set a string global variable in Lua.
+    pub fn set_global(&self, name: &str, value: &str) -> Result<(), mlua::Error> {
+        self.lua.globals().set(name.to_string(), value.to_string())
+    }
+
+    /// Reload all .lua scripts from a directory (hot reload).
+    /// This re-executes every .lua file, updating function definitions.
+    pub fn reload_scripts(&self, dir: &str) -> Result<(), mlua::Error> {
+        let entries = std::fs::read_dir(dir)
+            .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "lua") {
+                self.load_script(&path.to_string_lossy())?;
+            }
+        }
+        Ok(())
+    }
+
     /// Call a Lua function by name, returning whether it exists.
     pub fn call_hook(&self, name: &str) -> Result<bool, mlua::Error> {
         let globals = self.lua.globals();
