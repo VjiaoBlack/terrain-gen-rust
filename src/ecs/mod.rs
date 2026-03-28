@@ -71,21 +71,21 @@ mod tests {
         let mut world = World::new();
         let mut map = walkable_map(10, 10);
         for y in 0..10 {
-            map.set(5, y, Terrain::Mountain);
+            map.set(5, y, Terrain::BuildingWall);
         }
         let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
 
         system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
-        assert_eq!(pos.x, 4.0, "should be blocked by mountain wall");
+        assert_eq!(pos.x, 4.0, "should be blocked by building wall");
     }
 
     #[test]
     fn collision_bounces_velocity() {
         let mut world = World::new();
         let mut map = walkable_map(10, 10);
-        map.set(5, 5, Terrain::Mountain);
+        map.set(5, 5, Terrain::BuildingWall);
         let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
 
         system_movement(&mut world, &map);
@@ -99,7 +99,7 @@ mod tests {
         let mut world = World::new();
         let mut map = walkable_map(10, 10);
         for y in 0..10 {
-            map.set(5, y, Terrain::Mountain);
+            map.set(5, y, Terrain::BuildingWall);
         }
         let e = spawn_entity(&mut world, 4.0, 4.0, 1.0, 1.0, '@', Color(255, 255, 255));
 
@@ -121,6 +121,39 @@ mod tests {
 
         let pos = world.get::<&Position>(e).unwrap();
         assert_eq!(pos.x, 4.0, "water should block movement");
+    }
+
+    #[test]
+    fn mountain_slows_movement() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(5, 5, Terrain::Mountain);
+        // Start ON the mountain tile — speed multiplier applies to current tile
+        let e = spawn_entity(&mut world, 5.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let pos = world.get::<&Position>(e).unwrap();
+        // Mountain is walkable but slow (0.25x), so 5.0 + 1.0*0.25 = 5.25
+        assert!(pos.x > 5.0, "should move on mountain (slowly)");
+        assert!(pos.x < 6.0, "should be slowed by mountain");
+    }
+
+    #[test]
+    fn forest_slower_than_grass() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(3, 5, Terrain::Forest);
+        // Entity on forest
+        let e_forest = spawn_entity(&mut world, 3.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+        // Entity on grass
+        let e_grass = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+
+        system_movement(&mut world, &map);
+
+        let pf = world.get::<&Position>(e_forest).unwrap().x;
+        let pg = world.get::<&Position>(e_grass).unwrap().x;
+        assert!(pf < pg, "forest entity should move slower than grass entity");
     }
 
     #[test]

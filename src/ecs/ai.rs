@@ -18,6 +18,31 @@ pub(super) fn move_toward(pos: &Position, tx: f64, ty: f64, speed: f64, vel: &mu
     d
 }
 
+/// Move toward target using A* pathfinding. Falls back to direct movement if no path.
+pub(super) fn move_toward_astar(pos: &Position, tx: f64, ty: f64, speed: f64, vel: &mut Velocity, map: &TileMap) -> f64 {
+    let d = dist(pos.x, pos.y, tx, ty);
+    if d < 0.5 { return d; }
+
+    // Use A* for medium distances, direct for very short or very long
+    if d > 1.5 && d < 80.0 {
+        let budget = (d as usize * 4).min(600);
+        if let Some((wx, wy)) = map.astar_next(pos.x, pos.y, tx, ty, budget) {
+            let dx = wx - pos.x;
+            let dy = wy - pos.y;
+            let wd = (dx * dx + dy * dy).sqrt();
+            if wd > 0.01 {
+                vel.dx = (dx / wd) * speed;
+                vel.dy = (dy / wd) * speed;
+                return d;
+            }
+        }
+    }
+
+    // Fallback: direct movement
+    move_toward(pos, tx, ty, speed, vel);
+    d
+}
+
 pub(super) fn wander(pos: &Position, vel: &mut Velocity, speed: f64, map: &TileMap, rng: &mut impl rand::RngExt) {
     const DIRS: [(f64, f64); 8] = [
         (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
@@ -351,7 +376,7 @@ pub(super) fn ai_villager(
                 .unwrap_or((creature.home_x, creature.home_y));
 
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward(pos, hx, hy, speed * 1.5, &mut vel);
+            let d = move_toward_astar(pos, hx, hy, speed * 1.5, &mut vel, map);
             if d < 1.5 {
                 (BehaviorState::Idle { timer: rng.random_range(30..90) }, 0.0, 0.0, hunger, None, None)
             } else {
@@ -370,7 +395,7 @@ pub(super) fn ai_villager(
                     .map(|(sx, sy, _)| (sx, sy))
                     .unwrap_or((creature.home_x, creature.home_y));
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward(pos, hx, hy, speed, &mut vel);
+                move_toward_astar(pos, hx, hy, speed, &mut vel, map);
                 (BehaviorState::Hauling { target_x: hx, target_y: hy, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None, None)
             } else {
                 (BehaviorState::Gathering { timer: timer - 1, resource_type: *resource_type }, 0.0, 0.0, hunger, None, None)
@@ -378,7 +403,7 @@ pub(super) fn ai_villager(
         }
         BehaviorState::Hauling { target_x, target_y, resource_type } => {
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward(pos, *target_x, *target_y, speed, &mut vel);
+            let d = move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
             if d < 1.5 {
                 // Deposited resource at stockpile — short idle then re-evaluate
                 (BehaviorState::Idle { timer: rng.random_range(5..15) }, 0.0, 0.0, hunger, Some(*resource_type), None)
@@ -415,7 +440,7 @@ pub(super) fn ai_villager(
             let d = dist(pos.x, pos.y, *target_x, *target_y);
             if d > 2.5 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward(pos, *target_x, *target_y, speed, &mut vel);
+                move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
                 (BehaviorState::Farming { target_x: *target_x, target_y: *target_y }, vel.dx, vel.dy, hunger, None, None)
             } else {
                 // At farm — worker_present set by system_farm_workers after AI loop
@@ -432,7 +457,7 @@ pub(super) fn ai_villager(
             let d = dist(pos.x, pos.y, *target_x, *target_y);
             if d > 2.5 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward(pos, *target_x, *target_y, speed, &mut vel);
+                move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
                 (BehaviorState::Working { target_x: *target_x, target_y: *target_y }, vel.dx, vel.dy, hunger, None, None)
             } else {
                 // At workshop — worker_present set by system_workshop_workers after AI loop
@@ -455,7 +480,7 @@ pub(super) fn ai_villager(
                                 let t = map.get(nx.round() as usize, ny.round() as usize);
                                 if t != Some(&Terrain::BuildingFloor) && t != Some(&Terrain::BuildingWall) {
                                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                                    move_toward(pos, nx, ny, speed, &mut vel);
+                                    move_toward_astar(pos, nx, ny, speed, &mut vel, map);
                                     return (BehaviorState::Seek { target_x: nx, target_y: ny }, vel.dx, vel.dy, hunger, None, None);
                                 }
                             }
@@ -474,7 +499,7 @@ pub(super) fn ai_villager(
                         return (BehaviorState::Sleeping { timer: 200 }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, hx, hy, speed, &mut vel);
+                        move_toward_astar(pos, hx, hy, speed, &mut vel, map);
                         return (BehaviorState::Seek { target_x: hx, target_y: hy }, vel.dx, vel.dy, hunger, None, None);
                     }
                 } else {
@@ -498,7 +523,7 @@ pub(super) fn ai_villager(
                         return (BehaviorState::Eating { timer: rng.random_range(30..60) }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, fx, fy, speed, &mut vel);
+                        move_toward_astar(pos, fx, fy, speed, &mut vel, map);
                         return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
@@ -512,7 +537,7 @@ pub(super) fn ai_villager(
                             return (BehaviorState::Eating { timer: rng.random_range(20..40) }, 0.0, 0.0, hunger, None, None);
                         } else {
                             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                            move_toward(pos, sx, sy, speed, &mut vel);
+                            move_toward_astar(pos, sx, sy, speed, &mut vel, map);
                             return (BehaviorState::Seek { target_x: sx, target_y: sy }, vel.dx, vel.dy, hunger, None, None);
                         }
                     }
@@ -551,7 +576,7 @@ pub(super) fn ai_villager(
                         return (BehaviorState::Building { target_x: bx, target_y: by, timer: 30 }, 0.0, 0.0, hunger, None, Some(site_e));
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, bx, by, speed, &mut vel);
+                        move_toward_astar(pos, bx, by, speed, &mut vel, map);
                         return (BehaviorState::Seek { target_x: bx, target_y: by }, vel.dx, vel.dy, hunger, None, Some(site_e));
                     }
                 }
@@ -568,7 +593,7 @@ pub(super) fn ai_villager(
                         return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Food }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, fx, fy, speed, &mut vel);
+                        move_toward_astar(pos, fx, fy, speed, &mut vel, map);
                         return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
@@ -628,7 +653,7 @@ pub(super) fn ai_villager(
                         return (BehaviorState::Gathering { timer, resource_type: rt }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, tx, ty, speed, &mut vel);
+                        move_toward_astar(pos, tx, ty, speed, &mut vel, map);
                         return (BehaviorState::Seek { target_x: tx, target_y: ty }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }

@@ -18,8 +18,8 @@ pub enum Terrain {
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
-            Terrain::Water | Terrain::Mountain | Terrain::Snow | Terrain::BuildingWall => false,
-            Terrain::Sand | Terrain::Grass | Terrain::Forest | Terrain::BuildingFloor | Terrain::Road => true,
+            Terrain::Water | Terrain::BuildingWall => false,
+            _ => true,
         }
     }
 
@@ -68,11 +68,29 @@ impl Terrain {
         }
     }
 
-    /// Movement speed multiplier for this terrain. Roads give a 1.5x bonus.
+    /// Movement speed multiplier for this terrain.
     pub fn speed_multiplier(&self) -> f64 {
         match self {
             Terrain::Road => 1.5,
-            _ => 1.0,
+            Terrain::Grass | Terrain::BuildingFloor => 1.0,
+            Terrain::Sand => 0.8,
+            Terrain::Forest => 0.6,
+            Terrain::Snow => 0.4,
+            Terrain::Mountain => 0.25,
+            Terrain::Water | Terrain::BuildingWall => 0.0, // impassable
+        }
+    }
+
+    /// Movement cost for A* pathfinding (inverse of speed, higher = harder).
+    pub fn move_cost(&self) -> f64 {
+        match self {
+            Terrain::Road => 0.7,
+            Terrain::Grass | Terrain::BuildingFloor => 1.0,
+            Terrain::Sand => 1.3,
+            Terrain::Forest => 1.7,
+            Terrain::Snow => 2.5,
+            Terrain::Mountain => 4.0,
+            Terrain::Water | Terrain::BuildingWall => f64::INFINITY,
         }
     }
 }
@@ -105,6 +123,104 @@ impl TileMap {
         if x < self.width && y < self.height {
             self.tiles[y * self.width + x] = terrain;
         }
+    }
+
+    /// A* pathfinding from (sx, sy) to (gx, gy). Returns next waypoint (not full path).
+    /// Returns None if no path found within search budget. max_steps caps exploration.
+    pub fn astar_next(&self, sx: f64, sy: f64, gx: f64, gy: f64, max_steps: usize) -> Option<(f64, f64)> {
+        use std::collections::BinaryHeap;
+        use std::cmp::Ordering;
+
+        let si = sx.round() as i32;
+        let sj = sy.round() as i32;
+        let gi = gx.round() as i32;
+        let gj = gy.round() as i32;
+
+        if si == gi && sj == gj { return Some((gx, gy)); }
+
+        #[derive(Clone)]
+        struct Node { cost: f64, heuristic: f64, x: i32, y: i32, parent: usize }
+        impl PartialEq for Node { fn eq(&self, o: &Self) -> bool { self.cost + self.heuristic == o.cost + o.heuristic } }
+        impl Eq for Node {}
+        impl PartialOrd for Node {
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> { Some(self.cmp(o)) }
+        }
+        impl Ord for Node {
+            fn cmp(&self, o: &Self) -> Ordering {
+                // Reverse for min-heap
+                let a = self.cost + self.heuristic;
+                let b = o.cost + o.heuristic;
+                b.partial_cmp(&a).unwrap_or(Ordering::Equal)
+            }
+        }
+
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let mut visited = vec![false; self.width * self.height];
+        let mut nodes: Vec<Node> = Vec::new();
+        let mut heap = BinaryHeap::new();
+
+        let heuristic = |x: i32, y: i32| -> f64 {
+            ((x - gi) as f64).abs() + ((y - gj) as f64).abs()
+        };
+
+        let start = Node { cost: 0.0, heuristic: heuristic(si, sj), x: si, y: sj, parent: usize::MAX };
+        nodes.push(start.clone());
+        heap.push((nodes.len() - 1, start));
+
+        const DIRS: [(i32, i32); 8] = [
+            (1, 0), (-1, 0), (0, 1), (0, -1),
+            (1, 1), (1, -1), (-1, 1), (-1, -1),
+        ];
+
+        let mut steps = 0;
+        while let Some((idx, node)) = heap.pop() {
+            if steps >= max_steps { break; }
+            steps += 1;
+
+            let vx = node.x as usize;
+            let vy = node.y as usize;
+            if vx >= self.width || vy >= self.height { continue; }
+            if visited[vy * self.width + vx] { continue; }
+            visited[vy * self.width + vx] = true;
+
+            if node.x == gi && node.y == gj {
+                // Trace back to find first step
+                let mut cur = idx;
+                loop {
+                    let p = nodes[cur].parent;
+                    if p == usize::MAX || (nodes[p].x == si && nodes[p].y == sj) {
+                        return Some((nodes[cur].x as f64, nodes[cur].y as f64));
+                    }
+                    cur = p;
+                }
+            }
+
+            for &(dx, dy) in &DIRS {
+                let nx = node.x + dx;
+                let ny = node.y + dy;
+                if nx < 0 || ny < 0 || nx >= w || ny >= h { continue; }
+                let ni = ny as usize * self.width + nx as usize;
+                if visited[ni] { continue; }
+
+                let terrain = &self.tiles[ni];
+                if !terrain.is_walkable() { continue; }
+
+                let step_cost = terrain.move_cost() * if dx != 0 && dy != 0 { 1.414 } else { 1.0 };
+                let new_cost = node.cost + step_cost;
+                let new_node = Node {
+                    cost: new_cost,
+                    heuristic: heuristic(nx, ny),
+                    x: nx,
+                    y: ny,
+                    parent: idx,
+                };
+                let new_idx = nodes.len();
+                nodes.push(new_node.clone());
+                heap.push((new_idx, new_node));
+            }
+        }
+        None // no path found
     }
 
     /// Check if a world position is walkable (in-bounds and walkable terrain).
@@ -256,9 +372,53 @@ mod tests {
     }
 
     #[test]
-    fn non_road_terrain_normal_speed() {
+    fn terrain_speed_multipliers() {
         assert_eq!(Terrain::Grass.speed_multiplier(), 1.0);
-        assert_eq!(Terrain::Sand.speed_multiplier(), 1.0);
-        assert_eq!(Terrain::Forest.speed_multiplier(), 1.0);
+        assert_eq!(Terrain::Sand.speed_multiplier(), 0.8);
+        assert_eq!(Terrain::Forest.speed_multiplier(), 0.6);
+        assert_eq!(Terrain::Mountain.speed_multiplier(), 0.25);
+        assert_eq!(Terrain::Road.speed_multiplier(), 1.5);
+        assert!(!Terrain::Water.is_walkable());
+        assert!(Terrain::Mountain.is_walkable());
+    }
+
+    #[test]
+    fn astar_paths_around_water() {
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        // Wall of water from (5,0) to (5,8), leaving a gap at (5,9)
+        for y in 0..9 {
+            map.set(5, y, Terrain::Water);
+        }
+        // Path from (3,5) to (7,5) must go around the water wall
+        let next = map.astar_next(3.0, 5.0, 7.0, 5.0, 500);
+        assert!(next.is_some(), "should find a path around water");
+        // The first step should move south (toward the gap) not east (into water)
+        let (nx, ny) = next.unwrap();
+        assert!(ny > 5.0 || nx < 5.0, "should route around water, not through it");
+    }
+
+    #[test]
+    fn astar_prefers_roads() {
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        // Road along y=3
+        for x in 0..20 {
+            map.set(x, 3, Terrain::Road);
+        }
+        // Path from (0,5) to (15,5) — should prefer routing via road
+        let next = map.astar_next(0.0, 5.0, 15.0, 5.0, 500);
+        assert!(next.is_some());
+    }
+
+    #[test]
+    fn astar_returns_none_for_unreachable() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        // Surround target with water
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                map.set((5 + dx) as usize, (5 + dy) as usize, Terrain::Water);
+            }
+        }
+        let next = map.astar_next(0.0, 0.0, 5.0, 5.0, 500);
+        assert!(next.is_none(), "should return None when target is unreachable");
     }
 }

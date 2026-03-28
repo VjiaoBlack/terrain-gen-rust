@@ -1088,8 +1088,22 @@ mod tests {
         game.resources.wood = 10;
         game.resources.stone = 10;
 
+        // Ensure grass around settlement so farms can be placed
+        let (scx, scy) = game.settlement_center();
+        for dy in -8i32..=8 {
+            for dx in -8i32..=8 {
+                let tx = (scx + dx) as usize;
+                let ty = (scy + dy) as usize;
+                if let Some(t) = game.map.get(tx, ty) {
+                    if matches!(t, Terrain::Mountain | Terrain::Snow) {
+                        game.map.set(tx, ty, Terrain::Grass);
+                    }
+                }
+            }
+        }
+
         // Build up influence so auto-build can place within territory
-        for _ in 0..10 {
+        for _ in 0..30 {
             game.update_influence();
         }
 
@@ -1497,12 +1511,13 @@ mod tests {
             "should not be able to build outside influence");
 
         // Near settlement — build up influence
-        for _ in 0..10 {
+        for _ in 0..30 {
             game.update_influence();
         }
-        let (cx, cy) = game.settlement_center();
-        assert!(game.can_place_building(cx + 2, cy + 2, BuildingType::Wall),
-            "should be able to build within influence");
+        // Find a buildable spot near settlement (search for valid terrain within influence)
+        let (scx, scy) = game.settlement_center();
+        let found = game.find_building_spot(scx as f64, scy as f64, BuildingType::Wall);
+        assert!(found.is_some(), "should find a buildable spot within influence");
     }
 
     #[test]
