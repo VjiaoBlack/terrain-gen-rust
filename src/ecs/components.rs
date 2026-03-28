@@ -133,86 +133,127 @@ pub enum BuildingType {
     Bakery,
 }
 
+/// Tile layout pattern for a building footprint.
+#[derive(Debug, Clone, Copy)]
+pub enum TileLayout {
+    /// Single tile of the given terrain type (Wall, Road)
+    Single(Terrain),
+    /// Filled rectangle of BuildingFloor (Farm, Stockpile)
+    FilledFloor,
+    /// 3x3 walls with center floor and a door on the south side (Hut)
+    WallsDoorSouth,
+    /// 3x3 walls with center floor and a door on the north side (Workshop, Smithy, Granary, Bakery)
+    WallsDoorNorth,
+    /// 3x3 walls with center floor, no door (Garrison)
+    WallsNoDoor,
+}
+
+/// Static definition of a building type's properties.
+pub struct BuildingDef {
+    pub name: &'static str,
+    pub cost: Resources,
+    pub build_time: u32,
+    pub size: (i32, i32),
+    pub layout: TileLayout,
+}
+
 impl BuildingType {
-    pub fn cost(&self) -> Resources {
+    /// Get the static definition for this building type.
+    pub fn def(&self) -> BuildingDef {
         match self {
-            BuildingType::Hut => Resources { wood: 10, stone: 4, ..Default::default() },
-            BuildingType::Wall => Resources { wood: 2, stone: 2, ..Default::default() },
-            BuildingType::Farm => Resources { wood: 5, stone: 1, ..Default::default() },
-            BuildingType::Stockpile => Resources { wood: 4, ..Default::default() },
-            BuildingType::Workshop => Resources { wood: 15, stone: 8, ..Default::default() },
-            BuildingType::Smithy => Resources { wood: 10, stone: 15, ..Default::default() },
-            BuildingType::Garrison => Resources { planks: 10, masonry: 10, ..Default::default() },
-            BuildingType::Road => Resources { stone: 2, ..Default::default() },
-            BuildingType::Granary => Resources { wood: 12, stone: 8, planks: 4, ..Default::default() },
-            BuildingType::Bakery => Resources { wood: 8, stone: 6, planks: 5, ..Default::default() },
+            BuildingType::Hut => BuildingDef {
+                name: "Hut",
+                cost: Resources { wood: 10, stone: 4, ..DEF_RES },
+                build_time: 180,
+                size: (3, 3),
+                layout: TileLayout::WallsDoorSouth,
+            },
+            BuildingType::Wall => BuildingDef {
+                name: "Wall",
+                cost: Resources { wood: 2, stone: 2, ..DEF_RES },
+                build_time: 45,
+                size: (1, 1),
+                layout: TileLayout::Single(Terrain::BuildingWall),
+            },
+            BuildingType::Farm => BuildingDef {
+                name: "Farm",
+                cost: Resources { wood: 5, stone: 1, ..DEF_RES },
+                build_time: 120,
+                size: (3, 3),
+                layout: TileLayout::FilledFloor,
+            },
+            BuildingType::Stockpile => BuildingDef {
+                name: "Stockpile",
+                cost: Resources { wood: 4, ..DEF_RES },
+                build_time: 60,
+                size: (2, 2),
+                layout: TileLayout::FilledFloor,
+            },
+            BuildingType::Workshop => BuildingDef {
+                name: "Workshop",
+                cost: Resources { wood: 15, stone: 8, ..DEF_RES },
+                build_time: 220,
+                size: (3, 3),
+                layout: TileLayout::WallsDoorNorth,
+            },
+            BuildingType::Smithy => BuildingDef {
+                name: "Smithy",
+                cost: Resources { wood: 10, stone: 15, ..DEF_RES },
+                build_time: 270,
+                size: (3, 3),
+                layout: TileLayout::WallsDoorNorth,
+            },
+            BuildingType::Garrison => BuildingDef {
+                name: "Garrison",
+                cost: Resources { planks: 10, masonry: 10, ..DEF_RES },
+                build_time: 180,
+                size: (3, 3),
+                layout: TileLayout::WallsNoDoor,
+            },
+            BuildingType::Road => BuildingDef {
+                name: "Road",
+                cost: Resources { stone: 2, ..DEF_RES },
+                build_time: 30,
+                size: (1, 1),
+                layout: TileLayout::Single(Terrain::Road),
+            },
+            BuildingType::Granary => BuildingDef {
+                name: "Granary",
+                cost: Resources { wood: 12, stone: 8, planks: 4, ..DEF_RES },
+                build_time: 240,
+                size: (3, 3),
+                layout: TileLayout::WallsDoorNorth,
+            },
+            BuildingType::Bakery => BuildingDef {
+                name: "Bakery",
+                cost: Resources { wood: 8, stone: 6, planks: 5, ..DEF_RES },
+                build_time: 210,
+                size: (3, 3),
+                layout: TileLayout::WallsDoorNorth,
+            },
         }
     }
 
-    pub fn build_time(&self) -> u32 {
-        match self {
-            BuildingType::Hut => 180,
-            BuildingType::Wall => 45,
-            BuildingType::Farm => 120,
-            BuildingType::Stockpile => 60,
-            BuildingType::Workshop => 220,
-            BuildingType::Smithy => 270,
-            BuildingType::Garrison => 180,
-            BuildingType::Road => 30,
-            BuildingType::Granary => 240,
-            BuildingType::Bakery => 210,
-        }
-    }
-
-    pub fn size(&self) -> (i32, i32) {
-        match self {
-            BuildingType::Hut => (3, 3),
-            BuildingType::Wall => (1, 1),
-            BuildingType::Farm => (3, 3),
-            BuildingType::Stockpile => (2, 2),
-            BuildingType::Workshop => (3, 3),
-            BuildingType::Smithy => (3, 3),
-            BuildingType::Garrison => (3, 3),
-            BuildingType::Road => (1, 1),
-            BuildingType::Granary => (3, 3),
-            BuildingType::Bakery => (3, 3),
-        }
-    }
+    pub fn cost(&self) -> Resources { self.def().cost }
+    pub fn build_time(&self) -> u32 { self.def().build_time }
+    pub fn size(&self) -> (i32, i32) { self.def().size }
+    pub fn name(&self) -> &'static str { self.def().name }
 
     pub fn tiles(&self) -> Vec<(i32, i32, Terrain)> {
-        match self {
-            BuildingType::Hut => {
+        let d = self.def();
+        let (w, h) = d.size;
+        match d.layout {
+            TileLayout::Single(terrain) => vec![(0, 0, terrain)],
+            TileLayout::FilledFloor => {
                 let mut tiles = Vec::new();
-                for dx in 0..3 {
-                    tiles.push((dx, 0, Terrain::BuildingWall));
-                    tiles.push((dx, 2, Terrain::BuildingWall));
-                }
-                tiles.push((0, 1, Terrain::BuildingWall));
-                tiles.push((2, 1, Terrain::BuildingWall));
-                tiles.push((1, 1, Terrain::BuildingFloor));
-                tiles.push((1, 2, Terrain::BuildingFloor)); // door on south side
-                tiles
-            }
-            BuildingType::Wall => vec![(0, 0, Terrain::BuildingWall)],
-            BuildingType::Farm => {
-                let mut tiles = Vec::new();
-                for dy in 0..3 {
-                    for dx in 0..3 {
+                for dy in 0..h {
+                    for dx in 0..w {
                         tiles.push((dx, dy, Terrain::BuildingFloor));
                     }
                 }
                 tiles
             }
-            BuildingType::Stockpile => {
-                let mut tiles = Vec::new();
-                for dy in 0..2 {
-                    for dx in 0..2 {
-                        tiles.push((dx, dy, Terrain::BuildingFloor));
-                    }
-                }
-                tiles
-            }
-            BuildingType::Workshop | BuildingType::Smithy => {
+            TileLayout::WallsDoorSouth => {
                 let mut tiles = Vec::new();
                 for dx in 0..3 {
                     tiles.push((dx, 0, Terrain::BuildingWall));
@@ -221,10 +262,10 @@ impl BuildingType {
                 tiles.push((0, 1, Terrain::BuildingWall));
                 tiles.push((2, 1, Terrain::BuildingWall));
                 tiles.push((1, 1, Terrain::BuildingFloor));
-                tiles.push((1, 0, Terrain::BuildingFloor)); // door on north side
+                tiles.push((1, 2, Terrain::BuildingFloor)); // door south
                 tiles
             }
-            BuildingType::Garrison => {
+            TileLayout::WallsDoorNorth => {
                 let mut tiles = Vec::new();
                 for dx in 0..3 {
                     tiles.push((dx, 0, Terrain::BuildingWall));
@@ -233,10 +274,10 @@ impl BuildingType {
                 tiles.push((0, 1, Terrain::BuildingWall));
                 tiles.push((2, 1, Terrain::BuildingWall));
                 tiles.push((1, 1, Terrain::BuildingFloor));
+                tiles.push((1, 0, Terrain::BuildingFloor)); // door north
                 tiles
             }
-            BuildingType::Road => vec![(0, 0, Terrain::Road)],
-            BuildingType::Granary | BuildingType::Bakery => {
+            TileLayout::WallsNoDoor => {
                 let mut tiles = Vec::new();
                 for dx in 0..3 {
                     tiles.push((dx, 0, Terrain::BuildingWall));
@@ -245,31 +286,20 @@ impl BuildingType {
                 tiles.push((0, 1, Terrain::BuildingWall));
                 tiles.push((2, 1, Terrain::BuildingWall));
                 tiles.push((1, 1, Terrain::BuildingFloor));
-                tiles.push((1, 0, Terrain::BuildingFloor)); // door
                 tiles
             }
         }
     }
 
     pub fn all() -> &'static [BuildingType] {
-        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison, BuildingType::Road, BuildingType::Granary, BuildingType::Bakery]
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            BuildingType::Hut => "Hut",
-            BuildingType::Wall => "Wall",
-            BuildingType::Farm => "Farm",
-            BuildingType::Stockpile => "Stockpile",
-            BuildingType::Workshop => "Workshop",
-            BuildingType::Smithy => "Smithy",
-            BuildingType::Garrison => "Garrison",
-            BuildingType::Road => "Road",
-            BuildingType::Granary => "Granary",
-            BuildingType::Bakery => "Bakery",
-        }
+        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile,
+          BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison,
+          BuildingType::Road, BuildingType::Granary, BuildingType::Bakery]
     }
 }
+
+/// Zero-valued Resources constant for struct update syntax in const-like contexts.
+const DEF_RES: Resources = Resources { food: 0, wood: 0, stone: 0, planks: 0, masonry: 0, grain: 0, bread: 0 };
 
 /// A build site entity — placed by the player, worked on by villagers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
