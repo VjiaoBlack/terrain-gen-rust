@@ -446,6 +446,7 @@ impl super::Game {
         }
 
         self.draw_notifications(renderer);
+        self.draw_minimap(renderer);
         self.draw_status(renderer);
     }
 
@@ -910,6 +911,66 @@ impl super::Game {
                     let b = (10.0 + 20.0 * intensity) as u8;
                     let ch = if traffic >= ROAD_TRAFFIC_THRESHOLD { '=' } else { '·' };
                     renderer.draw(sx_raw as u16, sy, ch, Color(r, g, b), Some(Color(40, 30, 5)));
+                }
+            }
+        }
+    }
+
+    /// Draw a minimap in the bottom-right corner (20x10 pixels).
+    /// Each pixel represents a chunk of the world map.
+    fn draw_minimap(&self, renderer: &mut dyn Renderer) {
+        let (scr_w, scr_h) = renderer.size();
+        let mini_w: u16 = 20;
+        let mini_h: u16 = 10;
+        let map_w = self.map.width;
+        let map_h = self.map.height;
+
+        // Position in bottom-right, above status line
+        let start_x = scr_w.saturating_sub(mini_w + 1);
+        let start_y = scr_h.saturating_sub(mini_h + 2);
+
+        let chunk_w = map_w as f64 / mini_w as f64;
+        let chunk_h = map_h as f64 / mini_h as f64;
+
+        for my in 0..mini_h {
+            for mx in 0..mini_w {
+                let world_x = (mx as f64 * chunk_w) as usize;
+                let world_y = (my as f64 * chunk_h) as usize;
+
+                // Sample terrain at center of chunk
+                let terrain = self.map.get(world_x.min(map_w - 1), world_y.min(map_h - 1));
+                let bg = match terrain {
+                    Some(Terrain::Water) => Color(30, 60, 140),
+                    Some(Terrain::Sand) => Color(160, 140, 80),
+                    Some(Terrain::Grass) => Color(40, 100, 40),
+                    Some(Terrain::Forest) => Color(20, 60, 20),
+                    Some(Terrain::Mountain) => Color(120, 110, 100),
+                    Some(Terrain::Snow) => Color(200, 200, 220),
+                    Some(Terrain::BuildingFloor) | Some(Terrain::BuildingWall) => Color(140, 120, 80),
+                    Some(Terrain::Road) => Color(100, 90, 70),
+                    _ => Color(60, 60, 60),
+                };
+
+                let sx = start_x + mx;
+                let sy = start_y + my;
+                renderer.draw(sx, sy, ' ', Color(0, 0, 0), Some(bg));
+            }
+        }
+
+        // Draw camera viewport indicator
+        let cam_mx = (self.camera.x as f64 / chunk_w) as u16;
+        let cam_my = (self.camera.y as f64 / chunk_h) as u16;
+        let cam_x = start_x + cam_mx.min(mini_w - 1);
+        let cam_y = start_y + cam_my.min(mini_h - 1);
+        renderer.draw(cam_x, cam_y, '+', Color(255, 255, 255), Some(Color(0, 0, 0)));
+
+        // Draw wolves as red dots
+        for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+            if creature.species == Species::Predator {
+                let wx = (pos.x / chunk_w) as u16;
+                let wy = (pos.y / chunk_h) as u16;
+                if wx < mini_w && wy < mini_h {
+                    renderer.draw(start_x + wx, start_y + wy, '.', Color(255, 50, 50), Some(Color(0, 0, 0)));
                 }
             }
         }

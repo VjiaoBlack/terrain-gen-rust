@@ -3,7 +3,9 @@
 ## Build & Test
 
 ```bash
-cargo test              # run all tests (~199)
+cargo test --lib        # fast: lib tests only (~7s, ~190 tests) — use during development
+cargo test              # full: all tests including integration (~60s, ~225 tests)
+cargo test --features lua  # with Lua scripting tests
 cargo run --release     # play the game in terminal
 cargo build             # debug build
 ```
