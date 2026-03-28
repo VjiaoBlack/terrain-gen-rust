@@ -7,6 +7,18 @@ use crate::renderer::{Color, Renderer};
 use crate::simulation::Season;
 use crate::tilemap::{TileMap, Terrain};
 
+// --- AI Result ---
+
+/// Result of running the AI system for one tick.
+pub struct AiResult {
+    pub deposited: Vec<ResourceType>,
+    pub food_consumed: u32,
+    pub farming_ticks: u32,
+    pub mining_ticks: u32,
+    pub woodcutting_ticks: u32,
+    pub building_ticks: u32,
+}
+
 // --- Components ---
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -296,11 +308,14 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-/// Returns (deposited_resources, food_consumed_from_stockpile).
-pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32) -> (Vec<ResourceType>, u32) {
+pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
+    let mut farming_ticks: u32 = 0;
+    let mut mining_ticks: u32 = 0;
+    let mut woodcutting_ticks: u32 = 0;
+    let mut building_ticks: u32 = 0;
 
     // Phase 1: snapshot world state (positions of food, prey, predators, stockpiles)
     let food_positions: Vec<(f64, f64)> = world
@@ -450,8 +465,25 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         if let Ok(mut c) = world.get::<&mut Creature>(e) {
             c.hunger = new_hunger;
         }
-        // Track build progress: if villager is in Building state, record target position
-        if let BehaviorState::Building { target_x, target_y, .. } = new_state {
+        // Track build progress and activity for skills
+        if creature.species == Species::Villager {
+            match new_state {
+                BehaviorState::Building { target_x, target_y, .. } => {
+                    build_progress.push((target_x, target_y));
+                    building_ticks += 1;
+                }
+                BehaviorState::Gathering { resource_type: ResourceType::Wood, .. } => {
+                    woodcutting_ticks += 1;
+                }
+                BehaviorState::Gathering { resource_type: ResourceType::Stone, .. } => {
+                    mining_ticks += 1;
+                }
+                BehaviorState::Gathering { resource_type: ResourceType::Food, .. } => {
+                    farming_ticks += 1;
+                }
+                _ => {}
+            }
+        } else if let BehaviorState::Building { target_x, target_y, .. } = new_state {
             build_progress.push((target_x, target_y));
         }
         if let Some(prey_e) = kill {
@@ -493,7 +525,14 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         }
     }
 
-    (deposited_resources, food_consumed)
+    AiResult {
+        deposited: deposited_resources,
+        food_consumed,
+        farming_ticks,
+        mining_ticks,
+        woodcutting_ticks,
+        building_ticks,
+    }
 }
 
 /// Prey AI: eat berries, flee predators, return home.
@@ -1843,10 +1882,10 @@ mod tests {
             b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
         }
 
-        let (deposited, _) = system_ai(&mut world, &map, 0.4, 0);
+        let result = system_ai(&mut world, &map, 0.4, 0);
 
-        assert_eq!(deposited.len(), 1, "should deposit one resource");
-        assert_eq!(deposited[0], ResourceType::Wood, "should deposit wood");
+        assert_eq!(result.deposited.len(), 1, "should deposit one resource");
+        assert_eq!(result.deposited[0], ResourceType::Wood, "should deposit wood");
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Idle { .. }),
@@ -2178,8 +2217,8 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
-            let (d, _) = system_ai(&mut world, &map, 0.4, 0);
-            deposits.extend(d);
+            let r = system_ai(&mut world, &map, 0.4, 0);
+            deposits.extend(r.deposited);
             system_movement(&mut world, &map);
             system_death(&mut world);
 
@@ -2234,12 +2273,12 @@ mod tests {
         }
 
         // Pass stockpile_food=10 so villager knows food is available
-        let (_, consumed) = system_ai(&mut world, &map, 0.4, 10);
+        let result = system_ai(&mut world, &map, 0.4, 10);
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Eating { .. }),
             "hungry villager near stockpile with food should eat, got: {:?}", state);
-        assert_eq!(consumed, 1, "should consume 1 food from stockpile");
+        assert_eq!(result.food_consumed, 1, "should consume 1 food from stockpile");
     }
 
     #[test]

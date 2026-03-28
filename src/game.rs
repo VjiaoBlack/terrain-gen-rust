@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
+use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -98,6 +98,21 @@ pub struct Resources {
     pub stone: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct CivSkills {
+    pub farming: f64,
+    pub mining: f64,
+    pub woodcutting: f64,
+    pub building: f64,
+    pub military: f64,
+}
+
+impl Default for CivSkills {
+    fn default() -> Self {
+        Self { farming: 1.0, mining: 1.0, woodcutting: 1.0, building: 1.0, military: 1.0 }
+    }
+}
+
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
 /// screen columns so the grid looks square.
 const CELL_ASPECT: i32 = 2;
@@ -134,6 +149,7 @@ pub struct Game {
     pub game_over: bool,
     pub peak_population: u32,
     pub auto_build: bool,
+    pub skills: CivSkills,
 }
 
 impl Game {
@@ -254,6 +270,7 @@ impl Game {
             game_over: false,
             peak_population: 3,
             auto_build: false,
+            skills: CivSkills::default(),
         };
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
@@ -360,11 +377,11 @@ impl Game {
             let mods = self.day_night.season_modifiers();
 
             ecs::system_hunger(&mut self.world, mods.hunger_mult);
-            let (deposits, food_consumed) = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food);
+            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food);
             let mut deposited_food = 0u32;
             let mut deposited_wood = 0u32;
             let mut deposited_stone = 0u32;
-            for res in deposits {
+            for res in ai_result.deposited {
                 match res {
                     ResourceType::Food => { self.resources.food += 1; deposited_food += 1; },
                     ResourceType::Wood => { self.resources.wood += 1; deposited_wood += 1; },
@@ -380,9 +397,9 @@ impl Game {
             if deposited_stone > 0 {
                 self.notify(format!("Resource deposited: +{} stone", deposited_stone));
             }
-            if food_consumed > 0 {
-                self.resources.food = self.resources.food.saturating_sub(food_consumed);
-                self.notify(format!("Villager ate from stockpile (-{} food)", food_consumed));
+            if ai_result.food_consumed > 0 {
+                self.resources.food = self.resources.food.saturating_sub(ai_result.food_consumed);
+                self.notify(format!("Villager ate from stockpile (-{} food)", ai_result.food_consumed));
             }
 
             ecs::system_movement(&mut self.world, &self.map);
