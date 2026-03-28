@@ -729,7 +729,21 @@ impl Game {
         self.resources.wood -= cost_w;
         self.resources.stone -= cost_s;
 
-        // Spawn build site entity
+        self.place_build_site(bx, by, bt);
+    }
+
+    /// Place a build site: reserve footprint tiles and spawn the entity.
+    fn place_build_site(&mut self, bx: i32, by: i32, bt: BuildingType) {
+        let (sw, sh) = bt.size();
+        for dy in 0..sh {
+            for dx in 0..sw {
+                let tx = bx + dx;
+                let ty = by + dy;
+                if tx >= 0 && ty >= 0 {
+                    self.map.set(tx as usize, ty as usize, Terrain::BuildingFloor);
+                }
+            }
+        }
         ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt);
     }
 
@@ -970,7 +984,7 @@ impl Game {
                     self.resources.food -= cost_f;
                     self.resources.wood -= cost_w;
                     self.resources.stone -= cost_s;
-                    ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, BuildingType::Farm);
+                    self.place_build_site(bx, by, BuildingType::Farm);
                     self.notify("Auto-build: Farm queued".to_string());
                     return;
                 }
@@ -990,7 +1004,7 @@ impl Game {
                     self.resources.food -= cost_f;
                     self.resources.wood -= cost_w;
                     self.resources.stone -= cost_s;
-                    ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, BuildingType::Hut);
+                    self.place_build_site(bx, by, BuildingType::Hut);
                     self.notify("Auto-build: Hut queued".to_string());
                     return;
                 }
@@ -1013,7 +1027,7 @@ impl Game {
                     self.resources.food -= cost_f;
                     self.resources.wood -= cost_w;
                     self.resources.stone -= cost_s;
-                    ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, BuildingType::Wall);
+                    self.place_build_site(bx, by, BuildingType::Wall);
                     self.notify("Auto-build: Wall queued".to_string());
                 }
             }

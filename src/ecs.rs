@@ -1298,8 +1298,8 @@ fn ai_villager(
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
             let d = move_toward(pos, *target_x, *target_y, speed, &mut vel);
             if d < 1.5 {
-                // Deposited resource at stockpile
-                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, Some(*resource_type), None)
+                // Deposited resource at stockpile — short idle then re-evaluate
+                (BehaviorState::Idle { timer: rng.random_range(5..15) }, 0.0, 0.0, hunger, Some(*resource_type), None)
             } else {
                 (BehaviorState::Hauling { target_x: *target_x, target_y: *target_y, resource_type: *resource_type }, vel.dx, vel.dy, hunger, None, None)
             }
@@ -1316,8 +1316,8 @@ fn ai_villager(
                 return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
             }
             if *timer == 0 {
-                // Done building this round
-                (BehaviorState::Idle { timer: rng.random_range(20..60) }, 0.0, 0.0, hunger, None, None)
+                // Done building this round — short pause then re-evaluate
+                (BehaviorState::Idle { timer: rng.random_range(5..15) }, 0.0, 0.0, hunger, None, None)
             } else {
                 (BehaviorState::Building { target_x: *target_x, target_y: *target_y, timer: timer - 1 }, 0.0, 0.0, hunger, None, None)
             }
