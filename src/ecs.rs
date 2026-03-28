@@ -61,7 +61,7 @@ pub enum Species {
 
 // Resource types
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum ResourceType { Food, Wood, Stone }
+pub enum ResourceType { Food, Wood, Stone, Planks, Masonry, Grain }
 
 /// Marker for stockpile location (where villagers deposit resources).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -123,6 +123,8 @@ pub enum BuildingType {
     Wall,
     Farm,
     Stockpile,
+    Workshop,
+    Smithy,
 }
 
 impl BuildingType {
@@ -132,6 +134,8 @@ impl BuildingType {
             BuildingType::Wall => (0, 1, 1),
             BuildingType::Farm => (2, 3, 0),
             BuildingType::Stockpile => (0, 2, 0),
+            BuildingType::Workshop => (0, 8, 4),
+            BuildingType::Smithy => (0, 5, 8),
         }
     }
 
@@ -141,6 +145,8 @@ impl BuildingType {
             BuildingType::Wall => 30,
             BuildingType::Farm => 80,
             BuildingType::Stockpile => 40,
+            BuildingType::Workshop => 150,
+            BuildingType::Smithy => 180,
         }
     }
 
@@ -150,6 +156,8 @@ impl BuildingType {
             BuildingType::Wall => (1, 1),
             BuildingType::Farm => (3, 3),
             BuildingType::Stockpile => (2, 2),
+            BuildingType::Workshop => (3, 3),
+            BuildingType::Smithy => (3, 3),
         }
     }
 
@@ -186,11 +194,23 @@ impl BuildingType {
                 }
                 tiles
             }
+            BuildingType::Workshop | BuildingType::Smithy => {
+                let mut tiles = Vec::new();
+                for dx in 0..3 {
+                    tiles.push((dx, 0, Terrain::BuildingWall));
+                    tiles.push((dx, 2, Terrain::BuildingWall));
+                }
+                tiles.push((0, 1, Terrain::BuildingWall));
+                tiles.push((2, 1, Terrain::BuildingWall));
+                tiles.push((1, 1, Terrain::BuildingFloor));
+                tiles.push((1, 0, Terrain::BuildingFloor)); // door on north side
+                tiles
+            }
         }
     }
 
     pub fn all() -> &'static [BuildingType] {
-        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile]
+        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile, BuildingType::Workshop, BuildingType::Smithy]
     }
 
     pub fn name(&self) -> &'static str {
@@ -199,6 +219,8 @@ impl BuildingType {
             BuildingType::Wall => "Wall",
             BuildingType::Farm => "Farm",
             BuildingType::Stockpile => "Stockpile",
+            BuildingType::Workshop => "Workshop",
+            BuildingType::Smithy => "Smithy",
         }
     }
 }
@@ -231,6 +253,20 @@ pub struct StoneDeposit;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Den;
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Recipe {
+    WoodToPlanks,    // 2 Wood -> 1 Planks
+    StoneToMasonry,  // 2 Stone -> 1 Masonry
+    FoodToGrain,     // 3 Food -> 2 Grain
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ProcessingBuilding {
+    pub recipe: Recipe,
+    pub progress: u32,
+    pub required: u32, // ticks per processing cycle
+}
+
 // --- Serialization ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,12 +280,12 @@ pub enum SerializedEntity {
     StockpileEntity { pos: Position, sprite: Sprite },
     BuildSiteEntity { pos: Position, sprite: Sprite, site: BuildSite },
     FarmPlotEntity { pos: Position, sprite: Sprite, farm: FarmPlot },
+    ProcessingBuildingEntity { pos: Position, sprite: Sprite, building: ProcessingBuilding },
 }
 
 pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
     let mut entities = Vec::new();
 
-    // Creatures (Villager/Prey/Predator)
     for (pos, vel, sprite, behavior, creature) in
         world.query::<(&Position, &Velocity, &Sprite, &Behavior, &Creature)>().iter()
     {
@@ -267,34 +303,26 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
         entities.push(se);
     }
 
-    // FoodSource entities (Position + Sprite + FoodSource marker, no Velocity/Behavior/Creature)
     for (pos, sprite, _) in world.query::<(&Position, &Sprite, &FoodSource)>().iter() {
         entities.push(SerializedEntity::FoodSource { pos: *pos, sprite: *sprite });
     }
-
-    // StoneDeposit entities
     for (pos, sprite, _) in world.query::<(&Position, &Sprite, &StoneDeposit)>().iter() {
         entities.push(SerializedEntity::StoneDeposit { pos: *pos, sprite: *sprite });
     }
-
-    // Den entities
     for (pos, sprite, _) in world.query::<(&Position, &Sprite, &Den)>().iter() {
         entities.push(SerializedEntity::Den { pos: *pos, sprite: *sprite });
     }
-
-    // Stockpile entities
     for (pos, sprite, _) in world.query::<(&Position, &Sprite, &Stockpile)>().iter() {
         entities.push(SerializedEntity::StockpileEntity { pos: *pos, sprite: *sprite });
     }
-
-    // BuildSite entities
     for (pos, sprite, site) in world.query::<(&Position, &Sprite, &BuildSite)>().iter() {
         entities.push(SerializedEntity::BuildSiteEntity { pos: *pos, sprite: *sprite, site: *site });
     }
-
-    // FarmPlot entities
     for (pos, sprite, farm) in world.query::<(&Position, &Sprite, &FarmPlot)>().iter() {
         entities.push(SerializedEntity::FarmPlotEntity { pos: *pos, sprite: *sprite, farm: *farm });
+    }
+    for (pos, sprite, building) in world.query::<(&Position, &Sprite, &ProcessingBuilding)>().iter() {
+        entities.push(SerializedEntity::ProcessingBuildingEntity { pos: *pos, sprite: *sprite, building: *building });
     }
 
     entities
@@ -331,9 +359,24 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
             SerializedEntity::FarmPlotEntity { pos, sprite, farm } => {
                 world.spawn((*pos, *sprite, *farm));
             }
+            SerializedEntity::ProcessingBuildingEntity { pos, sprite, building } => {
+                world.spawn((*pos, *sprite, *building));
+            }
         }
     }
     world
+}
+
+// --- Resources ---
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Resources {
+    pub food: u32,
+    pub wood: u32,
+    pub stone: u32,
+    pub planks: u32,
+    pub masonry: u32,
+    pub grain: u32,
 }
 
 // --- Systems ---
@@ -1055,6 +1098,46 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
     }
 
     food_produced
+}
+
+/// Process resources in processing buildings (workshops, smithies).
+/// Converts raw resources into refined ones based on recipe.
+pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
+    for building in world.query_mut::<&mut ProcessingBuilding>() {
+        building.progress += 1;
+        let speed_required = (building.required as f64 / skill_mult).max(1.0) as u32;
+        if building.progress >= speed_required {
+            building.progress = 0;
+            match building.recipe {
+                Recipe::WoodToPlanks => {
+                    if resources.wood >= 2 {
+                        resources.wood -= 2;
+                        resources.planks += 1;
+                    }
+                }
+                Recipe::StoneToMasonry => {
+                    if resources.stone >= 2 {
+                        resources.stone -= 2;
+                        resources.masonry += 1;
+                    }
+                }
+                Recipe::FoodToGrain => {
+                    if resources.food >= 3 {
+                        resources.food -= 3;
+                        resources.grain += 2;
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn spawn_processing_building(world: &mut World, x: f64, y: f64, recipe: Recipe) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '⚙', fg: Color(200, 180, 100) },
+        ProcessingBuilding { recipe, progress: 0, required: 120 },
+    ))
 }
 
 /// Find the nearest tile of a given terrain type within a radius.
@@ -2484,5 +2567,110 @@ mod tests {
             .unwrap();
         assert!((pos.x - 10.0).abs() < 0.01);
         assert!((pos.y - 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn workshop_building_type_properties() {
+        assert_eq!(BuildingType::Workshop.cost(), (0, 8, 4));
+        assert_eq!(BuildingType::Workshop.size(), (3, 3));
+        assert_eq!(BuildingType::Workshop.build_time(), 150);
+        assert_eq!(BuildingType::Workshop.name(), "Workshop");
+    }
+
+    #[test]
+    fn smithy_building_type_properties() {
+        assert_eq!(BuildingType::Smithy.cost(), (0, 5, 8));
+        assert_eq!(BuildingType::Smithy.size(), (3, 3));
+        assert_eq!(BuildingType::Smithy.build_time(), 180);
+        assert_eq!(BuildingType::Smithy.name(), "Smithy");
+    }
+
+    #[test]
+    fn system_processing_converts_wood_to_planks() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
+        let mut resources = Resources { wood: 10, ..Default::default() };
+
+        // Run enough ticks to trigger one processing cycle (required=120, skill_mult=1.0)
+        for _ in 0..120 {
+            system_processing(&mut world, &mut resources, 1.0);
+        }
+
+        assert_eq!(resources.wood, 8, "should have consumed 2 wood");
+        assert_eq!(resources.planks, 1, "should have produced 1 planks");
+    }
+
+    #[test]
+    fn system_processing_converts_stone_to_masonry() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 5.0, 5.0, Recipe::StoneToMasonry);
+        let mut resources = Resources { stone: 4, ..Default::default() };
+
+        for _ in 0..120 {
+            system_processing(&mut world, &mut resources, 1.0);
+        }
+
+        assert_eq!(resources.stone, 2, "should have consumed 2 stone");
+        assert_eq!(resources.masonry, 1, "should have produced 1 masonry");
+    }
+
+    #[test]
+    fn system_processing_converts_food_to_grain() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 5.0, 5.0, Recipe::FoodToGrain);
+        let mut resources = Resources { food: 6, ..Default::default() };
+
+        for _ in 0..120 {
+            system_processing(&mut world, &mut resources, 1.0);
+        }
+
+        assert_eq!(resources.food, 3, "should have consumed 3 food");
+        assert_eq!(resources.grain, 2, "should have produced 2 grain");
+    }
+
+    #[test]
+    fn system_processing_no_process_insufficient_resources() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
+        let mut resources = Resources { wood: 1, ..Default::default() };
+
+        // Run full cycle — should not convert since wood < 2
+        for _ in 0..120 {
+            system_processing(&mut world, &mut resources, 1.0);
+        }
+
+        assert_eq!(resources.wood, 1, "wood should be unchanged with insufficient amount");
+        assert_eq!(resources.planks, 0, "no planks should be produced");
+    }
+
+    #[test]
+    fn new_building_types_in_all_list() {
+        let all = BuildingType::all();
+        assert!(all.contains(&BuildingType::Workshop), "all() should contain Workshop");
+        assert!(all.contains(&BuildingType::Smithy), "all() should contain Smithy");
+    }
+
+    #[test]
+    fn workshop_and_smithy_tiles_are_3x3() {
+        let workshop_tiles = BuildingType::Workshop.tiles();
+        let smithy_tiles = BuildingType::Smithy.tiles();
+        // Both should have tiles covering a 3x3 area
+        assert!(workshop_tiles.len() >= 9, "workshop should have at least 9 tiles");
+        assert!(smithy_tiles.len() >= 9, "smithy should have at least 9 tiles");
+    }
+
+    #[test]
+    fn skill_mult_speeds_up_processing() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
+        let mut resources = Resources { wood: 10, ..Default::default() };
+
+        // With skill_mult=2.0, required=120/2=60 ticks
+        for _ in 0..60 {
+            system_processing(&mut world, &mut resources, 2.0);
+        }
+
+        assert_eq!(resources.wood, 8, "should have consumed 2 wood at double speed");
+        assert_eq!(resources.planks, 1, "should have produced 1 planks at double speed");
     }
 }
