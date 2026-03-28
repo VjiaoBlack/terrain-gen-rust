@@ -486,7 +486,7 @@ impl Game {
                 gather_stone_speed: 1.0 + self.skills.mining / 50.0,
                 build_speed: (self.skills.building / 50.0).floor() as u32,
             };
-            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, &skill_mults, settlement_defended);
+            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, self.resources.wood, self.resources.stone, &skill_mults, settlement_defended);
             let mut deposited_food = 0u32;
             let mut deposited_wood = 0u32;
             let mut deposited_stone = 0u32;
