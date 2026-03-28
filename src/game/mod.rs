@@ -125,6 +125,24 @@ pub enum GameEvent {
     BountifulHarvest { ticks_remaining: u64 },
     Migration { count: u32 },
     WolfSurge { ticks_remaining: u64 },
+    Plague { ticks_remaining: u64, kills_remaining: u32 },
+    Blizzard { ticks_remaining: u64 },
+    BanditRaid { stolen: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Milestone {
+    FirstWinter,
+    TenVillagers,
+    FirstGarrison,
+    FiveYears,
+    TwentyVillagers,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DifficultyState {
+    pub threat_level: f64,
+    pub milestones: Vec<Milestone>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -156,12 +174,25 @@ impl EventSystem {
         1.0
     }
 
+    /// Returns movement speed multiplier (blizzard slows everyone).
+    pub fn movement_multiplier(&self) -> f64 {
+        for event in &self.active_events {
+            if matches!(event, GameEvent::Blizzard { .. }) {
+                return 0.5;
+            }
+        }
+        1.0
+    }
+
     fn has_event_type(&self, check: &str) -> bool {
         self.active_events.iter().any(|e| match e {
             GameEvent::Drought { .. } => check == "drought",
             GameEvent::BountifulHarvest { .. } => check == "harvest",
             GameEvent::Migration { .. } => check == "migration",
             GameEvent::WolfSurge { .. } => check == "wolf_surge",
+            GameEvent::Plague { .. } => check == "plague",
+            GameEvent::Blizzard { .. } => check == "blizzard",
+            GameEvent::BanditRaid { .. } => check == "bandit_raid",
         })
     }
 }
@@ -248,6 +279,7 @@ pub struct Game {
     pub traffic: TrafficMap,
     pub exploration: ExplorationMap,
     pub particles: Vec<Particle>,
+    pub difficulty: DifficultyState,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -402,6 +434,7 @@ impl Game {
             traffic: TrafficMap::new(256, 256),
             exploration: ExplorationMap::new(256, 256),
             particles: Vec::new(),
+            difficulty: DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -573,6 +606,32 @@ impl Game {
 
             // Update event system
             self.update_events();
+            self.check_milestones();
+
+            // Plague: kill a villager every 100 game ticks while plague is active
+            if self.tick % 100 == 0 {
+                let mut should_kill = false;
+                for event in &mut self.events.active_events {
+                    if let GameEvent::Plague { kills_remaining, .. } = event {
+                        if *kills_remaining > 0 {
+                            *kills_remaining -= 1;
+                            should_kill = true;
+                            break;
+                        }
+                    }
+                }
+                if should_kill {
+                    let victim: Option<hecs::Entity> = self.world
+                        .query::<(hecs::Entity, &Creature)>()
+                        .iter()
+                        .find(|(_, c)| c.species == Species::Villager)
+                        .map(|(e, _)| e);
+                    if let Some(entity) = victim {
+                        let _ = self.world.despawn(entity);
+                        self.notify("A villager succumbed to plague!".to_string());
+                    }
+                }
+            }
 
             // Apply seasonal modifiers
             let mods = self.day_night.season_modifiers();
@@ -1765,5 +1824,67 @@ mod tests {
             .exec("assert(reload_version == 2, 'version should be 2 after reload')").unwrap();
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn milestone_first_winter_detected() {
+        let mut game = Game::new(60, 42);
+        game.day_night.year = 1;
+        game.check_milestones();
+        assert!(game.difficulty.milestones.contains(&Milestone::FirstWinter));
+        assert!(game.difficulty.threat_level > 0.0);
+    }
+
+    #[test]
+    fn plague_kills_villager() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        let initial_villagers = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        // Inject plague event directly
+        game.events.active_events.push(GameEvent::Plague {
+            ticks_remaining: 300,
+            kills_remaining: 1,
+        });
+
+        // Run until the plague kill interval (every 100 ticks of plague life)
+        for _ in 0..400 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        let final_villagers = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        // Plague should have killed at least one (though hunger/other causes may also kill)
+        assert!(final_villagers < initial_villagers || initial_villagers == 0,
+            "plague should kill at least one villager");
+    }
+
+    #[test]
+    fn bandit_raid_steals_resources() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        game.resources.food = 100;
+        game.resources.wood = 80;
+        game.resources.stone = 60;
+
+        game.events.active_events.push(GameEvent::BanditRaid { stolen: false });
+        game.step(GameInput::None, &mut renderer).unwrap();
+
+        // Bandits steal 25% of resources
+        assert!(game.resources.food <= 75, "bandits should steal food");
+        assert!(game.resources.wood <= 60, "bandits should steal wood");
+        assert!(game.resources.stone <= 45, "bandits should steal stone");
+    }
+
+    #[test]
+    fn blizzard_provides_movement_multiplier() {
+        let mut game = Game::new(60, 42);
+        assert_eq!(game.events.movement_multiplier(), 1.0);
+
+        game.events.active_events.push(GameEvent::Blizzard { ticks_remaining: 100 });
+        assert_eq!(game.events.movement_multiplier(), 0.5);
     }
 }

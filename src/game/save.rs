@@ -75,6 +75,7 @@ impl Game {
             traffic: state.traffic,
             exploration: ExplorationMap::new(map_w, map_h),
             particles: Vec::new(),
+            difficulty: super::DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,
         })

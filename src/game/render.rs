@@ -164,8 +164,15 @@ impl super::Game {
                     GameEvent::Drought { ticks_remaining } => ("Drought", *ticks_remaining),
                     GameEvent::BountifulHarvest { ticks_remaining } => ("Harvest+", *ticks_remaining),
                     GameEvent::WolfSurge { ticks_remaining } => ("Wolf Surge", *ticks_remaining),
+                    GameEvent::Plague { ticks_remaining, .. } => ("Plague", *ticks_remaining),
+                    GameEvent::Blizzard { ticks_remaining } => ("Blizzard", *ticks_remaining),
                     GameEvent::Migration { count } => {
                         draw_line(renderer, row, &format!("  +{} migrants", count), green);
+                        row += 1;
+                        continue;
+                    }
+                    GameEvent::BanditRaid { .. } => {
+                        draw_line(renderer, row, "  Bandit Raid!", Color(200, 50, 50));
                         row += 1;
                         continue;
                     }
@@ -174,6 +181,8 @@ impl super::Game {
                     GameEvent::Drought { .. } => Color(200, 100, 50),
                     GameEvent::BountifulHarvest { .. } => Color(50, 200, 50),
                     GameEvent::WolfSurge { .. } => Color(200, 50, 50),
+                    GameEvent::Plague { .. } => Color(180, 50, 180),
+                    GameEvent::Blizzard { .. } => Color(150, 200, 255),
                     _ => fg,
                 };
                 draw_line(renderer, row, &format!("  {} ({}t)", name, remaining), color);

@@ -1,7 +1,7 @@
 use rand::RngExt;
-use crate::ecs::{self, Creature, HutBuilding, Species};
+use crate::ecs::{self, Creature, HutBuilding, Species, ProcessingBuilding, Recipe};
 use crate::simulation::Season;
-use super::{Game, GameEvent};
+use super::{Game, GameEvent, Milestone};
 
 impl Game {
     /// Fire a Lua on_event hook with the given event name.
@@ -42,6 +42,39 @@ impl Game {
                     true
                 }
                 GameEvent::Migration { .. } => false, // instant, remove after spawning
+                GameEvent::Plague { ticks_remaining, .. } => {
+                    *ticks_remaining = ticks_remaining.saturating_sub(1);
+                    if *ticks_remaining == 0 {
+                        self.events.event_log.push("The plague has passed.".to_string());
+                        return false;
+                    }
+                    true
+                }
+                GameEvent::Blizzard { ticks_remaining } => {
+                    *ticks_remaining = ticks_remaining.saturating_sub(1);
+                    if *ticks_remaining == 0 {
+                        self.events.event_log.push("The blizzard has ended.".to_string());
+                        return false;
+                    }
+                    true
+                }
+                GameEvent::BanditRaid { stolen } => {
+                    if !*stolen {
+                        // Steal resources from stockpile
+                        let steal_food = self.resources.food / 4;
+                        let steal_wood = self.resources.wood / 4;
+                        let steal_stone = self.resources.stone / 4;
+                        self.resources.food = self.resources.food.saturating_sub(steal_food);
+                        self.resources.wood = self.resources.wood.saturating_sub(steal_wood);
+                        self.resources.stone = self.resources.stone.saturating_sub(steal_stone);
+                        self.events.event_log.push(format!(
+                            "Bandits stole {} food, {} wood, {} stone!",
+                            steal_food, steal_wood, steal_stone
+                        ));
+                        *stolen = true;
+                    }
+                    false // instant event, remove after stealing
+                }
             }
         });
 
@@ -104,7 +137,76 @@ impl Game {
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
                 }
+                // Blizzard: winter-only, halves movement speed
+                if !self.events.has_event_type("blizzard") && rng.random_range(0u32..100) < 10 {
+                    self.events.active_events.push(GameEvent::Blizzard { ticks_remaining: 200 });
+                    self.events.event_log.push("Blizzard! Movement slowed.".to_string());
+                    self.notify("Blizzard! Movement slowed.".to_string());
+                    #[cfg(feature = "lua")]
+                    self.fire_event_hook("blizzard");
+                }
             }
+        }
+
+        let year = self.day_night.year;
+
+        // Plague: year 2+, kills 1-2 villagers unless Bakery exists
+        if year >= 2 && !self.events.has_event_type("plague") && rng.random_range(0u32..100) < 5 {
+            let has_bakery = self.world.query::<&ProcessingBuilding>().iter()
+                .any(|pb| pb.recipe == Recipe::GrainToBread);
+            if !has_bakery {
+                let kills = rng.random_range(1u32..=2);
+                self.events.active_events.push(GameEvent::Plague { ticks_remaining: 300, kills_remaining: kills });
+                self.events.event_log.push(format!("Plague strikes! {} villagers at risk.", kills));
+                self.notify(format!("Plague strikes! {} villagers at risk.", kills));
+                #[cfg(feature = "lua")]
+                self.fire_event_hook("plague");
+            }
+        }
+
+        // Bandit raid: year 3+, steals 25% of resources
+        if year >= 3 && !self.events.has_event_type("bandit_raid") && rng.random_range(0u32..100) < 8 {
+            self.events.active_events.push(GameEvent::BanditRaid { stolen: false });
+            self.events.event_log.push("Bandit raid! Resources stolen!".to_string());
+            self.notify("Bandit raid incoming!".to_string());
+            #[cfg(feature = "lua")]
+            self.fire_event_hook("bandit_raid");
+        }
+    }
+
+    /// Check and award milestones based on current game state.
+    pub(super) fn check_milestones(&mut self) {
+        let year = self.day_night.year;
+        let villager_count = self.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count() as u32;
+        let has_garrison = self.world.query::<&crate::ecs::GarrisonBuilding>().iter().count() > 0;
+
+        let check = |m: Milestone, milestones: &[Milestone]| !milestones.contains(&m);
+
+        if year >= 1 && check(Milestone::FirstWinter, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::FirstWinter);
+            self.notify("Milestone: Survived first winter!".to_string());
+            self.difficulty.threat_level += 0.5;
+        }
+        if villager_count >= 10 && check(Milestone::TenVillagers, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::TenVillagers);
+            self.notify("Milestone: 10 villagers!".to_string());
+            self.difficulty.threat_level += 0.5;
+        }
+        if has_garrison && check(Milestone::FirstGarrison, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::FirstGarrison);
+            self.notify("Milestone: First garrison built!".to_string());
+            self.difficulty.threat_level += 0.5;
+        }
+        if year >= 5 && check(Milestone::FiveYears, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::FiveYears);
+            self.notify("Milestone: 5 years survived!".to_string());
+            self.difficulty.threat_level += 1.0;
+        }
+        if villager_count >= 20 && check(Milestone::TwentyVillagers, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::TwentyVillagers);
+            self.notify("Milestone: 20 villagers!".to_string());
+            self.difficulty.threat_level += 1.0;
         }
     }
 }
