@@ -9,6 +9,19 @@ use crate::tilemap::{TileMap, Terrain};
 
 // --- AI Result ---
 
+/// Skill-derived multipliers passed into AI systems.
+pub struct SkillMults {
+    pub gather_wood_speed: f64,  // multiplier on gathering timer (lower = faster)
+    pub gather_stone_speed: f64,
+    pub build_speed: u32,        // extra progress per tick
+}
+
+impl Default for SkillMults {
+    fn default() -> Self {
+        Self { gather_wood_speed: 1.0, gather_stone_speed: 1.0, build_speed: 0 }
+    }
+}
+
 /// Result of running the AI system for one tick.
 pub struct AiResult {
     pub deposited: Vec<ResourceType>,
@@ -308,7 +321,7 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32) -> AiResult {
+pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32, skill_mults: &SkillMults) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
@@ -433,7 +446,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos, &creature, &behavior_state, speed, predator_nearby,
                     &food_positions, &stockpile_positions, &build_site_positions,
-                    &stone_deposit_positions, has_food, map, &mut rng,
+                    &stone_deposit_positions, has_food, map, skill_mults, &mut rng,
                 );
 
                 // If villager just started eating near stockpile (not near berry bush), consume food
@@ -516,10 +529,11 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
     }
 
     // Increment progress on build sites where villagers are working
+    let build_bonus = 1 + skill_mults.build_speed;
     for (bx, by) in build_progress {
         for (pos, site) in world.query_mut::<(&Position, &mut BuildSite)>() {
             if (pos.x - bx).abs() < 1.5 && (pos.y - by).abs() < 1.5 {
-                site.progress += 1;
+                site.progress += build_bonus;
                 break;
             }
         }
@@ -892,13 +906,14 @@ pub fn spawn_farm_plot(world: &mut World, x: f64, y: f64) -> Entity {
 
 /// Grow farm plots based on season and auto-harvest when ready.
 /// Returns the amount of food produced this tick.
-pub fn system_farms(world: &mut World, season: Season) -> u32 {
-    let growth_rate = match season {
+pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
+    let base_rate = match season {
         Season::Spring => 0.002,
         Season::Summer => 0.003,
         Season::Autumn => 0.001,
         Season::Winter => 0.0,
     };
+    let growth_rate = base_rate * skill_mult;
 
     // Pass 1: advance growth
     let mut food_produced = 0u32;
@@ -996,6 +1011,7 @@ fn ai_villager(
     stone_deposits: &[(f64, f64)],
     has_stockpile_food: bool,
     map: &TileMap,
+    skill_mults: &SkillMults,
     rng: &mut impl rand::RngExt,
 ) -> (BehaviorState, f64, f64, f64, Option<ResourceType>, Option<Entity>) {
     let mut hunger = creature.hunger;
@@ -1134,7 +1150,8 @@ fn ai_villager(
                 if let Some((fx, fy)) = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range) {
                     let d = dist(pos.x, pos.y, fx, fy);
                     if d < 1.5 {
-                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Wood }, 0.0, 0.0, hunger, None, None);
+                        let timer = (60.0 / skill_mults.gather_wood_speed) as u32;
+                        return (BehaviorState::Gathering { timer, resource_type: ResourceType::Wood }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, fx, fy, speed, &mut vel);
@@ -1151,7 +1168,8 @@ fn ai_villager(
                         .map(|(mx, my)| (mx, my, dist(pos.x, pos.y, mx, my))));
                 if let Some((sx, sy, d)) = stone_target {
                     if d < 1.5 {
-                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None, None);
+                        let timer = (60.0 / skill_mults.gather_stone_speed) as u32;
+                        return (BehaviorState::Gathering { timer, resource_type: ResourceType::Stone }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, sx, sy, speed, &mut vel);
@@ -1446,7 +1464,7 @@ mod tests {
 
         // Run AI + movement for many ticks — NPC will wander eventually
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0);
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             system_movement(&mut world, &map);
         }
 
@@ -1468,7 +1486,7 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0);
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             system_movement(&mut world, &map);
         }
 
@@ -1492,7 +1510,7 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
-            system_ai(&mut world, &map, 0.4, 0);
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             system_movement(&mut world, &map);
         }
 
@@ -1516,7 +1534,7 @@ mod tests {
         // Check position each tick; NPC should get close before transitioning to Idle
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
-            system_ai(&mut world, &map, 0.4, 0);
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
             let dist = ((pos.x - 15.0).powi(2) + (pos.y - 15.0).powi(2)).sqrt();
@@ -1558,7 +1576,7 @@ mod tests {
         }
 
         // Run AI — should start seeking food
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
@@ -1583,7 +1601,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1602,7 +1620,7 @@ mod tests {
             b.state = BehaviorState::FleeHome;
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         assert!(matches!(state, BehaviorState::AtHome { .. }),
@@ -1624,7 +1642,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(matches!(state, BehaviorState::Hunting { .. }),
@@ -1646,7 +1664,7 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
         assert!(!matches!(state, BehaviorState::Hunting { .. }),
@@ -1673,7 +1691,7 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
-            system_ai(&mut world, &map, 0.4, 0);
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             system_movement(&mut world, &map);
 
             let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1724,7 +1742,7 @@ mod tests {
 
         for tick in 0..1000 {
             system_hunger(&mut world, 1.0);
-            system_ai(&mut world, &map, 0.4, 0);
+            system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             system_movement(&mut world, &map);
 
             let ws = world.get::<&Behavior>(wolf).unwrap().state;
@@ -1762,7 +1780,7 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
@@ -1784,7 +1802,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -1810,7 +1828,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::FleeHome),
@@ -1836,7 +1854,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
@@ -1856,7 +1874,7 @@ mod tests {
             b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
@@ -1882,7 +1900,7 @@ mod tests {
             b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
         }
 
-        let result = system_ai(&mut world, &map, 0.4, 0);
+        let result = system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
         assert_eq!(result.deposited[0], ResourceType::Wood, "should deposit wood");
@@ -1934,7 +1952,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Building { .. }),
@@ -1963,7 +1981,7 @@ mod tests {
             b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         // Build site should now be complete (progress >= required)
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -2035,7 +2053,7 @@ mod tests {
         // With low aggression threshold (winter: 0.8), wolf should target villagers
         // since hunger (0.9) > threshold (0.8)
         for _ in 0..5 {
-            system_ai(&mut world, &map, 0.8, 0);
+            system_ai(&mut world, &map, 0.8, 0, &SkillMults::default());
             system_movement(&mut world, &map);
         }
 
@@ -2143,7 +2161,7 @@ mod tests {
         // Run enough ticks for at least one harvest (growth rate 0.003 in summer,
         // needs ~334 ticks to reach 1.0, then one more tick to harvest)
         for _ in 0..400 {
-            total_food += system_farms(&mut world, Season::Summer);
+            total_food += system_farms(&mut world, Season::Summer, 1.0);
         }
         assert!(total_food >= 3, "farm should have produced at least 3 food, got {}", total_food);
     }
@@ -2154,7 +2172,7 @@ mod tests {
         spawn_farm_plot(&mut world, 10.0, 10.0);
 
         for _ in 0..500 {
-            system_farms(&mut world, Season::Winter);
+            system_farms(&mut world, Season::Winter, 1.0);
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -2174,7 +2192,7 @@ mod tests {
 
         // Grow to medium (0.3+): run 150 ticks at summer rate 0.003 => 0.45
         for _ in 0..150 {
-            system_farms(&mut world, Season::Summer);
+            system_farms(&mut world, Season::Summer, 1.0);
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -2184,7 +2202,7 @@ mod tests {
 
         // Grow to mature (0.7+): run 100 more ticks => 0.75
         for _ in 0..100 {
-            system_farms(&mut world, Season::Summer);
+            system_farms(&mut world, Season::Summer, 1.0);
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -2217,7 +2235,7 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
-            let r = system_ai(&mut world, &map, 0.4, 0);
+            let r = system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
             system_death(&mut world);
@@ -2273,7 +2291,7 @@ mod tests {
         }
 
         // Pass stockpile_food=10 so villager knows food is available
-        let result = system_ai(&mut world, &map, 0.4, 10);
+        let result = system_ai(&mut world, &map, 0.4, 10, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Eating { .. }),
@@ -2299,7 +2317,7 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0);
+        system_ai(&mut world, &map, 0.4, 0, &SkillMults::default());
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),

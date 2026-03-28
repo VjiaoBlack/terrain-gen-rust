@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::Serialize;
 
-use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
+use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -377,7 +377,12 @@ impl Game {
             let mods = self.day_night.season_modifiers();
 
             ecs::system_hunger(&mut self.world, mods.hunger_mult);
-            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food);
+            let skill_mults = SkillMults {
+                gather_wood_speed: 1.0 + self.skills.woodcutting / 50.0,
+                gather_stone_speed: 1.0 + self.skills.mining / 50.0,
+                build_speed: (self.skills.building / 50.0).floor() as u32,
+            };
+            let ai_result = ecs::system_ai(&mut self.world, &self.map, mods.wolf_aggression, self.resources.food, &skill_mults);
             let mut deposited_food = 0u32;
             let mut deposited_wood = 0u32;
             let mut deposited_stone = 0u32;
@@ -401,6 +406,28 @@ impl Game {
                 self.resources.food = self.resources.food.saturating_sub(ai_result.food_consumed);
                 self.notify(format!("Villager ate from stockpile (-{} food)", ai_result.food_consumed));
             }
+
+            // Skill gains from activity
+            let skill_gain = 0.01;
+            self.skills.woodcutting += ai_result.woodcutting_ticks as f64 * skill_gain;
+            self.skills.mining += ai_result.mining_ticks as f64 * skill_gain;
+            self.skills.farming += ai_result.farming_ticks as f64 * skill_gain;
+            self.skills.building += ai_result.building_ticks as f64 * skill_gain;
+
+            // Skill decay (slow loss when inactive)
+            let decay = 0.9999;
+            self.skills.farming *= decay;
+            self.skills.mining *= decay;
+            self.skills.woodcutting *= decay;
+            self.skills.building *= decay;
+            self.skills.military *= decay;
+
+            // Clamp skills to [0, 100]
+            self.skills.farming = self.skills.farming.clamp(0.0, 100.0);
+            self.skills.mining = self.skills.mining.clamp(0.0, 100.0);
+            self.skills.woodcutting = self.skills.woodcutting.clamp(0.0, 100.0);
+            self.skills.building = self.skills.building.clamp(0.0, 100.0);
+            self.skills.military = self.skills.military.clamp(0.0, 100.0);
 
             ecs::system_movement(&mut self.world, &self.map);
 
@@ -464,9 +491,13 @@ impl Game {
                 self.notify("All villagers have perished!".to_string());
             }
 
-            // Farm growth and harvest
-            let farm_food = ecs::system_farms(&mut self.world, self.day_night.season);
+            // Farm growth and harvest (farming skill boosts growth rate)
+            let farm_mult = 1.0 + self.skills.farming / 100.0;
+            let farm_food = ecs::system_farms(&mut self.world, self.day_night.season, farm_mult);
             self.resources.food += farm_food;
+            // Active farms contribute to farming skill
+            let active_farms = self.world.query::<&FarmPlot>().iter().count() as f64;
+            self.skills.farming += active_farms * 0.002;
             if farm_food > 0 {
                 self.notify(format!("Farm harvested: +{} food", farm_food));
             }
@@ -981,6 +1012,16 @@ impl Game {
         draw_line(renderer, row, &format!("  Villagers: {}", villagers), fg); row += 1;
         draw_line(renderer, row, &format!("  Rabbits:   {}", prey), dim); row += 1;
         draw_line(renderer, row, &format!("  Wolves:    {}", wolves), dim); row += 1;
+        row += 1;
+
+        // Skills section
+        let skill_color = Color(180, 160, 220);
+        draw_line(renderer, row, " Skills", highlight); row += 1;
+        draw_line(renderer, row, &format!("  Farm  {:4.1}", self.skills.farming), skill_color); row += 1;
+        draw_line(renderer, row, &format!("  Mine  {:4.1}", self.skills.mining), skill_color); row += 1;
+        draw_line(renderer, row, &format!("  Wood  {:4.1}", self.skills.woodcutting), skill_color); row += 1;
+        draw_line(renderer, row, &format!("  Build {:4.1}", self.skills.building), skill_color); row += 1;
+        draw_line(renderer, row, &format!("  Milit {:4.1}", self.skills.military), skill_color); row += 1;
         row += 1;
 
         // Build section
@@ -1723,5 +1764,45 @@ mod tests {
         let (cost_f, cost_w, _cost_s) = BuildingType::Farm.cost();
         assert_eq!(game.resources.food, 2 - cost_f);
         assert_eq!(game.resources.wood, 10 - cost_w);
+    }
+
+    #[test]
+    fn skills_increase_with_activity() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        let initial_woodcutting = game.skills.woodcutting;
+
+        // Run enough ticks for villagers to start gathering
+        for _ in 0..500 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        // At least one skill should have increased from activity
+        let any_skill_increased =
+            game.skills.woodcutting > initial_woodcutting
+            || game.skills.mining > 0.5
+            || game.skills.farming > 0.5
+            || game.skills.building > 0.5;
+
+        assert!(any_skill_increased,
+            "skills should increase from villager activity: wood={:.2} mine={:.2} farm={:.2} build={:.2}",
+            game.skills.woodcutting, game.skills.mining, game.skills.farming, game.skills.building);
+    }
+
+    #[test]
+    fn skills_decay_over_time() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Set military skill high (no villagers do military work yet)
+        game.skills.military = 50.0;
+
+        for _ in 0..1000 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        assert!(game.skills.military < 50.0,
+            "military skill should decay without activity: {:.2}", game.skills.military);
     }
 }
