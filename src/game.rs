@@ -1,8 +1,8 @@
 use anyhow::Result;
 use hecs::World;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
-use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile};
+use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, Position, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, SimConfig, VegetationMap, WaterMap};
@@ -81,6 +81,8 @@ pub enum GameInput {
     BuildLeft,
     BuildRight,
     Drain,
+    Save,
+    Load,
     Restart,
     ToggleAutoBuild,
     /// Mouse click at screen coordinates (x, y)
@@ -91,14 +93,14 @@ pub enum GameInput {
 /// Width of the left-side UI panel in screen columns.
 pub const PANEL_WIDTH: u16 = 24;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Resources {
     pub food: u32,
     pub wood: u32,
     pub stone: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CivSkills {
     pub farming: f64,
     pub mining: f64,
@@ -111,6 +113,27 @@ impl Default for CivSkills {
     fn default() -> Self {
         Self { farming: 1.0, mining: 1.0, woodcutting: 1.0, building: 1.0, military: 1.0 }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SaveState {
+    pub tick: u64,
+    pub resources: Resources,
+    pub skills: CivSkills,
+    pub day_night: DayNightCycle,
+    pub map: TileMap,
+    pub heights: Vec<f64>,
+    pub water: WaterMap,
+    pub moisture: MoistureMap,
+    pub vegetation: VegetationMap,
+    pub influence: InfluenceMap,
+    pub entities: Vec<SerializedEntity>,
+    pub last_birth_tick: u64,
+    pub peak_population: u32,
+    pub raining: bool,
+    pub auto_build: bool,
+    pub sim_config: SimConfig,
+    pub terrain_config: TerrainGenConfig,
 }
 
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
@@ -284,6 +307,70 @@ impl Game {
         }
     }
 
+    pub fn save(&self, path: &str) -> Result<()> {
+        let state = SaveState {
+            tick: self.tick,
+            resources: self.resources.clone(),
+            skills: self.skills.clone(),
+            day_night: serde_json::from_value(serde_json::to_value(&self.day_night)?)?,
+            map: serde_json::from_value(serde_json::to_value(&self.map)?)?,
+            heights: self.heights.clone(),
+            water: serde_json::from_value(serde_json::to_value(&self.water)?)?,
+            moisture: serde_json::from_value(serde_json::to_value(&self.moisture)?)?,
+            vegetation: serde_json::from_value(serde_json::to_value(&self.vegetation)?)?,
+            influence: serde_json::from_value(serde_json::to_value(&self.influence)?)?,
+            entities: ecs::serialize_world(&self.world),
+            last_birth_tick: self.last_birth_tick,
+            peak_population: self.peak_population,
+            raining: self.raining,
+            auto_build: self.auto_build,
+            sim_config: self.sim_config.clone(),
+            terrain_config: serde_json::from_value(serde_json::to_value(&self.terrain_config)?)?,
+        };
+        let file = std::fs::File::create(path)?;
+        serde_json::to_writer(file, &state)?;
+        Ok(())
+    }
+
+    pub fn load(path: &str, target_fps: u32) -> Result<Game> {
+        let file = std::fs::File::open(path)?;
+        let state: SaveState = serde_json::from_reader(file)?;
+        Ok(Game {
+            target_fps,
+            tick: state.tick,
+            map: state.map,
+            heights: state.heights,
+            water: state.water,
+            moisture: state.moisture,
+            vegetation: state.vegetation,
+            sim_config: state.sim_config,
+            terrain_config: state.terrain_config,
+            camera: Camera { x: 0, y: 0 },
+            world: ecs::deserialize_world(&state.entities),
+            day_night: state.day_night,
+            scroll_speed: 2,
+            raining: state.raining,
+            debug_view: false,
+            paused: false,
+            query_mode: false,
+            query_cx: 0,
+            query_cy: 0,
+            display_fps: None,
+            resources: state.resources,
+            build_mode: false,
+            build_cursor_x: 0,
+            build_cursor_y: 0,
+            selected_building: BuildingType::Wall,
+            influence: state.influence,
+            last_birth_tick: state.last_birth_tick,
+            notifications: vec![],
+            game_over: false,
+            peak_population: state.peak_population,
+            auto_build: state.auto_build,
+            skills: state.skills,
+        })
+    }
+
     pub fn step(&mut self, input: GameInput, renderer: &mut dyn Renderer) -> Result<()> {
         // In game-over state, only allow quit/restart
         if self.game_over {
@@ -357,6 +444,8 @@ impl Game {
             GameInput::Drain => self.water.drain(),
             GameInput::ToggleAutoBuild => self.auto_build = !self.auto_build,
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
+            GameInput::Save => { let _ = self.save("savegame.json"); },
+            GameInput::Load => {} // handled in main.rs loop
             GameInput::Quit | GameInput::Restart | GameInput::None => {}
         }
 
@@ -1661,6 +1750,7 @@ impl Game {
 mod tests {
     use super::*;
     use crate::ecs::{self, Creature, Species};
+    use crate::headless_renderer::HeadlessRenderer;
     use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
@@ -1747,12 +1837,10 @@ mod tests {
         game.resources.wood = 10;
         game.resources.stone = 10;
 
-        // Count farms before
         let farms_before = game.world.query::<&BuildSite>().iter()
             .filter(|s| s.building_type == BuildingType::Farm).count()
             + game.world.query::<&FarmPlot>().iter().count();
 
-        // Run auto_build_tick directly
         game.auto_build_tick();
 
         let farms_after = game.world.query::<&BuildSite>().iter()
@@ -1760,7 +1848,6 @@ mod tests {
             + game.world.query::<&FarmPlot>().iter().count();
 
         assert!(farms_after > farms_before, "auto-build should queue a farm when food is low");
-        // Resources should be deducted
         let (cost_f, cost_w, _cost_s) = BuildingType::Farm.cost();
         assert_eq!(game.resources.food, 2 - cost_f);
         assert_eq!(game.resources.wood, 10 - cost_w);
@@ -1773,12 +1860,10 @@ mod tests {
 
         let initial_woodcutting = game.skills.woodcutting;
 
-        // Run enough ticks for villagers to start gathering
         for _ in 0..500 {
             game.step(GameInput::None, &mut renderer).unwrap();
         }
 
-        // At least one skill should have increased from activity
         let any_skill_increased =
             game.skills.woodcutting > initial_woodcutting
             || game.skills.mining > 0.5
@@ -1795,7 +1880,6 @@ mod tests {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
-        // Set military skill high (no villagers do military work yet)
         game.skills.military = 50.0;
 
         for _ in 0..1000 {
@@ -1804,5 +1888,29 @@ mod tests {
 
         assert!(game.skills.military < 50.0,
             "military skill should decay without activity: {:.2}", game.skills.military);
+    }
+
+    #[test]
+    fn save_load_round_trip() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        for _ in 0..50 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        let tick_before = game.tick;
+        let food_before = game.resources.food;
+        let villager_count_before = game.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+
+        game.save("/tmp/test_savegame.json").unwrap();
+        let loaded = Game::load("/tmp/test_savegame.json", 60).unwrap();
+
+        assert_eq!(loaded.tick, tick_before);
+        assert_eq!(loaded.resources.food, food_before);
+        let villager_count_after = loaded.world.query::<&Creature>().iter()
+            .filter(|c| c.species == Species::Villager).count();
+        assert_eq!(villager_count_after, villager_count_before);
+
+        let _ = std::fs::remove_file("/tmp/test_savegame.json");
     }
 }

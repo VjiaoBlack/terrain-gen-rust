@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 use crate::renderer::{Color, Renderer};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Terrain {
     Water,
     Sand,
@@ -65,6 +65,7 @@ impl Terrain {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct TileMap {
     pub width: usize,
     pub height: usize,
@@ -108,6 +109,7 @@ impl TileMap {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Camera {
     pub x: i32,
     pub y: i32,

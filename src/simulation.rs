@@ -1,10 +1,11 @@
 use rand::RngExt;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 use crate::renderer::Color;
 
 /// Parallel grid of water depth, layered on top of a height map.
 /// Water flows downhill, erodes terrain, and evaporates over time.
+#[derive(Serialize, Deserialize)]
 pub struct WaterMap {
     pub width: usize,
     pub height: usize,
@@ -13,7 +14,7 @@ pub struct WaterMap {
     water_avg: Vec<f64>,    // smoothed for rendering
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub rain_rate: f64,        // fraction of tiles that get rain per tick
     pub rain_amount: f64,      // water added per raindrop
@@ -217,6 +218,7 @@ impl WaterMap {
 }
 
 /// Moisture grid: driven by water presence, propagates downwind, drives vegetation.
+#[derive(Serialize, Deserialize)]
 pub struct MoistureMap {
     pub width: usize,
     pub height: usize,
@@ -334,7 +336,7 @@ impl MoistureMap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Season {
     Spring,
     Summer,
@@ -353,6 +355,7 @@ impl Season {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct SeasonModifiers {
     pub rain_mult: f64,
     pub evap_mult: f64,
@@ -362,6 +365,7 @@ pub struct SeasonModifiers {
 }
 
 /// Day/night cycle with Blinn-Phong lighting, terrain normals, and shadow raytracing.
+#[derive(Serialize, Deserialize)]
 pub struct DayNightCycle {
     pub hour: f64,           // 0.0 - 24.0
     pub tick_rate: f64,      // hours per tick
@@ -739,6 +743,7 @@ impl DayNightCycle {
 }
 
 /// Vegetation density grid: grows where moisture is right, decays elsewhere.
+#[derive(Serialize, Deserialize)]
 pub struct VegetationMap {
     pub width: usize,
     pub height: usize,
@@ -799,6 +804,7 @@ impl VegetationMap {
 
 /// Influence map for territory visualization. Each villager and building emits
 /// influence that diffuses outward, creating an organic territory boundary.
+#[derive(Serialize, Deserialize)]
 pub struct InfluenceMap {
     pub width: usize,
     pub height: usize,
