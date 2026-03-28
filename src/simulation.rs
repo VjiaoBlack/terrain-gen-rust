@@ -429,6 +429,11 @@ impl DayNightCycle {
         format!("Y{} {} D{}", self.year + 1, self.season.name(), self.day + 1)
     }
 
+    /// Returns true if it's nighttime (sun below horizon, roughly 6pm-6am).
+    pub fn is_night(&self) -> bool {
+        self.sun_elevation() <= 0.0
+    }
+
     /// Sun elevation angle in radians. Peaks at noon, below 0 at night.
     /// Max ~60 degrees — keeps the sun from going truly overhead so there's
     /// always a meaningful horizontal component for shadows and directional shading.

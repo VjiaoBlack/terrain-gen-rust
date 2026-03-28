@@ -268,6 +268,13 @@ pub struct GarrisonBuilding {
     pub defense_bonus: f64,
 }
 
+/// Marker component for completed huts — provides shelter for villagers at night.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct HutBuilding {
+    pub capacity: u32,
+    pub occupants: u32,
+}
+
 /// Marker component for stone deposits (mineable by villagers).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct StoneDeposit;
@@ -659,7 +666,8 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos, &creature, &behavior_state, speed, predator_nearby,
                     &food_positions, &stockpile_positions, &build_site_positions,
-                    &stone_deposit_positions, has_food, stockpile_wood, stockpile_stone,
+                    &stone_deposit_positions, has_food, remaining_food + remaining_grain,
+                    stockpile_wood, stockpile_stone,
                     map, skill_mults, &mut rng,
                 );
 
@@ -1131,6 +1139,14 @@ pub fn spawn_garrison(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
+pub fn spawn_hut(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite { ch: '⌂', fg: Color(160, 130, 90) },
+        HutBuilding { capacity: 4, occupants: 0 },
+    ))
+}
+
 /// Grow farm plots based on season and auto-harvest when ready.
 /// Returns the amount of food produced this tick.
 pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
@@ -1287,6 +1303,7 @@ fn ai_villager(
     build_sites: &[(Entity, f64, f64, bool)],
     stone_deposits: &[(f64, f64)],
     has_stockpile_food: bool,
+    stockpile_food: u32,
     stockpile_wood: u32,
     stockpile_stone: u32,
     map: &TileMap,
@@ -1430,8 +1447,29 @@ fn ai_villager(
                 }
             }
 
-            // Build: if not too hungry and there are build sites
-            if hunger < 0.4 {
+            // Scarcity-driven task selection: score urgency of build vs gather
+            // Food gathering gets urgent when stockpile is low relative to what villagers eat
+            let food_urgent = stockpile_food < 5 || (has_stockpile_food && stockpile_food < 10);
+            let build_available = hunger < 0.4 && build_sites.iter()
+                .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < creature.sight_range);
+
+            // When food is critically low, skip building and gather food/resources instead
+            // (unless the build site IS a farm — always prioritize farm construction)
+            let should_build = if build_available && hunger < 0.4 {
+                if food_urgent {
+                    // Only build farms when food is urgent
+                    build_sites.iter()
+                        .any(|&(_, bx, by, assigned)| {
+                            !assigned && dist(pos.x, pos.y, bx, by) < creature.sight_range
+                        })
+                } else {
+                    true
+                }
+            } else {
+                false
+            };
+
+            if should_build {
                 let nearest_site = build_sites.iter()
                     .map(|&(e, bx, by, _)| (e, bx, by, dist(pos.x, pos.y, bx, by)))
                     .filter(|(_, _, _, d)| *d < creature.sight_range)
@@ -1447,7 +1485,24 @@ fn ai_villager(
                 }
             }
 
-            // Gather resources: pick whichever resource is lower, or alternate
+            // When food stockpile is critically low, seek food sources even if not personally hungry
+            if food_urgent && hunger < 0.3 {
+                let nearest_food = food.iter()
+                    .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
+                    .filter(|(_, _, d)| *d < creature.sight_range)
+                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                if let Some((fx, fy, d)) = nearest_food {
+                    if d < 1.5 {
+                        return (BehaviorState::Gathering { timer: 40, resource_type: ResourceType::Food }, 0.0, 0.0, hunger, None, None);
+                    } else {
+                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        move_toward(pos, fx, fy, speed, &mut vel);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
+                    }
+                }
+            }
+
+            // Gather resources: pick whichever resource is most needed
             if hunger < 0.4 {
                 let wood_target = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range)
                     .map(|(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)));

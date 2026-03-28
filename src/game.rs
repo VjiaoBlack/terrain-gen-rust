@@ -2,7 +2,7 @@ use anyhow::Result;
 use hecs::World;
 use serde::{Serialize, Deserialize};
 
-use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
+use crate::ecs::{self, AiResult, Behavior, BehaviorState, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Resources, SkillMults, Species, Sprite, FoodSource, Den, StoneDeposit, ResourceType, Stockpile, SerializedEntity};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{DayNightCycle, InfluenceMap, MoistureMap, Season, SimConfig, VegetationMap, WaterMap};
@@ -866,7 +866,13 @@ impl Game {
                     self.map.set(tx as usize, ty as usize, terrain);
                 }
             }
-            // Spawn a FarmPlot entity at the center of completed farms
+            // Spawn building entities for completed buildings
+            if site.building_type == BuildingType::Hut {
+                let (sw, sh) = site.building_type.size();
+                let cx = pos.x + sw as f64 / 2.0;
+                let cy = pos.y + sh as f64 / 2.0;
+                ecs::spawn_hut(&mut self.world, cx, cy);
+            }
             if site.building_type == BuildingType::Farm {
                 let (sw, sh) = site.building_type.size();
                 let cx = pos.x + sw as f64 / 2.0;
