@@ -275,7 +275,7 @@ impl Game {
             query_cx: 128,
             query_cy: 128,
             display_fps: None,
-            resources: Resources::default(),
+            resources: Resources { food: 10, wood: 10, stone: 5, ..Default::default() },
             build_mode: false,
             build_cursor_x: 128,
             build_cursor_y: 128,
@@ -1953,14 +1953,16 @@ mod tests {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
-        game.skills.military = 50.0;
+        // Use a skill that has no passive gain sources (building skill)
+        // Set it high so we can observe decay clearly
+        game.skills.building = 80.0;
 
         for _ in 0..1000 {
             game.step(GameInput::None, &mut renderer).unwrap();
         }
 
-        assert!(game.skills.military < 50.0,
-            "military skill should decay without activity: {:.2}", game.skills.military);
+        assert!(game.skills.building < 80.0,
+            "building skill should decay without activity: {:.2}", game.skills.building);
     }
 
     #[test]

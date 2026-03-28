@@ -133,7 +133,7 @@ impl BuildingType {
         match self {
             BuildingType::Hut => (0, 5, 2),
             BuildingType::Wall => (0, 1, 1),
-            BuildingType::Farm => (2, 3, 0),
+            BuildingType::Farm => (0, 3, 0),
             BuildingType::Stockpile => (0, 2, 0),
             BuildingType::Workshop => (0, 8, 4),
             BuildingType::Smithy => (0, 5, 8),
@@ -2223,7 +2223,7 @@ mod tests {
     fn building_type_costs_and_sizes() {
         assert_eq!(BuildingType::Hut.cost(), (0, 5, 2));
         assert_eq!(BuildingType::Wall.cost(), (0, 1, 1));
-        assert_eq!(BuildingType::Farm.cost(), (2, 3, 0));
+        assert_eq!(BuildingType::Farm.cost(), (0, 3, 0));
         assert_eq!(BuildingType::Stockpile.cost(), (0, 2, 0));
 
         assert_eq!(BuildingType::Hut.size(), (3, 3));
