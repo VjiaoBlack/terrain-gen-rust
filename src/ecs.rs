@@ -1841,6 +1841,47 @@ pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64)
     }
 }
 
+/// Coordinated wolf raid system: when 5+ wolves are within range of each other,
+/// they attack as a pack toward the settlement center.
+/// Returns true if a raid was launched this tick.
+pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64, tick: u64) -> bool {
+    // Only check every 50 ticks to avoid constant scanning
+    if tick % 50 != 0 { return false; }
+
+    // Collect wolf positions
+    let wolves: Vec<(Entity, f64, f64)> = world
+        .query::<(Entity, &Position, &Creature)>()
+        .iter()
+        .filter(|(_, _, c)| c.species == Species::Predator)
+        .map(|(e, p, _)| (e, p.x, p.y))
+        .collect();
+
+    if wolves.len() < 5 { return false; }
+
+    // Find clusters of 5+ wolves within 15 tiles of each other
+    let cluster_radius = 15.0;
+    for &(_, wx, wy) in &wolves {
+        let pack: Vec<Entity> = wolves.iter()
+            .filter(|(_, x, y)| dist(wx, wy, *x, *y) < cluster_radius)
+            .map(|(e, _, _)| *e)
+            .collect();
+
+        if pack.len() >= 5 {
+            // Launch raid: set all pack wolves to hunt toward settlement
+            for wolf_e in pack {
+                if let Ok(mut behavior) = world.get::<&mut Behavior>(wolf_e) {
+                    behavior.state = BehaviorState::Hunting {
+                        target_x: settlement_x,
+                        target_y: settlement_y,
+                    };
+                }
+            }
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

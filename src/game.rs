@@ -713,6 +713,12 @@ impl Game {
             let wolf_boost = self.events.wolf_spawn_multiplier();
             ecs::system_breeding(&mut self.world, self.day_night.season, wolf_boost);
 
+            // Coordinated wolf raids
+            let (scx, scy) = self.settlement_center();
+            if ecs::system_wolf_raids(&mut self.world, scx as f64, scy as f64, self.tick) {
+                self.notify("Wolf pack is raiding the settlement!".to_string());
+            }
+
             let prey_after = self.world.query::<&Creature>().iter()
                 .filter(|c| c.species == Species::Prey).count();
             let wolf_after = self.world.query::<&Creature>().iter()
@@ -2688,6 +2694,40 @@ mod tests {
         // Berry bush char '♦' should appear
         let frame = renderer.frame_as_string();
         assert!(frame.contains('♦'), "resource overlay should show berry bushes");
+    }
+
+    #[test]
+    fn wolf_raid_triggers_with_pack() {
+        let mut world = hecs::World::new();
+        let map = TileMap::new(50, 50, Terrain::Grass);
+
+        // Spawn 6 wolves near each other
+        for i in 0..6 {
+            ecs::spawn_predator(&mut world, 30.0 + i as f64, 30.0);
+        }
+
+        // Raid should trigger (wolves within 15 tiles of each other)
+        let raided = ecs::system_wolf_raids(&mut world, 25.0, 25.0, 50);
+        assert!(raided, "raid should trigger with 6 wolves in a pack");
+
+        // All wolves should now be Hunting toward settlement
+        let hunting_count = world.query::<(&Creature, &Behavior)>().iter()
+            .filter(|(c, b)| c.species == Species::Predator && matches!(b.state, BehaviorState::Hunting { .. }))
+            .count();
+        assert!(hunting_count >= 5, "pack wolves should be hunting: got {}", hunting_count);
+    }
+
+    #[test]
+    fn wolf_raid_needs_minimum_pack() {
+        let mut world = hecs::World::new();
+
+        // Only 3 wolves — not enough for a raid
+        for i in 0..3 {
+            ecs::spawn_predator(&mut world, 30.0 + i as f64, 30.0);
+        }
+
+        let raided = ecs::system_wolf_raids(&mut world, 25.0, 25.0, 50);
+        assert!(!raided, "raid should not trigger with only 3 wolves");
     }
 
     #[test]
