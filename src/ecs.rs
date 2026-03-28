@@ -453,12 +453,21 @@ fn wander(pos: &Position, vel: &mut Velocity, speed: f64, map: &TileMap, rng: &m
         (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
         (1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0),
     ];
-    let mut candidates: Vec<(f64, f64)> = Vec::new();
+    // Prefer outdoor tiles; only allow BuildingFloor if no outdoor option
+    let mut outdoor: Vec<(f64, f64)> = Vec::new();
+    let mut indoor: Vec<(f64, f64)> = Vec::new();
     for &(dx, dy) in &DIRS {
-        if map.is_walkable(pos.x + dx * 2.0, pos.y + dy * 2.0) {
-            candidates.push((dx, dy));
+        let nx = pos.x + dx * 2.0;
+        let ny = pos.y + dy * 2.0;
+        if map.is_walkable(nx, ny) {
+            if map.get(nx.round() as usize, ny.round() as usize) == Some(&Terrain::BuildingFloor) {
+                indoor.push((dx, dy));
+            } else {
+                outdoor.push((dx, dy));
+            }
         }
     }
+    let candidates = if outdoor.is_empty() { &indoor } else { &outdoor };
     if let Some(&(dx, dy)) = candidates.get(rng.random_range(0..candidates.len().max(1))) {
         let len: f64 = (dx * dx + dy * dy).sqrt();
         vel.dx = dx / len * speed;
@@ -1326,6 +1335,30 @@ fn ai_villager(
             }
         }
         _ => {
+            // If villager is stuck inside a building (on BuildingFloor), try to leave
+            let on_building = map.get(pos.x.round() as usize, pos.y.round() as usize)
+                == Some(&Terrain::BuildingFloor);
+            if on_building {
+                // Find nearest outdoor (non-building) walkable tile
+                for r in 1..=5i32 {
+                    for dy in -r..=r {
+                        for dx in -r..=r {
+                            if dx.abs() != r && dy.abs() != r { continue; }
+                            let nx = pos.x + dx as f64;
+                            let ny = pos.y + dy as f64;
+                            if map.is_walkable(nx, ny) {
+                                let t = map.get(nx.round() as usize, ny.round() as usize);
+                                if t != Some(&Terrain::BuildingFloor) && t != Some(&Terrain::BuildingWall) {
+                                    let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                                    move_toward(pos, nx, ny, speed, &mut vel);
+                                    return (BehaviorState::Seek { target_x: nx, target_y: ny }, vel.dx, vel.dy, hunger, None, None);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Wander/Seek/Idle — check for threats, food, and gathering
             if predator_nearby {
                 return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
