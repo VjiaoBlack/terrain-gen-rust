@@ -782,18 +782,24 @@ impl Game {
                 self.notify("All villagers have perished!".to_string());
             }
 
-            // Farm growth and harvest (farming skill + event multiplier)
+            // Farm growth (only advances when villager is present at farm)
             let farm_mult = (1.0 + self.skills.farming / 100.0) * self.events.farm_yield_multiplier();
-            let farm_food = ecs::system_farms(&mut self.world, self.day_night.season, farm_mult);
-            self.resources.food += farm_food;
-            // Active farms contribute to farming skill
-            let active_farms = self.world.query::<&FarmPlot>().iter().count() as f64;
-            self.skills.farming += active_farms * 0.002;
-            if farm_food > 0 {
-                self.notify(format!("Farm harvested: +{} food", farm_food));
+            ecs::system_farms(&mut self.world, self.day_night.season, farm_mult);
+
+            // Assign idle villagers to farms/workshops, then mark worker presence
+            ecs::system_assign_workers(&mut self.world, &self.resources);
+            let farm_food_picked = ecs::system_mark_workers(&mut self.world);
+            self.resources.food += farm_food_picked;
+            if farm_food_picked > 0 {
+                self.notify(format!("Farm harvest collected: +{} food", farm_food_picked));
             }
 
-            // Processing buildings auto-process resources
+            // Active farms with workers contribute to farming skill
+            let tended_farms = self.world.query::<&FarmPlot>().iter()
+                .filter(|f| f.worker_present).count() as f64;
+            self.skills.farming += tended_farms * 0.003;
+
+            // Processing buildings (only advance when villager is present)
             let process_mult = 1.0;
             ecs::system_processing(&mut self.world, &mut self.resources, process_mult);
 
@@ -1712,6 +1718,8 @@ impl Game {
                                 Some(BehaviorState::Gathering { resource_type: ResourceType::Food, .. }) => Color(50, 200, 50),   // green
                                 Some(BehaviorState::Hauling { .. }) => Color(200, 180, 50),   // gold
                                 Some(BehaviorState::Building { .. }) => Color(255, 220, 50),   // yellow
+                                Some(BehaviorState::Farming { .. }) => Color(80, 200, 80),     // farm green
+                                Some(BehaviorState::Working { .. }) => Color(200, 120, 50),    // workshop orange
                                 Some(BehaviorState::Eating { .. }) => Color(50, 200, 50),      // green
                                 Some(BehaviorState::Sleeping { .. }) => Color(100, 100, 200),  // blue
                                 Some(BehaviorState::FleeHome) => Color(255, 50, 50),           // red
@@ -1920,6 +1928,8 @@ impl Game {
                         BehaviorState::Hauling { target_x, target_y, resource_type } => format!("Hauling {:?} ({:.0},{:.0})", resource_type, target_x, target_y),
                         BehaviorState::Sleeping { timer } => format!("Sleeping ({})", timer),
                         BehaviorState::Building { target_x, target_y, timer } => format!("Building ({:.0},{:.0}) ({})", target_x, target_y, timer),
+                        BehaviorState::Farming { target_x, target_y } => format!("Farming ({:.0},{:.0})", target_x, target_y),
+                        BehaviorState::Working { target_x, target_y } => format!("Working ({:.0},{:.0})", target_x, target_y),
                     };
                     lines.push(format!("state: {}", state_str));
                     lines.push(format!("speed: {:.2}", behavior.speed));
@@ -2582,8 +2592,8 @@ mod tests {
             "should NOT afford garrison with only raw resources");
 
         // Give refined resources
-        game.resources.planks = 5;
-        game.resources.masonry = 5;
+        game.resources.planks = 10;
+        game.resources.masonry = 10;
         assert!(game.resources.can_afford(&cost),
             "should afford garrison with refined resources");
     }

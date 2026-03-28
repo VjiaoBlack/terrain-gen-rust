@@ -101,6 +101,10 @@ pub enum BehaviorState {
     Sleeping { timer: u32 },
     /// Villager: building at a build site.
     Building { target_x: f64, target_y: f64, timer: u32 },
+    /// Villager: tending a farm (standing at farm, advancing growth).
+    Farming { target_x: f64, target_y: f64 },
+    /// Villager: operating a workshop/smithy (standing at building, advancing processing).
+    Working { target_x: f64, target_y: f64 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -135,31 +139,31 @@ pub enum BuildingType {
 impl BuildingType {
     pub fn cost(&self) -> Resources {
         match self {
-            BuildingType::Hut => Resources { wood: 5, stone: 2, ..Default::default() },
-            BuildingType::Wall => Resources { wood: 1, stone: 1, ..Default::default() },
-            BuildingType::Farm => Resources { wood: 3, ..Default::default() },
-            BuildingType::Stockpile => Resources { wood: 2, ..Default::default() },
-            BuildingType::Workshop => Resources { wood: 8, stone: 4, ..Default::default() },
-            BuildingType::Smithy => Resources { wood: 5, stone: 8, ..Default::default() },
-            BuildingType::Garrison => Resources { planks: 5, masonry: 5, ..Default::default() },
-            BuildingType::Road => Resources { stone: 1, ..Default::default() },
-            BuildingType::Granary => Resources { wood: 6, stone: 4, planks: 2, ..Default::default() },
-            BuildingType::Bakery => Resources { wood: 4, stone: 3, planks: 3, ..Default::default() },
+            BuildingType::Hut => Resources { wood: 10, stone: 4, ..Default::default() },
+            BuildingType::Wall => Resources { wood: 2, stone: 2, ..Default::default() },
+            BuildingType::Farm => Resources { wood: 5, stone: 1, ..Default::default() },
+            BuildingType::Stockpile => Resources { wood: 4, ..Default::default() },
+            BuildingType::Workshop => Resources { wood: 15, stone: 8, ..Default::default() },
+            BuildingType::Smithy => Resources { wood: 10, stone: 15, ..Default::default() },
+            BuildingType::Garrison => Resources { planks: 10, masonry: 10, ..Default::default() },
+            BuildingType::Road => Resources { stone: 2, ..Default::default() },
+            BuildingType::Granary => Resources { wood: 12, stone: 8, planks: 4, ..Default::default() },
+            BuildingType::Bakery => Resources { wood: 8, stone: 6, planks: 5, ..Default::default() },
         }
     }
 
     pub fn build_time(&self) -> u32 {
         match self {
-            BuildingType::Hut => 120,
-            BuildingType::Wall => 30,
-            BuildingType::Farm => 80,
-            BuildingType::Stockpile => 40,
-            BuildingType::Workshop => 150,
-            BuildingType::Smithy => 180,
-            BuildingType::Garrison => 120,
-            BuildingType::Road => 20,
-            BuildingType::Granary => 160,
-            BuildingType::Bakery => 140,
+            BuildingType::Hut => 180,
+            BuildingType::Wall => 45,
+            BuildingType::Farm => 120,
+            BuildingType::Stockpile => 60,
+            BuildingType::Workshop => 220,
+            BuildingType::Smithy => 270,
+            BuildingType::Garrison => 180,
+            BuildingType::Road => 30,
+            BuildingType::Granary => 240,
+            BuildingType::Bakery => 210,
         }
     }
 
@@ -284,6 +288,10 @@ pub struct BuildSite {
 pub struct FarmPlot {
     pub growth: f64,        // 0.0 to 1.0
     pub harvest_ready: bool,
+    #[serde(default)]
+    pub worker_present: bool, // must have villager tending for growth
+    #[serde(default)]
+    pub pending_food: u32,    // harvested food waiting for pickup
 }
 
 /// Marker component for berry bushes (food source for prey).
@@ -331,6 +339,8 @@ pub struct ProcessingBuilding {
     pub recipe: Recipe,
     pub progress: u32,
     pub required: u32, // ticks per processing cycle
+    #[serde(default)]
+    pub worker_present: bool, // must have villager operating for progress
 }
 
 // --- Serialization ---
@@ -927,6 +937,207 @@ pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
     }
 }
 
+/// Assign idle/wandering villagers to farms or workshops that need workers.
+/// Priority: farms with pending food > farms needing tending > workshops with inputs.
+pub fn system_assign_workers(world: &mut World, resources: &Resources) {
+    // Collect farm positions and their state
+    let farms: Vec<(f64, f64, bool, u32)> = world.query::<(&Position, &FarmPlot)>().iter()
+        .map(|(p, f)| (p.x, p.y, f.harvest_ready || f.pending_food > 0, f.pending_food))
+        .collect();
+
+    // Collect processing building positions and whether they have inputs
+    let workshops: Vec<(f64, f64, bool)> = world.query::<(&Position, &ProcessingBuilding)>().iter()
+        .map(|(p, b)| {
+            let has_input = match b.recipe {
+                Recipe::WoodToPlanks => resources.wood >= 2,
+                Recipe::StoneToMasonry => resources.stone >= 2,
+                Recipe::FoodToGrain => resources.food >= 3,
+                Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
+            };
+            (p.x, p.y, has_input)
+        })
+        .collect();
+
+    // Count villagers already assigned to each farm/workshop (within 1 tile of target)
+    let mut farm_workers: Vec<usize> = vec![0; farms.len()];
+    let mut workshop_workers: Vec<usize> = vec![0; workshops.len()];
+
+    for behavior in world.query::<&Behavior>().iter() {
+        match behavior.state {
+            BehaviorState::Farming { target_x, target_y } => {
+                for (i, &(fx, fy, _, _)) in farms.iter().enumerate() {
+                    if (fx - target_x).abs() < 1.0 && (fy - target_y).abs() < 1.0 {
+                        farm_workers[i] += 1;
+                        break;
+                    }
+                }
+            }
+            BehaviorState::Working { target_x, target_y } => {
+                for (i, &(wx, wy, _)) in workshops.iter().enumerate() {
+                    if (wx - target_x).abs() < 1.0 && (wy - target_y).abs() < 1.0 {
+                        workshop_workers[i] += 1;
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Find idle/wandering villagers and assign them
+    let mut assignments: Vec<(Entity, BehaviorState)> = Vec::new();
+
+    for (e, pos, creature, behavior) in world.query::<(Entity, &Position, &Creature, &Behavior)>().iter() {
+        if creature.species != Species::Villager { continue; }
+        if creature.hunger > 0.5 { continue; } // too hungry to work
+        match behavior.state {
+            BehaviorState::Idle { .. } | BehaviorState::Wander { .. } => {}
+            _ => continue, // already busy
+        }
+
+        // Priority 1: farms with pending food (need pickup + haul)
+        let mut best_farm: Option<(usize, f64)> = None;
+        for (i, &(fx, fy, _, pending)) in farms.iter().enumerate() {
+            if pending > 0 && farm_workers[i] == 0 {
+                let d = dist(pos.x, pos.y, fx, fy);
+                if best_farm.is_none() || d < best_farm.unwrap().1 {
+                    best_farm = Some((i, d));
+                }
+            }
+        }
+        if let Some((i, _)) = best_farm {
+            let (fx, fy, _, _) = farms[i];
+            farm_workers[i] += 1;
+            assignments.push((e, BehaviorState::Farming { target_x: fx, target_y: fy }));
+            continue;
+        }
+
+        // Priority 2: farms that need tending (not harvest-ready, growth < 1.0)
+        let mut best_tend: Option<(usize, f64)> = None;
+        for (i, &(fx, fy, harvest_ready, _)) in farms.iter().enumerate() {
+            if !harvest_ready && farm_workers[i] == 0 {
+                let d = dist(pos.x, pos.y, fx, fy);
+                if best_tend.is_none() || d < best_tend.unwrap().1 {
+                    best_tend = Some((i, d));
+                }
+            }
+        }
+        if let Some((i, _)) = best_tend {
+            let (fx, fy, _, _) = farms[i];
+            farm_workers[i] += 1;
+            assignments.push((e, BehaviorState::Farming { target_x: fx, target_y: fy }));
+            continue;
+        }
+
+        // Priority 3: workshops that have inputs and need a worker
+        let mut best_workshop: Option<(usize, f64)> = None;
+        for (i, &(wx, wy, has_input)) in workshops.iter().enumerate() {
+            if has_input && workshop_workers[i] == 0 {
+                let d = dist(pos.x, pos.y, wx, wy);
+                if best_workshop.is_none() || d < best_workshop.unwrap().1 {
+                    best_workshop = Some((i, d));
+                }
+            }
+        }
+        if let Some((i, _)) = best_workshop {
+            let (wx, wy, _) = workshops[i];
+            workshop_workers[i] += 1;
+            assignments.push((e, BehaviorState::Working { target_x: wx, target_y: wy }));
+        }
+    }
+
+    // Apply assignments
+    for (e, new_state) in assignments {
+        if let Ok(mut behavior) = world.get::<&mut Behavior>(e) {
+            behavior.state = new_state;
+        }
+    }
+}
+
+/// Mark farms and workshops that have a villager worker nearby.
+/// Also handles farm food pickup: if a villager is at a farm with pending_food,
+/// pick it up and switch to hauling.
+pub fn system_mark_workers(world: &mut World) -> u32 {
+    // Collect villager positions and their behavior state
+    let villager_positions: Vec<(Entity, f64, f64, BehaviorState)> = world
+        .query::<(Entity, &Position, &Creature, &Behavior)>()
+        .iter()
+        .filter(|(_, _, c, _)| c.species == Species::Villager)
+        .map(|(e, p, _, b)| (e, p.x, p.y, b.state))
+        .collect();
+
+    // Mark farms with workers and collect food pickups
+    let mut food_pickups: Vec<(Entity, f64, f64, u32)> = Vec::new(); // (villager, stockpile_x, stockpile_y, amount)
+
+    // Get stockpile positions for hauling
+    let stockpiles: Vec<(f64, f64)> = world.query::<(&Position, &Stockpile)>().iter()
+        .map(|(p, _)| (p.x, p.y))
+        .collect();
+
+    let farm_entities: Vec<(Entity, f64, f64)> = world.query::<(Entity, &Position, &FarmPlot)>().iter()
+        .map(|(e, p, _)| (e, p.x, p.y))
+        .collect();
+
+    for &(farm_e, fx, fy) in &farm_entities {
+        for &(ve, vx, vy, ref state) in &villager_positions {
+            if matches!(state, BehaviorState::Farming { .. }) {
+                let d = dist(vx, vy, fx, fy);
+                if d < 2.5 {
+                    // Worker is at this farm
+                    if let Ok(mut farm) = world.get::<&mut FarmPlot>(farm_e) {
+                        farm.worker_present = true;
+                        if farm.pending_food > 0 {
+                            let amount = farm.pending_food;
+                            farm.pending_food = 0;
+                            // Find nearest stockpile for hauling
+                            let nearest = stockpiles.iter()
+                                .map(|&(sx, sy)| (sx, sy, dist(vx, vy, sx, sy)))
+                                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                            if let Some((sx, sy, _)) = nearest {
+                                food_pickups.push((ve, sx, sy, amount));
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Apply food pickup — switch villager to Hauling
+    let mut total_food_hauled = 0u32;
+    for (ve, sx, sy, amount) in &food_pickups {
+        if let Ok(mut behavior) = world.get::<&mut Behavior>(*ve) {
+            behavior.state = BehaviorState::Hauling {
+                target_x: *sx, target_y: *sy,
+                resource_type: ResourceType::Food,
+            };
+        }
+        total_food_hauled += amount;
+    }
+
+    // Mark workshops with workers
+    let workshop_entities: Vec<(Entity, f64, f64)> = world.query::<(Entity, &Position, &ProcessingBuilding)>().iter()
+        .map(|(e, p, _)| (e, p.x, p.y))
+        .collect();
+
+    for &(ws_e, wx, wy) in &workshop_entities {
+        for &(_, vx, vy, ref state) in &villager_positions {
+            if matches!(state, BehaviorState::Working { .. }) {
+                let d = dist(vx, vy, wx, wy);
+                if d < 2.5 {
+                    if let Ok(mut building) = world.get::<&mut ProcessingBuilding>(ws_e) {
+                        building.worker_present = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    total_food_hauled
+}
+
 /// Prey AI: eat berries, flee predators, return home.
 fn ai_prey(
     pos: &Position,
@@ -1128,7 +1339,7 @@ fn do_wander_tick(
             vel.dx = 0.0;
             vel.dy = 0.0;
         }
-        BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. } | BehaviorState::Sleeping { .. } | BehaviorState::Building { .. } => {
+        BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. } | BehaviorState::Sleeping { .. } | BehaviorState::Building { .. } | BehaviorState::Farming { .. } | BehaviorState::Working { .. } => {
             // Handled by creature-specific code
             vel.dx = 0.0;
             vel.dy = 0.0;
@@ -1280,7 +1491,7 @@ pub fn spawn_farm_plot(world: &mut World, x: f64, y: f64) -> Entity {
     world.spawn((
         Position { x, y },
         Sprite { ch: '·', fg: Color(120, 80, 30) }, // starts as dirt
-        FarmPlot { growth: 0.0, harvest_ready: false },
+        FarmPlot { growth: 0.0, harvest_ready: false, worker_present: false, pending_food: 0 },
     ))
 }
 
@@ -1302,7 +1513,7 @@ pub fn spawn_hut(world: &mut World, x: f64, y: f64) -> Entity {
 
 /// Grow farm plots based on season and auto-harvest when ready.
 /// Returns the amount of food produced this tick.
-pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
+pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
     let base_rate = match season {
         Season::Spring => 0.002,
         Season::Summer => 0.003,
@@ -1311,26 +1522,32 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
     };
     let growth_rate = base_rate * skill_mult;
 
-    // Pass 1: advance growth
-    let mut food_produced = 0u32;
+    // Pass 1: advance growth only if a worker is present
     for farm in world.query_mut::<&mut FarmPlot>() {
         if farm.harvest_ready {
-            // Auto-harvest
-            farm.growth = 0.0;
-            farm.harvest_ready = false;
-            food_produced += 3;
-        } else {
+            // Harvest: produce pending food for villager pickup
+            if farm.worker_present {
+                farm.growth = 0.0;
+                farm.harvest_ready = false;
+                farm.pending_food += 3;
+            }
+        } else if farm.worker_present {
             farm.growth += growth_rate;
             if farm.growth >= 1.0 {
                 farm.growth = 1.0;
                 farm.harvest_ready = true;
             }
         }
+        // Reset worker flag each tick — villager AI sets it each tick they're working
+        farm.worker_present = false;
     }
 
     // Pass 2: update sprite visuals based on growth stage
     for (farm, sprite) in world.query_mut::<(&FarmPlot, &mut Sprite)>() {
-        if farm.harvest_ready {
+        if farm.pending_food > 0 {
+            sprite.fg = Color(255, 200, 50); // bright gold — food waiting for pickup
+            sprite.ch = '♣';
+        } else if farm.harvest_ready {
             sprite.fg = Color(220, 200, 40); // harvest ready — gold
             sprite.ch = '♣';
         } else if farm.growth < 0.3 {
@@ -1344,8 +1561,6 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) -> u32 {
             sprite.ch = '"';
         }
     }
-
-    food_produced
 }
 
 /// Process resources in processing buildings (workshops, smithies).
@@ -1358,12 +1573,17 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
             Recipe::FoodToGrain => resources.food >= 3,
             Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
         };
-        if has_input {
+        if has_input && building.worker_present {
             building.progress += 1;
             sprite.fg = Color(255, 200, 50); // bright yellow when active
+        } else if !building.worker_present {
+            sprite.fg = Color(80, 80, 80); // dark gray — no worker
         } else {
-            sprite.fg = Color(100, 100, 100); // dim gray when idle
+            sprite.fg = Color(100, 100, 100); // dim gray — no inputs
         }
+        // Reset worker flag each tick
+        building.worker_present = false;
+
         let speed_required = (building.required as f64 / skill_mult).max(1.0) as u32;
         if building.progress >= speed_required {
             building.progress = 0;
@@ -1402,7 +1622,7 @@ pub fn spawn_processing_building(world: &mut World, x: f64, y: f64, recipe: Reci
     world.spawn((
         Position { x, y },
         Sprite { ch: '⚙', fg: Color(200, 180, 100) },
-        ProcessingBuilding { recipe, progress: 0, required: 120 },
+        ProcessingBuilding { recipe, progress: 0, required: 120, worker_present: false },
     ))
 }
 
@@ -1549,6 +1769,41 @@ fn ai_villager(
                 (BehaviorState::Building { target_x: *target_x, target_y: *target_y, timer: timer - 1 }, 0.0, 0.0, hunger, None, None)
             }
         }
+        BehaviorState::Farming { target_x, target_y } => {
+            if predator_nearby {
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+            }
+            if hunger > 0.6 {
+                // Too hungry to farm — go eat
+                return (BehaviorState::Idle { timer: 5 }, 0.0, 0.0, hunger, None, None);
+            }
+            let d = dist(pos.x, pos.y, *target_x, *target_y);
+            if d > 2.5 {
+                let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                move_toward(pos, *target_x, *target_y, speed, &mut vel);
+                (BehaviorState::Farming { target_x: *target_x, target_y: *target_y }, vel.dx, vel.dy, hunger, None, None)
+            } else {
+                // At farm — worker_present set by system_farm_workers after AI loop
+                (BehaviorState::Farming { target_x: *target_x, target_y: *target_y }, 0.0, 0.0, hunger, None, None)
+            }
+        }
+        BehaviorState::Working { target_x, target_y } => {
+            if predator_nearby {
+                return (BehaviorState::FleeHome, 0.0, 0.0, hunger, None, None);
+            }
+            if hunger > 0.6 {
+                return (BehaviorState::Idle { timer: 5 }, 0.0, 0.0, hunger, None, None);
+            }
+            let d = dist(pos.x, pos.y, *target_x, *target_y);
+            if d > 2.5 {
+                let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                move_toward(pos, *target_x, *target_y, speed, &mut vel);
+                (BehaviorState::Working { target_x: *target_x, target_y: *target_y }, vel.dx, vel.dy, hunger, None, None)
+            } else {
+                // At workshop — worker_present set by system_workshop_workers after AI loop
+                (BehaviorState::Working { target_x: *target_x, target_y: *target_y }, 0.0, 0.0, hunger, None, None)
+            }
+        }
         _ => {
             // If villager is stuck inside a building (on BuildingFloor), try to leave
             let on_building = map.get(pos.x.round() as usize, pos.y.round() as usize)
@@ -1675,7 +1930,7 @@ fn ai_villager(
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
                 if let Some((fx, fy, d)) = nearest_food {
                     if d < 1.5 {
-                        return (BehaviorState::Gathering { timer: 40, resource_type: ResourceType::Food }, 0.0, 0.0, hunger, None, None);
+                        return (BehaviorState::Gathering { timer: 60, resource_type: ResourceType::Food }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, fx, fy, speed, &mut vel);
@@ -1731,9 +1986,9 @@ fn ai_villager(
                     let (tx, ty, d, rt) = *target;
                     if d < 1.5 {
                         let timer = match rt {
-                            ResourceType::Wood => (60.0 / skill_mults.gather_wood_speed) as u32,
-                            ResourceType::Stone => (60.0 / skill_mults.gather_stone_speed) as u32,
-                            _ => 60,
+                            ResourceType::Wood => (90.0 / skill_mults.gather_wood_speed) as u32,
+                            ResourceType::Stone => (90.0 / skill_mults.gather_stone_speed) as u32,
+                            _ => 90,
                         };
                         return (BehaviorState::Gathering { timer, resource_type: rt }, 0.0, 0.0, hunger, None, None);
                     } else {
@@ -2599,20 +2854,20 @@ mod tests {
 
     #[test]
     fn building_type_costs_and_sizes() {
-        assert_eq!(BuildingType::Hut.cost(), Resources { wood: 5, stone: 2, ..Default::default() });
-        assert_eq!(BuildingType::Wall.cost(), Resources { wood: 1, stone: 1, ..Default::default() });
-        assert_eq!(BuildingType::Farm.cost(), Resources { wood: 3, ..Default::default() });
-        assert_eq!(BuildingType::Stockpile.cost(), Resources { wood: 2, ..Default::default() });
+        assert_eq!(BuildingType::Hut.cost(), Resources { wood: 10, stone: 4, ..Default::default() });
+        assert_eq!(BuildingType::Wall.cost(), Resources { wood: 2, stone: 2, ..Default::default() });
+        assert_eq!(BuildingType::Farm.cost(), Resources { wood: 5, stone: 1, ..Default::default() });
+        assert_eq!(BuildingType::Stockpile.cost(), Resources { wood: 4, ..Default::default() });
 
         assert_eq!(BuildingType::Hut.size(), (3, 3));
         assert_eq!(BuildingType::Wall.size(), (1, 1));
         assert_eq!(BuildingType::Farm.size(), (3, 3));
         assert_eq!(BuildingType::Stockpile.size(), (2, 2));
 
-        assert_eq!(BuildingType::Hut.build_time(), 120);
-        assert_eq!(BuildingType::Wall.build_time(), 30);
-        assert_eq!(BuildingType::Farm.build_time(), 80);
-        assert_eq!(BuildingType::Stockpile.build_time(), 40);
+        assert_eq!(BuildingType::Hut.build_time(), 180);
+        assert_eq!(BuildingType::Wall.build_time(), 45);
+        assert_eq!(BuildingType::Farm.build_time(), 120);
+        assert_eq!(BuildingType::Stockpile.build_time(), 60);
 
         // Wall tiles should contain exactly one BuildingWall
         let wall_tiles = BuildingType::Wall.tiles();
@@ -2761,17 +3016,34 @@ mod tests {
     }
 
     #[test]
-    fn farm_produces_food() {
+    fn farm_produces_food_with_worker() {
         let mut world = World::new();
         spawn_farm_plot(&mut world, 10.0, 10.0);
 
-        let mut total_food = 0u32;
-        // Run enough ticks for at least one harvest (growth rate 0.003 in summer,
-        // needs ~334 ticks to reach 1.0, then one more tick to harvest)
+        // Simulate worker presence each tick
         for _ in 0..400 {
-            total_food += system_farms(&mut world, Season::Summer, 1.0);
+            // Set worker_present before each system_farms call
+            for farm in world.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            system_farms(&mut world, Season::Summer, 1.0);
         }
-        assert!(total_food >= 3, "farm should have produced at least 3 food, got {}", total_food);
+        let pending = world.query::<&FarmPlot>().iter().next().unwrap().pending_food;
+        assert!(pending >= 3, "farm with worker should have produced at least 3 pending food, got {}", pending);
+    }
+
+    #[test]
+    fn farm_no_growth_without_worker() {
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+
+        // Run without setting worker_present
+        for _ in 0..500 {
+            system_farms(&mut world, Season::Summer, 1.0);
+        }
+
+        let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
+        assert_eq!(growth, 0.0, "farm should not grow without worker, got {}", growth);
     }
 
     #[test]
@@ -2780,11 +3052,14 @@ mod tests {
         spawn_farm_plot(&mut world, 10.0, 10.0);
 
         for _ in 0..500 {
+            for farm in world.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
             system_farms(&mut world, Season::Winter, 1.0);
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
-        assert_eq!(growth, 0.0, "farm should not grow in winter, got {}", growth);
+        assert_eq!(growth, 0.0, "farm should not grow in winter even with worker, got {}", growth);
     }
 
     #[test]
@@ -2800,6 +3075,9 @@ mod tests {
 
         // Grow to medium (0.3+): run 150 ticks at summer rate 0.003 => 0.45
         for _ in 0..150 {
+            for farm in world.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
             system_farms(&mut world, Season::Summer, 1.0);
         }
         {
@@ -2810,6 +3088,9 @@ mod tests {
 
         // Grow to mature (0.7+): run 100 more ticks => 0.75
         for _ in 0..100 {
+            for farm in world.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
             system_farms(&mut world, Season::Summer, 1.0);
         }
         {
@@ -2993,17 +3274,17 @@ mod tests {
 
     #[test]
     fn workshop_building_type_properties() {
-        assert_eq!(BuildingType::Workshop.cost(), Resources { wood: 8, stone: 4, ..Default::default() });
+        assert_eq!(BuildingType::Workshop.cost(), Resources { wood: 15, stone: 8, ..Default::default() });
         assert_eq!(BuildingType::Workshop.size(), (3, 3));
-        assert_eq!(BuildingType::Workshop.build_time(), 150);
+        assert_eq!(BuildingType::Workshop.build_time(), 220);
         assert_eq!(BuildingType::Workshop.name(), "Workshop");
     }
 
     #[test]
     fn smithy_building_type_properties() {
-        assert_eq!(BuildingType::Smithy.cost(), Resources { wood: 5, stone: 8, ..Default::default() });
+        assert_eq!(BuildingType::Smithy.cost(), Resources { wood: 10, stone: 15, ..Default::default() });
         assert_eq!(BuildingType::Smithy.size(), (3, 3));
-        assert_eq!(BuildingType::Smithy.build_time(), 180);
+        assert_eq!(BuildingType::Smithy.build_time(), 270);
         assert_eq!(BuildingType::Smithy.name(), "Smithy");
     }
 
@@ -3015,6 +3296,7 @@ mod tests {
 
         // Run enough ticks to trigger one processing cycle (required=120, skill_mult=1.0)
         for _ in 0..120 {
+            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -3029,6 +3311,7 @@ mod tests {
         let mut resources = Resources { stone: 4, ..Default::default() };
 
         for _ in 0..120 {
+            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -3043,6 +3326,7 @@ mod tests {
         let mut resources = Resources { food: 6, ..Default::default() };
 
         for _ in 0..120 {
+            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -3081,6 +3365,7 @@ mod tests {
         let mut resources = Resources { grain: 4, wood: 2, ..Default::default() };
 
         for _ in 0..150 {
+            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -3117,6 +3402,7 @@ mod tests {
 
         // With skill_mult=2.0, required=120/2=60 ticks
         for _ in 0..60 {
+            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
             system_processing(&mut world, &mut resources, 2.0);
         }
 
@@ -3127,9 +3413,9 @@ mod tests {
     #[test]
     fn garrison_building_has_correct_cost_and_size() {
         let garrison = BuildingType::Garrison;
-        assert_eq!(garrison.cost(), Resources { planks: 5, masonry: 5, ..Default::default() }, "garrison cost should be 5 planks, 5 masonry");
+        assert_eq!(garrison.cost(), Resources { planks: 10, masonry: 10, ..Default::default() }, "garrison cost should be 10 planks, 10 masonry");
         assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
-        assert_eq!(garrison.build_time(), 120, "garrison build time should be 120");
+        assert_eq!(garrison.build_time(), 180, "garrison build time should be 180");
         assert_eq!(garrison.name(), "Garrison");
         assert!(BuildingType::all().contains(&BuildingType::Garrison));
     }
@@ -3224,8 +3510,8 @@ mod tests {
     #[test]
     fn garrison_requires_refined_resources() {
         let cost = BuildingType::Garrison.cost();
-        assert_eq!(cost.planks, 5);
-        assert_eq!(cost.masonry, 5);
+        assert_eq!(cost.planks, 10);
+        assert_eq!(cost.masonry, 10);
         assert_eq!(cost.wood, 0, "garrison should not require raw wood");
         assert_eq!(cost.stone, 0, "garrison should not require raw stone");
 
@@ -3234,29 +3520,44 @@ mod tests {
         assert!(!raw_only.can_afford(&cost), "raw resources alone should not afford garrison");
 
         // But with refined resources, it works
-        let refined = Resources { planks: 5, masonry: 5, ..Default::default() };
+        let refined = Resources { planks: 10, masonry: 10, ..Default::default() };
         assert!(refined.can_afford(&cost));
     }
 
     #[test]
-    fn processing_building_changes_color_based_on_input() {
+    fn processing_building_needs_worker() {
         let mut world = World::new();
         let pb = spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
 
-        // With wood available, processing should make sprite bright
+        // Without worker, sprite should be dark gray even with inputs
         let mut resources = Resources { wood: 10, ..Default::default() };
         system_processing(&mut world, &mut resources, 1.0);
         {
             let sprite = world.get::<&Sprite>(pb).unwrap();
-            assert_eq!(sprite.fg, Color(255, 200, 50), "should be bright yellow when active");
+            assert_eq!(sprite.fg, Color(80, 80, 80), "should be dark gray without worker");
         }
 
-        // Drain wood — next tick should be dim
-        resources.wood = 0;
+        // With worker present and inputs, should be bright yellow
+        {
+            let mut building = world.get::<&mut ProcessingBuilding>(pb).unwrap();
+            building.worker_present = true;
+        }
         system_processing(&mut world, &mut resources, 1.0);
         {
             let sprite = world.get::<&Sprite>(pb).unwrap();
-            assert_eq!(sprite.fg, Color(100, 100, 100), "should be dim gray when idle");
+            assert_eq!(sprite.fg, Color(255, 200, 50), "should be bright yellow with worker+inputs");
+        }
+
+        // Drain wood — no inputs, dim gray
+        resources.wood = 0;
+        {
+            let mut building = world.get::<&mut ProcessingBuilding>(pb).unwrap();
+            building.worker_present = true;
+        }
+        system_processing(&mut world, &mut resources, 1.0);
+        {
+            let sprite = world.get::<&Sprite>(pb).unwrap();
+            assert_eq!(sprite.fg, Color(100, 100, 100), "should be dim gray when no inputs");
         }
     }
 
@@ -3286,8 +3587,8 @@ mod tests {
 
     #[test]
     fn road_building_type_properties() {
-        assert_eq!(BuildingType::Road.cost(), Resources { stone: 1, ..Default::default() });
-        assert_eq!(BuildingType::Road.build_time(), 20);
+        assert_eq!(BuildingType::Road.cost(), Resources { stone: 2, ..Default::default() });
+        assert_eq!(BuildingType::Road.build_time(), 30);
         assert_eq!(BuildingType::Road.size(), (1, 1));
         assert_eq!(BuildingType::Road.tiles(), vec![(0, 0, Terrain::Road)]);
         assert_eq!(BuildingType::Road.name(), "Road");
