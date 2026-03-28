@@ -637,6 +637,9 @@ impl Game {
                 self.notify("Food spoiled in winter (-1)".to_string());
             }
 
+            // Resource regrowth
+            ecs::system_regrowth(&mut self.world, &self.map, self.tick);
+
             // Check for completed buildings
             self.check_build_completion();
 

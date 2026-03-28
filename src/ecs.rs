@@ -281,6 +281,13 @@ pub struct HutBuilding {
     pub occupants: u32,
 }
 
+/// Tracks remaining harvests for a resource entity.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ResourceYield {
+    pub remaining: u32,
+    pub max: u32,
+}
+
 /// Marker component for stone deposits (mineable by villagers).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct StoneDeposit;
@@ -310,8 +317,8 @@ pub enum SerializedEntity {
     Villager { pos: Position, vel: Velocity, sprite: Sprite, behavior: Behavior, creature: Creature },
     Prey { pos: Position, vel: Velocity, sprite: Sprite, behavior: Behavior, creature: Creature },
     Predator { pos: Position, vel: Velocity, sprite: Sprite, behavior: Behavior, creature: Creature },
-    FoodSource { pos: Position, sprite: Sprite },
-    StoneDeposit { pos: Position, sprite: Sprite },
+    FoodSource { pos: Position, sprite: Sprite, yield_info: Option<ResourceYield> },
+    StoneDeposit { pos: Position, sprite: Sprite, yield_info: Option<ResourceYield> },
     Den { pos: Position, sprite: Sprite },
     StockpileEntity { pos: Position, sprite: Sprite },
     BuildSiteEntity { pos: Position, sprite: Sprite, site: BuildSite },
@@ -341,11 +348,11 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
         entities.push(se);
     }
 
-    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &FoodSource)>().iter() {
-        entities.push(SerializedEntity::FoodSource { pos: *pos, sprite: *sprite });
+    for (pos, sprite, _, ry) in world.query::<(&Position, &Sprite, &FoodSource, Option<&ResourceYield>)>().iter() {
+        entities.push(SerializedEntity::FoodSource { pos: *pos, sprite: *sprite, yield_info: ry.copied() });
     }
-    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &StoneDeposit)>().iter() {
-        entities.push(SerializedEntity::StoneDeposit { pos: *pos, sprite: *sprite });
+    for (pos, sprite, _, ry) in world.query::<(&Position, &Sprite, &StoneDeposit, Option<&ResourceYield>)>().iter() {
+        entities.push(SerializedEntity::StoneDeposit { pos: *pos, sprite: *sprite, yield_info: ry.copied() });
     }
     for (pos, sprite, _) in world.query::<(&Position, &Sprite, &Den)>().iter() {
         entities.push(SerializedEntity::Den { pos: *pos, sprite: *sprite });
@@ -385,11 +392,13 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
             SerializedEntity::Predator { pos, vel, sprite, behavior, creature } => {
                 world.spawn((*pos, *vel, *sprite, *behavior, *creature));
             }
-            SerializedEntity::FoodSource { pos, sprite } => {
-                world.spawn((*pos, *sprite, FoodSource));
+            SerializedEntity::FoodSource { pos, sprite, yield_info } => {
+                let ry = yield_info.unwrap_or(ResourceYield { remaining: 6, max: 6 });
+                world.spawn((*pos, *sprite, FoodSource, ry));
             }
-            SerializedEntity::StoneDeposit { pos, sprite } => {
-                world.spawn((*pos, *sprite, StoneDeposit));
+            SerializedEntity::StoneDeposit { pos, sprite, yield_info } => {
+                let ry = yield_info.unwrap_or(ResourceYield { remaining: 5, max: 5 });
+                world.spawn((*pos, *sprite, StoneDeposit, ry));
             }
             SerializedEntity::Den { pos, sprite } => {
                 world.spawn((*pos, *sprite, Den));
@@ -628,6 +637,7 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
     let mut to_capture: Vec<Entity> = Vec::new();
     let mut to_despawn: Vec<Entity> = Vec::new();
     let mut build_progress: Vec<(f64, f64)> = Vec::new(); // positions where building work happened
+    let mut harvest_positions: Vec<(f64, f64, ResourceType)> = Vec::new(); // where harvests completed
     for e in entities {
         // Read position (copy) and check if it's a creature
         let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else { continue };
@@ -716,6 +726,12 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                         site.assigned = true;
                     }
                 }
+                // Track harvest completions for resource depletion
+                if matches!(behavior_state, BehaviorState::Gathering { timer: 1, .. } | BehaviorState::Gathering { timer: 0, .. }) {
+                    if let BehaviorState::Hauling { resource_type, .. } = s {
+                        harvest_positions.push((pos.x, pos.y, resource_type));
+                    }
+                }
                 (s, vx, vy, h, None, dep)
             }
         };
@@ -796,6 +812,52 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         }
     }
 
+    // Deplete resources at harvest positions
+    let mut to_deplete_despawn: Vec<Entity> = Vec::new();
+    for (hx, hy, rt) in harvest_positions {
+        // Find nearest resource entity of matching type
+        match rt {
+            ResourceType::Food => {
+                let mut best: Option<(Entity, f64)> = None;
+                for (e, pos, _fs, ry) in world.query::<(Entity, &Position, &FoodSource, &mut ResourceYield)>().iter() {
+                    let d = dist(pos.x, pos.y, hx, hy);
+                    if d < 3.0 && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
+                        best = Some((e, d));
+                    }
+                }
+                if let Some((e, _)) = best {
+                    if let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
+                        ry.remaining = ry.remaining.saturating_sub(1);
+                        if ry.remaining == 0 {
+                            to_deplete_despawn.push(e);
+                        }
+                    }
+                }
+            }
+            ResourceType::Stone => {
+                let mut best: Option<(Entity, f64)> = None;
+                for (e, pos, _sd, ry) in world.query::<(Entity, &Position, &StoneDeposit, &mut ResourceYield)>().iter() {
+                    let d = dist(pos.x, pos.y, hx, hy);
+                    if d < 3.0 && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
+                        best = Some((e, d));
+                    }
+                }
+                if let Some((e, _)) = best {
+                    if let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
+                        ry.remaining = ry.remaining.saturating_sub(1);
+                        if ry.remaining == 0 {
+                            to_deplete_despawn.push(e);
+                        }
+                    }
+                }
+            }
+            _ => {} // Wood comes from terrain, not entities
+        }
+    }
+    for e in to_deplete_despawn {
+        let _ = world.despawn(e);
+    }
+
     AiResult {
         deposited: deposited_resources,
         food_consumed,
@@ -804,6 +866,37 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         mining_ticks,
         woodcutting_ticks,
         building_ticks,
+    }
+}
+
+/// Regrowth system: berry bushes can regrow near trees over time.
+/// Trees regrow from Forest terrain naturally. Stone does NOT regrow.
+pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
+    // Only check every 400 ticks
+    if tick % 400 != 0 { return; }
+
+    let mut rng = rand::rng();
+
+    // Berry bush regrowth: small chance near forest tiles
+    // Count existing bushes to cap total
+    let bush_count = world.query::<&FoodSource>().iter().count();
+    if bush_count < 30 {
+        // Pick a few random forest tiles to maybe spawn a bush
+        for _ in 0..5 {
+            let x = rng.random_range(1..map.width.saturating_sub(1) as u32) as usize;
+            let y = rng.random_range(1..map.height.saturating_sub(1) as u32) as usize;
+            if map.get(x, y) == Some(&Terrain::Grass) {
+                // Check if forest is nearby
+                let near_forest = [(-1i32,0),(1,0),(0,-1),(0,1)].iter().any(|&(dx,dy)| {
+                    let nx = (x as i32 + dx) as usize;
+                    let ny = (y as i32 + dy) as usize;
+                    map.get(nx, ny) == Some(&Terrain::Forest)
+                });
+                if near_forest && rng.random_range(0u32..100) < 3 {
+                    spawn_berry_bush(world, x as f64, y as f64);
+                }
+            }
+        }
     }
 }
 
@@ -1095,6 +1188,7 @@ pub fn spawn_berry_bush(world: &mut World, x: f64, y: f64) -> Entity {
         Position { x, y },
         Sprite { ch: '♦', fg: Color(200, 40, 80) }, // red berries
         FoodSource,
+        ResourceYield { remaining: 30, max: 30 },
     ))
 }
 
@@ -1111,6 +1205,7 @@ pub fn spawn_stone_deposit(world: &mut World, x: f64, y: f64) -> Entity {
         Position { x, y },
         Sprite { ch: '●', fg: Color(150, 140, 130) }, // grey stone
         StoneDeposit,
+        ResourceYield { remaining: 5, max: 5 },
     ))
 }
 
@@ -2662,6 +2757,8 @@ mod tests {
         spawn_stockpile(&mut world, 20.0, 20.0);
         spawn_berry_bush(&mut world, 19.0, 19.0);
         spawn_berry_bush(&mut world, 21.0, 21.0);
+        spawn_berry_bush(&mut world, 18.0, 20.0);
+        spawn_berry_bush(&mut world, 22.0, 20.0);
         let v1 = spawn_villager(&mut world, 20.0, 21.0);
         let v2 = spawn_villager(&mut world, 21.0, 20.0);
         let v3 = spawn_villager(&mut world, 19.0, 20.0);
@@ -3132,5 +3229,112 @@ mod tests {
         let pos = world.get::<&Position>(e).unwrap();
         // On grass: moved 0.1 * 1.0 = 0.1
         assert!((pos.x - 5.1).abs() < 0.001, "grass should give 1.0x speed: got {}", pos.x);
+    }
+
+    #[test]
+    fn berry_bush_has_resource_yield() {
+        let mut world = World::new();
+        let bush = spawn_berry_bush(&mut world, 5.0, 5.0);
+        let ry = world.get::<&ResourceYield>(bush).unwrap();
+        assert_eq!(ry.remaining, 30);
+        assert_eq!(ry.max, 30);
+    }
+
+    #[test]
+    fn stone_deposit_has_resource_yield() {
+        let mut world = World::new();
+        let stone = spawn_stone_deposit(&mut world, 5.0, 5.0);
+        let ry = world.get::<&ResourceYield>(stone).unwrap();
+        assert_eq!(ry.remaining, 5);
+        assert_eq!(ry.max, 5);
+    }
+
+    #[test]
+    fn resource_yield_depletes_on_harvest() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        // Place bush, stockpile, and a villager about to finish gathering food
+        let bush = spawn_berry_bush(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 12.0, 10.0);
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Set villager to Gathering food with timer=0 (about to complete)
+        {
+            let mut b = world.get::<&mut Behavior>(v).unwrap();
+            b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Food };
+        }
+
+        let initial = world.get::<&ResourceYield>(bush).unwrap().remaining;
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+
+        // Bush should have lost at least 1 yield
+        let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
+        assert!(after < initial, "resource yield should decrease: was {}, now {}", initial, after);
+    }
+
+    #[test]
+    fn depleted_resource_despawns() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        // Create a bush with only 1 remaining harvest
+        let bush = spawn_berry_bush(&mut world, 10.0, 10.0);
+        {
+            let mut ry = world.get::<&mut ResourceYield>(bush).unwrap();
+            ry.remaining = 1;
+        }
+        spawn_stockpile(&mut world, 12.0, 10.0);
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        {
+            let mut b = world.get::<&mut Behavior>(v).unwrap();
+            b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Food };
+        }
+
+        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+
+        // Bush should be despawned
+        assert!(world.get::<&FoodSource>(bush).is_err(), "depleted resource should be despawned");
+    }
+
+    #[test]
+    fn stone_does_not_regrow() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        // Run regrowth many times — no stone should appear
+        for tick in 0..10 {
+            system_regrowth(&mut world, &map, tick * 400);
+        }
+
+        let stone_count = world.query::<&StoneDeposit>().iter().count();
+        assert_eq!(stone_count, 0, "stone should not regrow");
+    }
+
+    #[test]
+    fn resource_yield_serialization_round_trip() {
+        let mut world = World::new();
+        spawn_berry_bush(&mut world, 5.0, 5.0);
+        spawn_stone_deposit(&mut world, 10.0, 10.0);
+
+        // Deplete the bush partially
+        for (_, mut ry) in world.query::<(&FoodSource, &mut ResourceYield)>().iter() {
+            ry.remaining = 15;
+        }
+
+        let serialized = serialize_world(&world);
+        let world2 = deserialize_world(&serialized);
+
+        // Check food source round-trips
+        let bush_yield: Vec<u32> = world2.query::<(&FoodSource, &ResourceYield)>().iter()
+            .map(|(_, ry)| ry.remaining)
+            .collect();
+        assert_eq!(bush_yield, vec![15], "bush yield should round-trip");
+
+        // Check stone deposit round-trips
+        let stone_yield: Vec<u32> = world2.query::<(&StoneDeposit, &ResourceYield)>().iter()
+            .map(|(_, ry)| ry.remaining)
+            .collect();
+        assert_eq!(stone_yield, vec![5], "stone yield should round-trip");
     }
 }
