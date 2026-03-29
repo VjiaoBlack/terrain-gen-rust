@@ -721,6 +721,17 @@ pub(super) fn ai_villager(
                     None,
                 );
             }
+            // Stop farming to gather resources if stockpile is critically low
+            if stockpile_wood < 5 || stockpile_stone < 5 {
+                return (
+                    BehaviorState::Idle { timer: 5 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
+            }
             if hunger > 0.6 {
                 // Too hungry to farm — go eat
                 return (
