@@ -486,7 +486,7 @@ impl Game {
         // Start camera at settlement
         // Center camera on settlement (will be clamped after first step)
         g.camera.x = scx as i32 - 30;
-        g.camera.y = scy as i32 - 15;
+        g.camera.y = scy as i32 - 23;
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
     }
