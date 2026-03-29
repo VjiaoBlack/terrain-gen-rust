@@ -4,7 +4,7 @@ A terminal-based settlement simulation game written in Rust. Watch an autonomous
 
 ![Rust](https://img.shields.io/badge/Rust-2024_edition-orange)
 
-![Spring settlement](docs/spring.png)
+![demo](docs/demo.gif)
 
 ## Quick Start
 
