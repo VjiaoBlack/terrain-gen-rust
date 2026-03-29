@@ -1,6 +1,6 @@
 mod crossterm_renderer;
 
-use terrain_gen_rust::renderer;
+use terrain_gen_rust::renderer::{self, Renderer};
 use terrain_gen_rust::headless_renderer;
 use terrain_gen_rust::game;
 
@@ -80,6 +80,7 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
     let mut fps_timer = Instant::now();
     let mut frame_count = 0u32;
     let mut display_fps = 0u32;
+    let mut quit_pending = false;
 
     loop {
         let frame_start = Instant::now();
@@ -110,7 +111,19 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         }
 
         if input == GameInput::Quit {
-            return Ok(false);
+            if quit_pending {
+                return Ok(false);
+            }
+            quit_pending = true;
+            game.notify("Quit? Press q again to confirm.".to_string());
+            // Render the notification immediately
+            game.draw(renderer);
+            renderer.flush()?;
+            continue;
+        }
+        if quit_pending && input != GameInput::None {
+            // Any non-quit input cancels the quit
+            quit_pending = false;
         }
         if input == GameInput::Restart {
             return Ok(true);

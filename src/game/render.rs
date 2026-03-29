@@ -175,6 +175,7 @@ impl super::Game {
             OverlayMode::Resources => "RESOURCES",
             OverlayMode::Threats => "THREATS",
             OverlayMode::Traffic => "TRAFFIC",
+            OverlayMode::Territory => "TERRITORY",
         };
         draw_line(renderer, row, &format!(" Overlay [o]: {}", ov_str),
             if self.overlay != OverlayMode::None { green } else { fg });
@@ -357,7 +358,8 @@ impl super::Game {
             }
         }
 
-        // Territory tint: subtle blue where influence > 0.1
+        // Territory tint: only shown in Territory overlay mode
+        if self.overlay == OverlayMode::Territory {
         for sy in 0..h.saturating_sub(status_h) {
             for sx in panel_w..w {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
@@ -380,6 +382,7 @@ impl super::Game {
                 }
             }
         }
+        } // end Territory overlay
 
         // draw entities (offset by camera) — world→screen X is multiplied by aspect
         // Skip AtHome (hidden in den), dim Captured (being eaten)

@@ -120,6 +120,7 @@ pub enum OverlayMode {
     Resources,  // Show resource locations with color markers
     Threats,    // Show wolf positions and danger zones
     Traffic,    // Show foot traffic heatmap
+    Territory,  // Show settlement influence/culture borders
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,24 +363,27 @@ impl Game {
             }
         }
 
-        // Ecosystem: dens, berry bushes, prey, predators (offset from center)
+        // Ecosystem: dens, berry bushes, prey, predators — kept far from settlement
+        let min_dist_sq = 30.0f64 * 30.0; // minimum 30 tiles from settlement
         let den_spots = [
-            (cx.wrapping_sub(13), cy.wrapping_sub(18)),
-            (cx + 7, cy.wrapping_sub(8)),
-            (cx.wrapping_sub(8), cy + 12),
-            (cx.wrapping_sub(20), cy + 2),
+            (cx.wrapping_sub(30), cy.wrapping_sub(30)),
+            (cx + 25, cy.wrapping_sub(20)),
+            (cx.wrapping_sub(25), cy + 25),
+            (cx + 30, cy + 15),
         ];
         let bush_spots = [
-            (cx.wrapping_sub(3), cy.wrapping_sub(23)),
-            (cx + 12, cy.wrapping_sub(13)),
-            (cx.wrapping_sub(18), cy.wrapping_sub(3)),
-            (cx + 2, cy + 7),
-            (cx.wrapping_sub(10), cy.wrapping_sub(10)),
-            (cx + 4, cy),
+            (cx.wrapping_sub(20), cy.wrapping_sub(35)),
+            (cx + 25, cy.wrapping_sub(25)),
+            (cx.wrapping_sub(30), cy.wrapping_sub(10)),
+            (cx + 15, cy + 20),
+            (cx.wrapping_sub(15), cy.wrapping_sub(20)),
+            (cx + 20, cy + 5),
         ];
 
         for &(dx, dy) in &den_spots {
             let (ddx, ddy) = find_walkable(&map, dx, dy);
+            let ds = (ddx - start_cx as f64).powi(2) + (ddy - start_cy as f64).powi(2);
+            if ds < min_dist_sq { continue; } // skip if too close to settlement
             ecs::spawn_den(&mut world, ddx, ddy);
             let (rx, ry) = find_walkable(&map, dx + 1, dy + 1);
             ecs::spawn_prey(&mut world, rx, ry, ddx, ddy);
@@ -387,13 +391,17 @@ impl Game {
 
         for &(bx, by) in &bush_spots {
             let (bbx, bby) = find_walkable(&map, bx, by);
+            let ds = (bbx - start_cx as f64).powi(2) + (bby - start_cy as f64).powi(2);
+            if ds < min_dist_sq { continue; }
             ecs::spawn_berry_bush(&mut world, bbx, bby);
         }
 
-        // Predators — fewer, roam wider
-        let pred_spots = [(cx.wrapping_sub(8), cy.wrapping_sub(20)), (cx + 2, cy + 2)];
+        // Predators — far from settlement
+        let pred_spots = [(cx.wrapping_sub(35), cy.wrapping_sub(30)), (cx + 30, cy + 25)];
         for &(px, py) in &pred_spots {
             let (wx, wy) = find_walkable(&map, px, py);
+            let ds = (wx - start_cx as f64).powi(2) + (wy - start_cy as f64).powi(2);
+            if ds < min_dist_sq { continue; }
             ecs::spawn_predator(&mut world, wx, wy);
         }
 
@@ -657,7 +665,8 @@ impl Game {
                     OverlayMode::Tasks => OverlayMode::Resources,
                     OverlayMode::Resources => OverlayMode::Threats,
                     OverlayMode::Threats => OverlayMode::Traffic,
-                    OverlayMode::Traffic => OverlayMode::None,
+                    OverlayMode::Traffic => OverlayMode::Territory,
+                    OverlayMode::Territory => OverlayMode::None,
                 };
             }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
@@ -1409,6 +1418,9 @@ mod tests {
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::Traffic);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Territory);
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::None);
