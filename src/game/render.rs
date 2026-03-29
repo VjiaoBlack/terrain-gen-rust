@@ -551,8 +551,8 @@ impl super::Game {
                         continue;
                     }
                     let depth = self.water.get_avg(wx as usize, wy as usize);
-                    if depth > 0.0005 {
-                        let intensity = (depth * 500.0).min(1.0);
+                    if depth > 0.05 {
+                        let intensity = (depth * 5.0).min(1.0);
                         let r = (50.0 * (1.0 - intensity)) as u8;
                         let g = (100.0 + 50.0 * intensity) as u8;
                         let b_base = (180.0 + 75.0 * intensity) as u8;
@@ -744,6 +744,7 @@ impl super::Game {
     fn draw_weather(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
         let status_h = 1u16;
+        let aspect = CELL_ASPECT;
 
         let is_winter = self.day_night.season == Season::Winter;
         let has_blizzard = self
@@ -765,6 +766,16 @@ impl super::Game {
                 let sy = ((seed.wrapping_mul(3) / 7) % h.saturating_sub(status_h) as u64) as u16;
 
                 if sx >= w || sy >= h.saturating_sub(status_h) {
+                    continue;
+                }
+
+                // Don't render weather in unexplored fog
+                let wx = self.camera.x + (sx - panel) as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0
+                    && wy >= 0
+                    && !self.exploration.is_revealed(wx as usize, wy as usize)
+                {
                     continue;
                 }
 

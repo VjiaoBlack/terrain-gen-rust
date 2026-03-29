@@ -1229,7 +1229,9 @@ impl Game {
                 tick_config.rain_rate *= mods.rain_mult;
                 tick_config.evaporation *= mods.evap_mult;
 
-                if self.raining {
+                // Seasonal auto-rain (rain_mult: spring=1.5, summer=0.5, autumn=1.0, winter=0.3)
+                let should_rain = self.raining || (self.tick % 20 == 0 && mods.rain_mult > 0.4);
+                if should_rain {
                     self.water.rain(&tick_config);
                 }
                 // Only run expensive water sim when there's actually water
@@ -1239,7 +1241,7 @@ impl Game {
                     (self.camera.x.max(0) as usize).saturating_add(world_vw as usize),
                     (self.camera.y.max(0) as usize).saturating_add(vh as usize),
                 ));
-                if self.raining || self.water.has_water() {
+                if should_rain || self.water.has_water() {
                     self.water
                         .update(&mut self.heights, &tick_config, viewport_bounds);
                     self.moisture

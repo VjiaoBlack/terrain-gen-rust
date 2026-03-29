@@ -539,6 +539,24 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
     }
 
     // Find idle/wandering villagers and assign them
+    // Reserve at least 1/3 of villagers for free gathering (wood, stone, food)
+    let total_villagers = world
+        .query::<(&Creature, &Behavior)>()
+        .iter()
+        .filter(|(c, _)| c.species == Species::Villager)
+        .count();
+    let max_assigned = (total_villagers * 2 / 3).max(1);
+    let currently_assigned = world
+        .query::<&Behavior>()
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.state,
+                BehaviorState::Farming { .. } | BehaviorState::Working { .. }
+            )
+        })
+        .count();
+
     let mut assignments: Vec<(Entity, BehaviorState)> = Vec::new();
 
     for (e, pos, creature, behavior) in world
@@ -550,10 +568,14 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         }
         if creature.hunger > 0.5 {
             continue;
-        } // too hungry to work
+        }
         match behavior.state {
             BehaviorState::Idle { .. } | BehaviorState::Wander { .. } => {}
-            _ => continue, // already busy
+            _ => continue,
+        }
+        // Don't assign more than 2/3 of villagers to buildings — leave rest for gathering
+        if currently_assigned + assignments.len() >= max_assigned {
+            break;
         }
 
         // Priority 1: farms with pending food (need pickup + haul)
