@@ -32,9 +32,9 @@ pub(super) fn move_toward_astar(
         return d;
     }
 
-    // Use A* for medium distances, direct for very short or very long
-    if d > 1.5 && d < 80.0 {
-        let budget = (d as usize * 4).min(600);
+    // Use A* for all distances > 1.5
+    if d > 1.5 {
+        let budget = (d as usize * 6).min(1000);
         if let Some((wx, wy)) = map.astar_next(pos.x, pos.y, tx, ty, budget) {
             let dx = wx - pos.x;
             let dy = wy - pos.y;
@@ -45,9 +45,13 @@ pub(super) fn move_toward_astar(
                 return d;
             }
         }
+        // A* failed — don't walk into walls, just stop (will retry next tick)
+        vel.dx = 0.0;
+        vel.dy = 0.0;
+        return d;
     }
 
-    // Fallback: direct movement
+    // Very close: direct movement is fine
     move_toward(pos, tx, ty, speed, vel);
     d
 }

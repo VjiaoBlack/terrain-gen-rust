@@ -202,7 +202,25 @@ impl TileMap {
         let h = self.height as i32;
         let mut visited = vec![false; self.width * self.height];
         let mut nodes: Vec<Node> = Vec::new();
-        let mut heap = BinaryHeap::new();
+        // Wrap (Node, usize) so heap sorts by Node (reversed cost+heuristic)
+        struct HeapEntry(Node, usize); // (node for ordering, index into nodes vec)
+        impl PartialEq for HeapEntry {
+            fn eq(&self, o: &Self) -> bool {
+                self.0 == o.0
+            }
+        }
+        impl Eq for HeapEntry {}
+        impl PartialOrd for HeapEntry {
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for HeapEntry {
+            fn cmp(&self, o: &Self) -> Ordering {
+                self.0.cmp(&o.0)
+            }
+        }
+        let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::new();
 
         let heuristic =
             |x: i32, y: i32| -> f64 { ((x - gi) as f64).abs() + ((y - gj) as f64).abs() };
@@ -215,7 +233,7 @@ impl TileMap {
             parent: usize::MAX,
         };
         nodes.push(start.clone());
-        heap.push((nodes.len() - 1, start));
+        heap.push(HeapEntry(start, 0));
 
         const DIRS: [(i32, i32); 8] = [
             (1, 0),
@@ -229,7 +247,7 @@ impl TileMap {
         ];
 
         let mut steps = 0;
-        while let Some((idx, node)) = heap.pop() {
+        while let Some(HeapEntry(node, idx)) = heap.pop() {
             if steps >= max_steps {
                 break;
             }
@@ -284,7 +302,7 @@ impl TileMap {
                 };
                 let new_idx = nodes.len();
                 nodes.push(new_node.clone());
-                heap.push((new_idx, new_node));
+                heap.push(HeapEntry(new_node, new_idx));
             }
         }
         None // no path found
