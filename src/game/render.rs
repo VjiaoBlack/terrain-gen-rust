@@ -221,11 +221,14 @@ impl super::Game {
         // Controls
         draw_line(renderer, row, " Controls", highlight); row += 1;
         draw_line(renderer, row, "  arrows: scroll", dim); row += 1;
-        draw_line(renderer, row, "  [b] build mode", dim); row += 1;
-        draw_line(renderer, row, "  [k] query/inspect", dim); row += 1;
-        draw_line(renderer, row, "  [space] pause", dim); row += 1;
-        draw_line(renderer, row, "  click: build/query", dim); row += 1;
-        draw_line(renderer, row, "  [q] quit", dim); row += 1;
+        draw_line(renderer, row, "  [b] build  [k] query", dim); row += 1;
+        draw_line(renderer, row, "  [o] overlay [f] speed", dim); row += 1;
+        draw_line(renderer, row, "  [g] goto  [a] auto", dim); row += 1;
+        draw_line(renderer, row, "  [space] pause [q] quit", dim); row += 1;
+        if self.build_mode {
+            draw_line(renderer, row, "  wasd:move tab:type", dim); row += 1;
+            draw_line(renderer, row, "  enter:place [x] demo", dim); row += 1;
+        }
 
         // Mode indicator
         if row + 2 < h {
