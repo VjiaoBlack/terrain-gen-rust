@@ -96,13 +96,14 @@ pub(super) fn do_wander_tick(
                 *timer -= 1;
             }
         }
-        BehaviorState::Seek { target_x, target_y } => {
+        BehaviorState::Seek { target_x, target_y, .. } => {
             let d = move_toward(pos, *target_x, *target_y, behavior.speed, vel);
             if d < 1.5 {
                 vel.dx = 0.0;
                 vel.dy = 0.0;
+                // Longer cooldown to prevent seek→idle→seek loops
                 behavior.state = BehaviorState::Idle {
-                    timer: rng.random_range(30..90),
+                    timer: rng.random_range(60..150),
                 };
             }
         }
@@ -237,7 +238,7 @@ pub(super) fn ai_prey(
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward(pos, fx, fy, speed, &mut vel);
-                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy, reason: SeekReason::Food }, vel.dx, vel.dy, hunger);
                     }
                 }
             }
@@ -489,7 +490,7 @@ pub(super) fn ai_villager(
                                 if t != Some(&Terrain::BuildingFloor) && t != Some(&Terrain::BuildingWall) {
                                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                                     move_toward_astar(pos, nx, ny, speed, &mut vel, map);
-                                    return (BehaviorState::Seek { target_x: nx, target_y: ny }, vel.dx, vel.dy, hunger, None, None);
+                                    return (BehaviorState::Seek { target_x: nx, target_y: ny, reason: SeekReason::ExitBuilding }, vel.dx, vel.dy, hunger, None, None);
                                 }
                             }
                         }
@@ -508,7 +509,7 @@ pub(super) fn ai_villager(
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward_astar(pos, hx, hy, speed, &mut vel, map);
-                        return (BehaviorState::Seek { target_x: hx, target_y: hy }, vel.dx, vel.dy, hunger, None, None);
+                        return (BehaviorState::Seek { target_x: hx, target_y: hy, reason: SeekReason::Hut }, vel.dx, vel.dy, hunger, None, None);
                     }
                 } else {
                     // No hut available — sleep outdoors (shorter rest)
@@ -532,7 +533,7 @@ pub(super) fn ai_villager(
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward_astar(pos, fx, fy, speed, &mut vel, map);
-                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy, reason: SeekReason::Food }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
                 // No berry bush reachable — eat from stockpile if food available
@@ -546,7 +547,7 @@ pub(super) fn ai_villager(
                         } else {
                             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                             move_toward_astar(pos, sx, sy, speed, &mut vel, map);
-                            return (BehaviorState::Seek { target_x: sx, target_y: sy }, vel.dx, vel.dy, hunger, None, None);
+                            return (BehaviorState::Seek { target_x: sx, target_y: sy, reason: SeekReason::Stockpile }, vel.dx, vel.dy, hunger, None, None);
                         }
                     }
                 }
@@ -585,7 +586,7 @@ pub(super) fn ai_villager(
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward_astar(pos, bx, by, speed, &mut vel, map);
-                        return (BehaviorState::Seek { target_x: bx, target_y: by }, vel.dx, vel.dy, hunger, None, Some(site_e));
+                        return (BehaviorState::Seek { target_x: bx, target_y: by, reason: SeekReason::BuildSite }, vel.dx, vel.dy, hunger, None, Some(site_e));
                     }
                 }
             }
@@ -602,7 +603,7 @@ pub(super) fn ai_villager(
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                         move_toward_astar(pos, fx, fy, speed, &mut vel, map);
-                        return (BehaviorState::Seek { target_x: fx, target_y: fy }, vel.dx, vel.dy, hunger, None, None);
+                        return (BehaviorState::Seek { target_x: fx, target_y: fy, reason: SeekReason::Food }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
             }
@@ -661,8 +662,13 @@ pub(super) fn ai_villager(
                         return (BehaviorState::Gathering { timer, resource_type: rt }, 0.0, 0.0, hunger, None, None);
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        let reason = match rt {
+                            ResourceType::Wood => SeekReason::Wood,
+                            ResourceType::Stone => SeekReason::Stone,
+                            _ => SeekReason::Food,
+                        };
                         move_toward_astar(pos, tx, ty, speed, &mut vel, map);
-                        return (BehaviorState::Seek { target_x: tx, target_y: ty }, vel.dx, vel.dy, hunger, None, None);
+                        return (BehaviorState::Seek { target_x: tx, target_y: ty, reason }, vel.dx, vel.dy, hunger, None, None);
                     }
                 }
             }

@@ -291,7 +291,7 @@ mod tests {
 
         {
             let mut behavior = world.get::<&mut Behavior>(e).unwrap();
-            behavior.state = BehaviorState::Seek { target_x: 15.0, target_y: 15.0 };
+            behavior.state = BehaviorState::Seek { target_x: 15.0, target_y: 15.0, reason: SeekReason::Unknown };
         }
 
         let mut min_dist = f64::INFINITY;
@@ -340,7 +340,7 @@ mod tests {
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
-            BehaviorState::Seek { target_x, target_y } => {
+            BehaviorState::Seek { target_x, target_y, .. } => {
                 assert!((target_x - 20.0).abs() < 0.1, "should seek food x");
                 assert!((target_y - 10.0).abs() < 0.1, "should seek food y");
             }
@@ -555,7 +555,7 @@ mod tests {
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
-            BehaviorState::Seek { target_x, target_y } => {
+            BehaviorState::Seek { target_x, target_y, .. } => {
                 assert!((target_x - 20.0).abs() < 0.1, "should seek food x");
                 assert!((target_y - 10.0).abs() < 0.1, "should seek food y");
             }

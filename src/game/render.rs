@@ -692,7 +692,7 @@ impl super::Game {
                 if let Ok(behavior) = self.world.get::<&Behavior>(e) {
                     let state_str = match &behavior.state {
                         BehaviorState::Wander { timer } => format!("Wander ({})", timer),
-                        BehaviorState::Seek { target_x, target_y } => format!("Seek ({:.0},{:.0})", target_x, target_y),
+                        BehaviorState::Seek { target_x, target_y, reason } => format!("Seek {:?} ({:.0},{:.0})", reason, target_x, target_y),
                         BehaviorState::Idle { timer } => format!("Idle ({})", timer),
                         BehaviorState::Eating { timer } => format!("Eating ({})", timer),
                         BehaviorState::FleeHome { timer } => format!("Fleeing home! ({})", timer),

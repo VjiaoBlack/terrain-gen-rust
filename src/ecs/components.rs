@@ -71,12 +71,24 @@ pub struct CarriedResource {
     pub amount: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum SeekReason {
+    Food,
+    Stockpile,
+    BuildSite,
+    Wood,
+    Stone,
+    Hut,
+    ExitBuilding,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum BehaviorState {
     /// Wander randomly. Timer counts down to next direction change.
     Wander { timer: u32 },
-    /// Move toward a target position.
-    Seek { target_x: f64, target_y: f64 },
+    /// Move toward a target position with a reason for debugging.
+    Seek { target_x: f64, target_y: f64, reason: SeekReason },
     /// Stand still. Timer counts down before switching to Wander.
     Idle { timer: u32 },
     /// Prey: eating at a food source.
