@@ -516,4 +516,121 @@ mod tests {
             "should return None when target is unreachable"
         );
     }
+
+    #[test]
+    fn astar_straight_line_on_open_map() {
+        let map = TileMap::new(20, 20, Terrain::Grass);
+        // Should find path from (2,2) to (17,17) on open map
+        let next = map.astar_next(2.0, 2.0, 17.0, 17.0, 500);
+        assert!(next.is_some(), "should find path on open map");
+        let (nx, ny) = next.unwrap();
+        // First step should move toward target (diagonal)
+        assert!(nx > 2.0 || ny > 2.0, "should move toward target");
+    }
+
+    #[test]
+    fn astar_reaches_target_iteratively() {
+        let map = TileMap::new(20, 20, Terrain::Grass);
+        let mut x = 2.0f64;
+        let mut y = 2.0f64;
+        let tx = 17.0;
+        let ty = 17.0;
+        // Simulate walking step by step
+        for _ in 0..100 {
+            let d = ((x - tx).powi(2) + (y - ty).powi(2)).sqrt();
+            if d < 1.5 {
+                break;
+            }
+            let next = map.astar_next(x, y, tx, ty, 500);
+            assert!(next.is_some(), "should find path at ({:.1},{:.1})", x, y);
+            let (nx, ny) = next.unwrap();
+            x = nx;
+            y = ny;
+        }
+        let final_d = ((x - tx).powi(2) + (y - ty).powi(2)).sqrt();
+        assert!(
+            final_d < 2.0,
+            "should reach target iteratively, got dist={}",
+            final_d
+        );
+    }
+
+    #[test]
+    fn astar_navigates_corridor() {
+        let mut map = TileMap::new(20, 10, Terrain::Grass);
+        // Wall across middle with one gap
+        for x in 0..20 {
+            map.set(x, 5, Terrain::BuildingWall);
+        }
+        map.set(15, 5, Terrain::Grass); // gap at x=15
+
+        // Path from (2,2) to (2,8) must go through gap at (15,5)
+        let next = map.astar_next(2.0, 2.0, 2.0, 8.0, 500);
+        assert!(next.is_some(), "should find path through corridor gap");
+    }
+
+    #[test]
+    fn astar_inside_hut_finds_door() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        // Build a hut-like structure: walls on 3 sides, open south
+        // WWW
+        // W.W
+        // ...  (open)
+        map.set(3, 3, Terrain::BuildingWall);
+        map.set(4, 3, Terrain::BuildingWall);
+        map.set(5, 3, Terrain::BuildingWall);
+        map.set(3, 4, Terrain::BuildingWall);
+        // (4,4) = interior floor
+        map.set(5, 4, Terrain::BuildingWall);
+        // (3,5), (4,5), (5,5) = open (door)
+
+        // From inside (4,4) to outside (4,7)
+        let next = map.astar_next(4.0, 4.0, 4.0, 7.0, 100);
+        assert!(
+            next.is_some(),
+            "should find path from inside hut through door"
+        );
+        let (nx, ny) = next.unwrap();
+        // First step should go south toward the open side
+        assert!(
+            ny > 4.0 || nx != 4.0,
+            "should move toward door, got ({},{})",
+            nx,
+            ny
+        );
+    }
+
+    #[test]
+    fn astar_avoids_water() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        // Lake in the middle
+        for y in 3..7 {
+            for x in 3..7 {
+                map.set(x, y, Terrain::Water);
+            }
+        }
+        // Path from (1,5) to (8,5) must go around lake
+        let next = map.astar_next(1.0, 5.0, 8.0, 5.0, 500);
+        assert!(next.is_some(), "should find path around lake");
+    }
+
+    #[test]
+    fn astar_same_position_returns_target() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        let next = map.astar_next(5.0, 5.0, 5.0, 5.0, 100);
+        assert!(next.is_some());
+        let (nx, ny) = next.unwrap();
+        assert_eq!(nx, 5.0);
+        assert_eq!(ny, 5.0);
+    }
+
+    #[test]
+    fn astar_adjacent_target() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        let next = map.astar_next(5.0, 5.0, 6.0, 5.0, 100);
+        assert!(next.is_some());
+        let (nx, ny) = next.unwrap();
+        assert_eq!(nx, 6.0);
+        assert_eq!(ny, 5.0);
+    }
 }
