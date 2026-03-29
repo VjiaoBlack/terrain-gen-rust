@@ -200,7 +200,7 @@ fn main() -> Result<()> {
         if let Some(path) = png_path {
             #[cfg(feature = "png")]
             {
-                r.save_png(&path, 8, 14)?;
+                r.save_png(&path, 8, 16)?;
                 eprintln!("Saved PNG: {}", path);
             }
             #[cfg(not(feature = "png"))]

@@ -13,22 +13,36 @@ impl super::Game {
                 let Color(r, g, b) = color;
                 match self.day_night.season {
                     Season::Spring => {
-                        // Slightly more vibrant green
-                        Color(r, (g as u16).min(255) as u8, b)
+                        // Fresh greens, slightly brighter
+                        Color(r, (g as u16 + 15).min(255) as u8, b)
                     }
-                    Season::Summer => color, // normal
+                    Season::Summer => {
+                        // Warm, lush — boost green slightly, add warmth
+                        Color((r as u16 + 10).min(255) as u8, (g as u16 + 10).min(255) as u8, b)
+                    }
                     Season::Autumn => {
-                        // Shift green toward orange/brown
-                        let r2 = (r as u16 + 40).min(255) as u8;
-                        let g2 = (g as i16 - 20).max(0) as u8;
-                        Color(r2, g2, b)
+                        // Strong orange/brown/red shift
+                        let r2 = (r as u16 + 80).min(255) as u8;
+                        let g2 = (g as i16 - 30).max(0) as u8;
+                        let b2 = (b as i16 - 10).max(0) as u8;
+                        Color(r2, g2, b2)
                     }
                     Season::Winter => {
-                        // Desaturate and lighten — frost effect
+                        // Heavy frost: desaturate toward white/gray
                         let avg = (r as u16 + g as u16 + b as u16) / 3;
-                        let blend = |c: u8| ((c as u16 + avg) / 2).min(255) as u8;
-                        Color(blend(r), blend(g), blend(b))
+                        let frost = |c: u8| ((c as u16 + avg * 2) / 3).min(255) as u8;
+                        Color(frost(r), frost(g), (frost(b) as u16 + 20).min(255) as u8)
                     }
+                }
+            }
+            Terrain::Sand => {
+                match self.day_night.season {
+                    Season::Winter => {
+                        // Snow-dusted sand
+                        let Color(r, g, b) = color;
+                        Color((r as u16 + 30).min(255) as u8, (g as u16 + 30).min(255) as u8, (b as u16 + 40).min(255) as u8)
+                    }
+                    _ => color,
                 }
             }
             _ => color,

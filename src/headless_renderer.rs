@@ -59,10 +59,11 @@ impl HeadlessRenderer {
         out
     }
 
-    /// Render the frame buffer to a PNG file. Each cell becomes a colored rectangle
-    /// with the character drawn on top. Requires the "png" feature.
+    /// Render the frame buffer to a PNG file with bitmap font characters.
     #[cfg(feature = "png")]
     pub fn save_png(&self, path: &str, cell_w: u32, cell_h: u32) -> anyhow::Result<()> {
+        use font8x8::UnicodeFonts;
+
         let img_w = self.width as u32 * cell_w;
         let img_h = self.height as u32 * cell_h;
         let mut img = image::RgbImage::new(img_w, img_h);
@@ -70,28 +71,51 @@ impl HeadlessRenderer {
         for cy in 0..self.height as u32 {
             for cx in 0..self.width as u32 {
                 let cell = &self.front[(cy * self.width as u32 + cx) as usize];
-                let Color(br, bg, bb) = cell.bg.unwrap_or(Color(0, 0, 0));
-                let Color(fr, fg, fb) = cell.fg;
+                let Color(br, bg_c, bb) = cell.bg.unwrap_or(Color(0, 0, 0));
+                let Color(fr, fg_c, fb) = cell.fg;
+                let bg_px = image::Rgb([br, bg_c, bb]);
+                let fg_px = image::Rgb([fr, fg_c, fb]);
 
                 // Fill background
                 for py in 0..cell_h {
                     for px in 0..cell_w {
-                        let ix = cx * cell_w + px;
-                        let iy = cy * cell_h + py;
-                        img.put_pixel(ix, iy, image::Rgb([br, bg, bb]));
+                        img.put_pixel(cx * cell_w + px, cy * cell_h + py, bg_px);
                     }
                 }
 
-                // Draw character as a simple block in the center using fg color
-                // For non-space characters, fill the center area
-                if cell.ch != ' ' {
-                    let margin_x = cell_w / 4;
-                    let margin_y = cell_h / 4;
-                    for py in margin_y..cell_h - margin_y {
-                        for px in margin_x..cell_w - margin_x {
-                            let ix = cx * cell_w + px;
-                            let iy = cy * cell_h + py;
-                            img.put_pixel(ix, iy, image::Rgb([fr, fg, fb]));
+                if cell.ch == ' ' { continue; }
+
+                // Try to get glyph from font8x8
+                let glyph = font8x8::BASIC_FONTS.get(cell.ch)
+                    .or_else(|| font8x8::BLOCK_FONTS.get(cell.ch))
+                    .or_else(|| font8x8::BOX_FONTS.get(cell.ch))
+                    .or_else(|| font8x8::MISC_FONTS.get(cell.ch));
+
+                if let Some(bitmap) = glyph {
+                    // Render 8x8 bitmap scaled to cell size
+                    for (row_idx, row) in bitmap.iter().enumerate() {
+                        for bit in 0..8u32 {
+                            if row & (1 << bit) != 0 {
+                                // Scale pixel to cell size
+                                let sx = bit * cell_w / 8;
+                                let sy = row_idx as u32 * cell_h / 8;
+                                let ex = (bit + 1) * cell_w / 8;
+                                let ey = (row_idx as u32 + 1) * cell_h / 8;
+                                for py in sy..ey {
+                                    for px in sx..ex {
+                                        img.put_pixel(cx * cell_w + px, cy * cell_h + py, fg_px);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Fallback for Unicode chars without glyphs: draw a centered dot/block
+                    let m = cell_w / 3;
+                    let my = cell_h / 3;
+                    for py in my..cell_h - my {
+                        for px in m..cell_w - m {
+                            img.put_pixel(cx * cell_w + px, cy * cell_h + py, fg_px);
                         }
                     }
                 }
