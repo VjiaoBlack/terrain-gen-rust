@@ -400,29 +400,54 @@ impl Game {
         // Settlement: stockpile + villagers near found start position
         let scx = start_cx;
         let scy = start_cy;
-        let (sx, sy) = find_walkable(&map, scx, scy);
+
+        // Helper: find a spot where an NxM building fits on natural terrain (no buildings)
+        let find_building_spot = |map: &TileMap, cx: usize, cy: usize, bw: usize, bh: usize| -> (f64, f64) {
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) { continue; }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 { continue; }
+                        // Check all tiles in footprint are natural terrain
+                        let fits = (0..bh as i32).all(|fy| (0..bw as i32).all(|fx| {
+                            let tx = (x + fx) as usize;
+                            let ty = (y + fy) as usize;
+                            matches!(map.get(tx, ty), Some(Terrain::Grass | Terrain::Sand | Terrain::Forest))
+                        }));
+                        if fits {
+                            return (x as f64, y as f64);
+                        }
+                    }
+                }
+            }
+            (cx as f64, cy as f64)
+        };
+
+        // Place stockpile (2x2)
+        let (sx, sy) = find_building_spot(&map, scx, scy, 2, 2);
         ecs::spawn_stockpile(&mut world, sx, sy);
-        // Set stockpile terrain tiles (2x2)
         for dy in 0..2 {
             for dx in 0..2 {
                 map.set(sx as usize + dx, sy as usize + dy, Terrain::BuildingFloor);
             }
         }
 
-        // Pre-built hut near stockpile
-        let (hx, hy) = find_walkable(&map, scx.wrapping_sub(3), scy.wrapping_sub(2));
+        // Pre-built hut — search offset from stockpile, tiles already marked prevent overlap
+        let (hsw, hsh) = BuildingType::Hut.size();
+        let (hx, hy) = find_building_spot(&map, scx.wrapping_sub(4), scy.wrapping_sub(3), hsw as usize, hsh as usize);
         for (dx, dy, terrain) in BuildingType::Hut.tiles() {
             map.set(hx as usize + dx as usize, hy as usize + dy as usize, terrain);
         }
-        let (hsw, hsh) = BuildingType::Hut.size();
         ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
 
-        // Pre-built farm near stockpile
-        let (fx, fy) = find_walkable(&map, scx + 3, scy.wrapping_sub(2));
+        // Pre-built farm — search opposite side of stockpile
+        let (fsw, fsh) = BuildingType::Farm.size();
+        let (fx, fy) = find_building_spot(&map, scx + 4, scy.wrapping_sub(3), fsw as usize, fsh as usize);
         for (dx, dy, terrain) in BuildingType::Farm.tiles() {
             map.set(fx as usize + dx as usize, fy as usize + dy as usize, terrain);
         }
-        let (fsw, fsh) = BuildingType::Farm.size();
         ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Berry bushes near settlement so villagers have food access
