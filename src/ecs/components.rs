@@ -350,27 +350,36 @@ impl BuildingType {
                 tiles
             }
             TileLayout::WallsDoorSouth => {
+                // 3x3 hut: walls on top and sides, wide door on south
+                // WWW
+                // W.W
+                // .._  (south side open for easy entry/exit)
                 let mut tiles = Vec::new();
                 for dx in 0..3 {
-                    tiles.push((dx, 0, Terrain::BuildingWall));
-                    tiles.push((dx, 2, Terrain::BuildingWall));
+                    tiles.push((dx, 0, Terrain::BuildingWall)); // north wall
                 }
                 tiles.push((0, 1, Terrain::BuildingWall));
                 tiles.push((2, 1, Terrain::BuildingWall));
-                tiles.push((1, 1, Terrain::BuildingFloor));
-                tiles.push((1, 2, Terrain::BuildingFloor)); // door south
+                tiles.push((1, 1, Terrain::BuildingFloor)); // interior
+                // South row: open (all floor) for wide doorway
+                for dx in 0..3 {
+                    tiles.push((dx, 2, Terrain::BuildingFloor));
+                }
                 tiles
             }
             TileLayout::WallsDoorNorth => {
+                // 3x3 hut: walls on bottom and sides, wide door on north
                 let mut tiles = Vec::new();
+                // North row: open (all floor) for wide doorway
                 for dx in 0..3 {
-                    tiles.push((dx, 0, Terrain::BuildingWall));
-                    tiles.push((dx, 2, Terrain::BuildingWall));
+                    tiles.push((dx, 0, Terrain::BuildingFloor));
                 }
                 tiles.push((0, 1, Terrain::BuildingWall));
                 tiles.push((2, 1, Terrain::BuildingWall));
-                tiles.push((1, 1, Terrain::BuildingFloor));
-                tiles.push((1, 0, Terrain::BuildingFloor)); // door north
+                tiles.push((1, 1, Terrain::BuildingFloor)); // interior
+                for dx in 0..3 {
+                    tiles.push((dx, 2, Terrain::BuildingWall)); // south wall
+                }
                 tiles
             }
             TileLayout::WallsNoDoor => {
