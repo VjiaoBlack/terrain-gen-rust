@@ -32,7 +32,7 @@ pub(super) fn move_toward_astar(
         return d;
     }
 
-    // Use A* for all distances > 1.5
+    // Use A* for pathfinding
     if d > 1.5 {
         let budget = (d as usize * 6).min(1000);
         if let Some((wx, wy)) = map.astar_next(pos.x, pos.y, tx, ty, budget) {
@@ -45,13 +45,11 @@ pub(super) fn move_toward_astar(
                 return d;
             }
         }
-        // A* failed — don't walk into walls, just stop (will retry next tick)
-        vel.dx = 0.0;
-        vel.dy = 0.0;
-        return d;
+        // A* failed (unreachable target) — fall back to direct movement
+        // system_movement will bounce off walls, but at least the villager tries
     }
 
-    // Very close: direct movement is fine
+    // Close range or A* fallback: direct movement
     move_toward(pos, tx, ty, speed, vel);
     d
 }
