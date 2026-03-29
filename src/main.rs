@@ -182,8 +182,13 @@ fn main() -> Result<()> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(60);
 
+        let seed: u32 = args.iter().position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(42);
+
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
-        let mut game = Game::new(60, 42);
+        let mut game = Game::new(60, seed);
         for _ in 0..ticks {
             game.step(GameInput::None, &mut r)?;
         }
