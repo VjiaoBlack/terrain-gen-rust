@@ -4,15 +4,16 @@ Set FontSize 14
 Set Width 1200
 Set Height 700
 Set Theme "Catppuccin Mocha"
+Set Shell "zsh"
 
-Type "cargo run --release"
+Type "export PATH=$HOME/.cargo/bin:$PATH && cd ~/Projects/terrain-gen-rust && cargo run --release"
 Enter
-Sleep 3s
+Sleep 6s
 
-# Watch the settlement for a bit
+# Watch the settlement
 Sleep 5s
 
-# Scroll around with arrow keys
+# Scroll around
 Down
 Down
 Down

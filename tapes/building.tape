@@ -4,22 +4,23 @@ Set FontSize 14
 Set Width 1200
 Set Height 700
 Set Theme "Catppuccin Mocha"
+Set Shell "zsh"
 
-Type "cargo run --release"
+Type "export PATH=$HOME/.cargo/bin:$PATH && cd ~/Projects/terrain-gen-rust && cargo run --release"
 Enter
-Sleep 3s
+Sleep 6s
 
 # Enter build mode
 Type "b"
 Sleep 1s
 
-# Move cursor with wasd
+# Move cursor
 Type "dddd"
 Sleep 500ms
 Type "ss"
 Sleep 500ms
 
-# Cycle to farm with tab
+# Cycle to farm
 Tab
 Sleep 500ms
 
@@ -32,7 +33,7 @@ Tab
 Tab
 Sleep 500ms
 
-# Move and place a wall
+# Move and place
 Type "aaa"
 Sleep 500ms
 Enter
@@ -46,12 +47,12 @@ Sleep 2s
 Type "b"
 Sleep 2s
 
-# Speed up to watch villagers build
+# Speed up to watch villagers
 Type "f"
 Type "f"
 Sleep 5s
 
-# Back to normal and quit
+# Quit
 Type "f"
 Sleep 1s
 Type "q"
