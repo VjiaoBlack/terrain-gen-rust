@@ -505,11 +505,12 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .query::<(&Position, &ProcessingBuilding)>()
         .iter()
         .map(|(p, b)| {
+            // Only process if we have surplus (don't drain last resources)
             let has_input = match b.recipe {
-                Recipe::WoodToPlanks => resources.wood >= 2,
-                Recipe::StoneToMasonry => resources.stone >= 2,
-                Recipe::FoodToGrain => resources.food >= 3,
-                Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
+                Recipe::WoodToPlanks => resources.wood >= 10,
+                Recipe::StoneToMasonry => resources.stone >= 10,
+                Recipe::FoodToGrain => resources.food >= 15,
+                Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 5,
             };
             (p.x, p.y, has_input)
         })
