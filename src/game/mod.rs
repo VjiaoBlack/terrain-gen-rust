@@ -429,20 +429,21 @@ impl Game {
                     let ux = x as usize;
                     let uy = y as usize;
                     if let Some(t) = map.get(ux, uy)
-                        && matches!(t, Terrain::Grass | Terrain::Sand) {
-                            // Check if forest is adjacent (within 3 tiles)
-                            let has_forest = (-3i32..=3).any(|fy| {
-                                (-3i32..=3).any(|fx| {
-                                    map.get((ux as i32 + fx) as usize, (uy as i32 + fy) as usize)
-                                        == Some(&Terrain::Forest)
-                                })
-                            });
-                            if has_forest {
-                                start_cx = ux;
-                                start_cy = uy;
-                                break 'search;
-                            }
+                        && matches!(t, Terrain::Grass | Terrain::Sand)
+                    {
+                        // Check if forest is adjacent (within 3 tiles)
+                        let has_forest = (-3i32..=3).any(|fy| {
+                            (-3i32..=3).any(|fx| {
+                                map.get((ux as i32 + fx) as usize, (uy as i32 + fy) as usize)
+                                    == Some(&Terrain::Forest)
+                            })
+                        });
+                        if has_forest {
+                            start_cx = ux;
+                            start_cy = uy;
+                            break 'search;
                         }
+                    }
                 }
             }
         }
@@ -859,11 +860,12 @@ impl Game {
                         if let GameEvent::Plague {
                             kills_remaining, ..
                         } = event
-                            && *kills_remaining > 0 {
-                                *kills_remaining -= 1;
-                                should_kill = true;
-                                break;
-                            }
+                            && *kills_remaining > 0
+                        {
+                            *kills_remaining -= 1;
+                            should_kill = true;
+                            break;
+                        }
                     }
                     if should_kill {
                         let victim: Option<hecs::Entity> = self

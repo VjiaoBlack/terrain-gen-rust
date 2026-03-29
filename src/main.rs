@@ -139,9 +139,10 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
 
         // Handle Load after step (replaces game state)
         if input == GameInput::Load
-            && let Ok(loaded) = Game::load("savegame.json", game.target_fps) {
-                *game = loaded;
-            }
+            && let Ok(loaded) = Game::load("savegame.json", game.target_fps)
+        {
+            *game = loaded;
+        }
 
         // FPS counter
         frame_count += 1;

@@ -307,10 +307,12 @@ pub fn render_map(map: &TileMap, camera: &Camera, renderer: &mut dyn Renderer) {
         for sx in 0..vw {
             let wx = camera.x + sx as i32;
             let wy = camera.y + sy as i32;
-            if wx >= 0 && wy >= 0
-                && let Some(terrain) = map.get(wx as usize, wy as usize) {
-                    renderer.draw(sx, sy, terrain.ch(), terrain.fg(), terrain.bg());
-                }
+            if wx >= 0
+                && wy >= 0
+                && let Some(terrain) = map.get(wx as usize, wy as usize)
+            {
+                renderer.draw(sx, sy, terrain.ch(), terrain.fg(), terrain.bg());
+            }
         }
     }
 }
