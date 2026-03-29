@@ -135,6 +135,12 @@ pub enum BehaviorState {
         target_y: f64,
         timer: u32,
     },
+    /// Villager: exploring toward frontier to discover new resources.
+    Exploring {
+        target_x: f64,
+        target_y: f64,
+        timer: u32,
+    },
     /// Villager: tending a farm (standing at farm, advancing growth). Lease expires → idle.
     Farming {
         target_x: f64,

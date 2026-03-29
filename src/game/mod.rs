@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::ecs::{
     self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, Den, FarmPlot, FoodSource,
     GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, ResourceType, Resources,
-    SerializedEntity, SkillMults, Species, Sprite, Stockpile, StoneDeposit,
+    SeekReason, SerializedEntity, SkillMults, Species, Sprite, Stockpile, StoneDeposit,
 };
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
@@ -176,6 +176,15 @@ pub struct DifficultyState {
     pub milestones: Vec<Milestone>,
 }
 
+/// Colony-level knowledge of the world — shared across all villagers.
+#[derive(Debug, Clone, Default)]
+pub struct SettlementKnowledge {
+    pub known_wood: Vec<(usize, usize)>,
+    pub known_stone: Vec<(usize, usize)>,
+    pub known_food: Vec<(usize, usize)>,
+    pub frontier: Vec<(usize, usize)>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EventSystem {
     pub active_events: Vec<GameEvent>,
@@ -319,6 +328,7 @@ pub struct Game {
     pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub river_mask: Vec<bool>,
+    pub knowledge: SettlementKnowledge,
     pub difficulty: DifficultyState,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
@@ -586,6 +596,7 @@ impl Game {
             game_speed: 1,
             soil: result.soil,
             river_mask: result.river_mask,
+            knowledge: SettlementKnowledge::default(),
             difficulty: DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,
@@ -984,9 +995,107 @@ impl Game {
                 self.skills.building = self.skills.building.clamp(0.0, 100.0);
                 self.skills.military = self.skills.military.clamp(0.0, 100.0);
 
+                // Redirect idle/wandering villagers to explore when resources are scarce
+                let needs_wood = self.resources.wood < 10;
+                let needs_stone = self.resources.stone < 10;
+                let needs_explore = needs_wood || needs_stone;
+                if needs_explore && self.tick.is_multiple_of(30) {
+                    let (scx, scy) = self.settlement_center();
+                    // Collect redirect targets
+                    let mut redirects: Vec<(hecs::Entity, f64, f64, SeekReason)> = Vec::new();
+                    for (entity, (pos, creature, behavior)) in self
+                        .world
+                        .query::<(hecs::Entity, (&Position, &Creature, &Behavior))>()
+                        .iter()
+                    {
+                        if creature.species != Species::Villager {
+                            continue;
+                        }
+                        if creature.hunger > 0.5 {
+                            continue;
+                        }
+                        match behavior.state {
+                            BehaviorState::Wander { .. } => {}
+                            BehaviorState::Idle { timer } if timer < 10 => {}
+                            _ => continue,
+                        }
+
+                        // Try known distant resources first
+                        if needs_wood {
+                            if let Some(&(wx, wy)) = self
+                                .knowledge
+                                .known_wood
+                                .iter()
+                                .filter(|&&(wx, wy)| {
+                                    let d = ((wx as f64 - pos.x).powi(2)
+                                        + (wy as f64 - pos.y).powi(2))
+                                    .sqrt();
+                                    d > creature.sight_range && d < 80.0
+                                })
+                                .min_by_key(|&&(wx, wy)| {
+                                    ((wx as f64 - pos.x).powi(2) + (wy as f64 - pos.y).powi(2))
+                                        as u64
+                                })
+                            {
+                                redirects.push((entity, wx as f64, wy as f64, SeekReason::Wood));
+                                continue;
+                            }
+                        }
+                        if needs_stone {
+                            if let Some(&(sx, sy)) = self
+                                .knowledge
+                                .known_stone
+                                .iter()
+                                .filter(|&&(sx, sy)| {
+                                    let d = ((sx as f64 - pos.x).powi(2)
+                                        + (sy as f64 - pos.y).powi(2))
+                                    .sqrt();
+                                    d > creature.sight_range && d < 80.0
+                                })
+                                .min_by_key(|&&(sx, sy)| {
+                                    ((sx as f64 - pos.x).powi(2) + (sy as f64 - pos.y).powi(2))
+                                        as u64
+                                })
+                            {
+                                redirects.push((entity, sx as f64, sy as f64, SeekReason::Stone));
+                                continue;
+                            }
+                        }
+
+                        // No known resources — explore frontier
+                        if let Some(&(fx, fy)) =
+                            self.knowledge.frontier.iter().min_by_key(|&&(fx, fy)| {
+                                ((fx as f64 - pos.x).powi(2) + (fy as f64 - pos.y).powi(2)) as u64
+                            })
+                        {
+                            redirects.push((entity, fx as f64, fy as f64, SeekReason::Unknown));
+                        }
+                    }
+
+                    // Apply redirects (separate loop to avoid borrow conflict)
+                    for (entity, tx, ty, reason) in redirects {
+                        if let Ok(mut behavior) = self.world.get::<&mut Behavior>(entity) {
+                            if reason == SeekReason::Unknown {
+                                behavior.state = BehaviorState::Exploring {
+                                    target_x: tx,
+                                    target_y: ty,
+                                    timer: 300,
+                                };
+                            } else {
+                                behavior.state = BehaviorState::Seek {
+                                    target_x: tx,
+                                    target_y: ty,
+                                    reason,
+                                };
+                            }
+                        }
+                    }
+                }
+
                 ecs::system_movement(&mut self.world, &self.map);
 
                 // Update exploration: only villagers reveal fog of war
+                // Also update settlement knowledge of visible resources
                 for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
                     if creature.species != Species::Villager {
                         continue;
@@ -994,6 +1103,74 @@ impl Game {
                     let x = pos.x as usize;
                     let y = pos.y as usize;
                     self.exploration.reveal(x, y, creature.sight_range as usize);
+
+                    // Scan visible area for resources (every 50 ticks per villager to save CPU)
+                    if self.tick.is_multiple_of(50) {
+                        let r = creature.sight_range as i32;
+                        for dy in (-r..=r).step_by(3) {
+                            for dx in (-r..=r).step_by(3) {
+                                let nx = x as i32 + dx;
+                                let ny = y as i32 + dy;
+                                if nx < 0
+                                    || ny < 0
+                                    || nx >= self.map.width as i32
+                                    || ny >= self.map.height as i32
+                                {
+                                    continue;
+                                }
+                                let ux = nx as usize;
+                                let uy = ny as usize;
+                                match self.map.get(ux, uy) {
+                                    Some(Terrain::Forest) => {
+                                        if !self.knowledge.known_wood.contains(&(ux, uy)) {
+                                            self.knowledge.known_wood.push((ux, uy));
+                                        }
+                                    }
+                                    Some(Terrain::Mountain) => {
+                                        if !self.knowledge.known_stone.contains(&(ux, uy)) {
+                                            self.knowledge.known_stone.push((ux, uy));
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Update frontier (edges of explored area) every 200 ticks
+                if self.tick.is_multiple_of(200) {
+                    self.knowledge.frontier.clear();
+                    let w = self.map.width;
+                    let h = self.map.height;
+                    let dirs: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+                    // Sample sparse grid to find frontier tiles
+                    for y in (0..h).step_by(2) {
+                        for x in (0..w).step_by(2) {
+                            if !self.exploration.is_revealed(x, y) {
+                                continue;
+                            }
+                            if !self.map.get(x, y).map_or(false, |t| t.is_walkable()) {
+                                continue;
+                            }
+                            let at_edge = dirs.iter().any(|&(dx, dy)| {
+                                let nx = x as i32 + dx;
+                                let ny = y as i32 + dy;
+                                nx >= 0
+                                    && ny >= 0
+                                    && (nx as usize) < w
+                                    && (ny as usize) < h
+                                    && !self.exploration.is_revealed(nx as usize, ny as usize)
+                            });
+                            if at_edge {
+                                self.knowledge.frontier.push((x, y));
+                            }
+                        }
+                    }
+                    // Also prune known resources that no longer exist
+                    self.knowledge
+                        .known_wood
+                        .retain(|&(x, y)| self.map.get(x, y) == Some(&Terrain::Forest));
                 }
 
                 // Count creatures before breeding to detect new spawns

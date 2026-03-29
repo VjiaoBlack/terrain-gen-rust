@@ -78,6 +78,7 @@ impl Game {
             game_speed: 1,
             soil: vec![crate::terrain_pipeline::SoilType::Loam; map_w * map_h],
             river_mask: vec![false; map_w * map_h],
+            knowledge: super::SettlementKnowledge::default(),
             difficulty: super::DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,

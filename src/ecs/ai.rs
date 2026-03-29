@@ -148,6 +148,27 @@ pub(super) fn do_wander_tick(
             vel.dx = 0.0;
             vel.dy = 0.0;
         }
+        BehaviorState::Exploring {
+            target_x,
+            target_y,
+            timer,
+        } => {
+            if *timer == 0 {
+                behavior.state = BehaviorState::Idle {
+                    timer: rng.random_range(20..60),
+                };
+            } else {
+                let d = move_toward(pos, *target_x, *target_y, behavior.speed, vel);
+                if d < 2.0 {
+                    // Arrived at frontier — idle and let AI re-evaluate
+                    behavior.state = BehaviorState::Idle {
+                        timer: rng.random_range(30..90),
+                    };
+                } else {
+                    *timer -= 1;
+                }
+            }
+        }
         BehaviorState::Gathering { .. }
         | BehaviorState::Hauling { .. }
         | BehaviorState::Sleeping { .. }

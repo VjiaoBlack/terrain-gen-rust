@@ -683,7 +683,8 @@ impl super::Game {
                                 Some(BehaviorState::Building { .. }) => Color(255, 220, 50), // yellow
                                 Some(BehaviorState::Farming { .. }) => Color(80, 200, 80), // farm green
                                 Some(BehaviorState::Working { .. }) => Color(200, 120, 50), // workshop orange
-                                Some(BehaviorState::Eating { .. }) => Color(50, 200, 50),   // green
+                                Some(BehaviorState::Exploring { .. }) => Color(150, 50, 255), // purple - exploring
+                                Some(BehaviorState::Eating { .. }) => Color(50, 200, 50), // green
                                 Some(BehaviorState::Sleeping { .. }) => Color(100, 100, 200), // blue
                                 Some(BehaviorState::FleeHome { .. }) => Color(255, 50, 50),   // red
                                 Some(BehaviorState::Idle { .. })
@@ -1052,6 +1053,11 @@ impl super::Game {
                         } => {
                             format!("Working ({:.0},{:.0}) [{}]", target_x, target_y, lease)
                         }
+                        BehaviorState::Exploring {
+                            target_x,
+                            target_y,
+                            timer,
+                        } => format!("Exploring ({:.0},{:.0}) [{}]", target_x, target_y, timer),
                     };
                     lines.push(format!("state: {}", state_str));
                     lines.push(format!("speed: {:.2}", behavior.speed));
