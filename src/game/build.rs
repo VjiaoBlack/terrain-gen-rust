@@ -23,8 +23,13 @@ impl super::Game {
                 }
                 if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
                     match terrain {
-                        Terrain::Grass | Terrain::Sand | Terrain::Forest => {} // ok
-                        _ => return false, // water, mountain, snow, existing buildings
+                        Terrain::Grass
+                        | Terrain::Sand
+                        | Terrain::Forest
+                        | Terrain::Scrubland
+                        | Terrain::Desert
+                        | Terrain::Tundra => {} // ok
+                        _ => return false, // water, mountain, snow, cliff, marsh, buildings
                     }
                 } else {
                     return false;
