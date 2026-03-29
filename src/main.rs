@@ -189,8 +189,20 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game = Game::new(60, seed);
+        // Reveal entire map for screenshots (no fog of war)
+        for y in 0..256 {
+            for x in 0..256 {
+                game.exploration.reveal(x, y, 0);
+            }
+        }
         for _ in 0..ticks {
             game.step(GameInput::None, &mut r)?;
+            // Keep map fully revealed each tick
+            for y in 0..256usize {
+                for x in 0..256usize {
+                    game.exploration.reveal(x, y, 0);
+                }
+            }
         }
 
         // Output as PNG if --png flag given, otherwise ANSI

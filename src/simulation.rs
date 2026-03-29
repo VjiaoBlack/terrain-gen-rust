@@ -731,13 +731,13 @@ impl DayNightCycle {
         let (tr, tg, tb) = self.ambient_tint();
         let directional = self.get_light(wx, wy);
 
-        // Ambient (0.25) + directional (0.75) — enough ambient to see terrain at night,
+        // Ambient (0.35) + directional (0.65) — enough ambient to see terrain at night,
         // enough directional for normals to show through
-        let light = 0.25 + 0.75 * directional;
+        let light = 0.35 + 0.65 * directional;
 
-        // Quantize to steps of 8 so small lighting changes don't trigger
+        // Quantize to steps of 4 so small lighting changes don't trigger
         // terminal redraws (crossterm double-buffer compares exact colors)
-        let q = |v: f64| -> u8 { ((v as u8) >> 3) << 3 };
+        let q = |v: f64| -> u8 { ((v as u8) >> 2) << 2 };
         let r = q((color.0 as f64 * tr * light).clamp(0.0, 255.0));
         let g = q((color.1 as f64 * tg * light).clamp(0.0, 255.0));
         let b = q((color.2 as f64 * tb * light).clamp(0.0, 255.0));
