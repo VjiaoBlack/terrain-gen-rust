@@ -539,13 +539,21 @@ impl Game {
         for &(bsx, bsy) in &[
             (scx.wrapping_sub(1), scy.wrapping_sub(1)),
             (scx + 1, scy + 2),
+            (scx + 3, scy.wrapping_sub(1)),
+            (scx.wrapping_sub(3), scy + 2),
         ] {
             let (bx, by) = find_walkable(&map, bsx, bsy);
             ecs::spawn_berry_bush(&mut world, bx, by);
         }
 
-        // Stone deposits near settlement so villagers can gather stone
-        for &(dsx, dsy) in &[(scx.wrapping_sub(3), scy), (scx + 3, scy + 1)] {
+        // Stone deposits near settlement
+        for &(dsx, dsy) in &[
+            (scx.wrapping_sub(4), scy),
+            (scx + 4, scy + 1),
+            (scx.wrapping_sub(2), scy + 4),
+            (scx + 3, scy.wrapping_sub(3)),
+            (scx.wrapping_sub(5), scy + 2),
+        ] {
             let (dx, dy) = find_walkable(&map, dsx, dsy);
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
@@ -578,9 +586,9 @@ impl Game {
             query_cy: scy as i32,
             display_fps: None,
             resources: Resources {
-                food: 20,
-                wood: 20,
-                stone: 10,
+                food: 40,
+                wood: 30,
+                stone: 20,
                 ..Default::default()
             },
             build_mode: false,
@@ -2172,8 +2180,8 @@ mod tests {
         let mut world = hecs::World::new();
         let e = ecs::spawn_berry_bush(&mut world, 10.0, 10.0);
         let ry = world.get::<&ecs::ResourceYield>(e).unwrap();
-        assert_eq!(ry.remaining, 12, "berry bush yield should be 12");
-        assert_eq!(ry.max, 12);
+        assert_eq!(ry.remaining, 20, "berry bush yield should be 20");
+        assert_eq!(ry.max, 20);
     }
 
     #[test]
@@ -2429,6 +2437,7 @@ mod tests {
     fn plague_kills_villager() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
+        game.resources.food = 500;
 
         let initial_villagers = game
             .world
@@ -2436,15 +2445,17 @@ mod tests {
             .iter()
             .filter(|c| c.species == Species::Villager)
             .count();
+        assert!(initial_villagers >= 3, "should start with villagers");
 
-        // Inject plague event directly
+        // Set tick to just before a multiple of 100 so kill triggers quickly
+        game.tick = 98;
         game.events.active_events.push(GameEvent::Plague {
-            ticks_remaining: 300,
-            kills_remaining: 1,
+            ticks_remaining: 500,
+            kills_remaining: 2,
         });
 
-        // Run until the plague kill interval (every 100 ticks of plague life)
-        for _ in 0..400 {
+        // Run 200 ticks — should cross tick 100 and 200 (two kill opportunities)
+        for _ in 0..200 {
             game.step(GameInput::None, &mut renderer).unwrap();
         }
 
@@ -2455,10 +2466,11 @@ mod tests {
             .filter(|c| c.species == Species::Villager)
             .count();
 
-        // Plague should have killed at least one (though hunger/other causes may also kill)
         assert!(
-            final_villagers < initial_villagers || initial_villagers == 0,
-            "plague should kill at least one villager"
+            final_villagers < initial_villagers,
+            "plague should kill villagers: started={} ended={}",
+            initial_villagers,
+            final_villagers
         );
     }
 

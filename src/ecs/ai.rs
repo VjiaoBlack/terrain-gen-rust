@@ -712,7 +712,11 @@ pub(super) fn ai_villager(
                 )
             }
         }
-        BehaviorState::Farming { target_x, target_y } => {
+        BehaviorState::Farming { target_x, target_y, lease } => {
+            // Lease expired → go idle, re-evaluate tasks
+            if *lease == 0 {
+                return (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None, None);
+            }
             if predator_nearby {
                 return (
                     BehaviorState::FleeHome { timer: 120 },
@@ -753,6 +757,7 @@ pub(super) fn ai_villager(
                     BehaviorState::Farming {
                         target_x: *target_x,
                         target_y: *target_y,
+                        lease: lease - 1,
                     },
                     vel.dx,
                     vel.dy,
@@ -766,6 +771,7 @@ pub(super) fn ai_villager(
                     BehaviorState::Farming {
                         target_x: *target_x,
                         target_y: *target_y,
+                        lease: lease - 1,
                     },
                     0.0,
                     0.0,
@@ -775,7 +781,10 @@ pub(super) fn ai_villager(
                 )
             }
         }
-        BehaviorState::Working { target_x, target_y } => {
+        BehaviorState::Working { target_x, target_y, lease } => {
+            if *lease == 0 {
+                return (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None, None);
+            }
             if predator_nearby {
                 return (
                     BehaviorState::FleeHome { timer: 120 },
@@ -804,6 +813,7 @@ pub(super) fn ai_villager(
                     BehaviorState::Working {
                         target_x: *target_x,
                         target_y: *target_y,
+                        lease: lease - 1,
                     },
                     vel.dx,
                     vel.dy,
@@ -817,6 +827,7 @@ pub(super) fn ai_villager(
                     BehaviorState::Working {
                         target_x: *target_x,
                         target_y: *target_y,
+                        lease: lease - 1,
                     },
                     0.0,
                     0.0,

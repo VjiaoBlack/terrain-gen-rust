@@ -199,8 +199,8 @@ fn heavy_traffic_creates_roads() {
     let ty = 130usize;
     game.map.set(tx, ty, Terrain::Grass);
 
-    // Simulate 200 footsteps (above threshold of 150)
-    for _ in 0..200 {
+    // Simulate 400 footsteps (above threshold of 300)
+    for _ in 0..400 {
         game.traffic.step_on(tx, ty);
     }
 

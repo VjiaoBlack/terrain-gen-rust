@@ -82,8 +82,8 @@ pub fn spawn_berry_bush(world: &mut World, x: f64, y: f64) -> Entity {
         }, // red berries
         FoodSource,
         ResourceYield {
-            remaining: 12,
-            max: 12,
+            remaining: 20,
+            max: 20,
         },
     ))
 }
@@ -108,8 +108,8 @@ pub fn spawn_stone_deposit(world: &mut World, x: f64, y: f64) -> Entity {
         }, // grey stone
         StoneDeposit,
         ResourceYield {
-            remaining: 5,
-            max: 5,
+            remaining: 20,
+            max: 20,
         },
     ))
 }

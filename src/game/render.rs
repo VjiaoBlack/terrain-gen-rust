@@ -1035,11 +1035,11 @@ impl super::Game {
                             target_y,
                             timer,
                         } => format!("Building ({:.0},{:.0}) ({})", target_x, target_y, timer),
-                        BehaviorState::Farming { target_x, target_y } => {
-                            format!("Farming ({:.0},{:.0})", target_x, target_y)
+                        BehaviorState::Farming { target_x, target_y, lease } => {
+                            format!("Farming ({:.0},{:.0}) [{}]", target_x, target_y, lease)
                         }
-                        BehaviorState::Working { target_x, target_y } => {
-                            format!("Working ({:.0},{:.0})", target_x, target_y)
+                        BehaviorState::Working { target_x, target_y, lease } => {
+                            format!("Working ({:.0},{:.0}) [{}]", target_x, target_y, lease)
                         }
                     };
                     lines.push(format!("state: {}", state_str));

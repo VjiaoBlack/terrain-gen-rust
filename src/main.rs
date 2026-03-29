@@ -854,13 +854,29 @@ mod tests {
         game.day_night.hour = 0.0;
         let midnight_snap = game.step_headless(GameInput::None, &mut r).unwrap();
 
-        // Compare brightness of a terrain cell in the map area (past the panel)
-        let noon_cell = &noon_snap.cells[5][35];
-        let midnight_cell = &midnight_snap.cells[5][35];
-
-        let noon_brightness = noon_cell.fg.0 as u32 + noon_cell.fg.1 as u32 + noon_cell.fg.2 as u32;
-        let midnight_brightness =
-            midnight_cell.fg.0 as u32 + midnight_cell.fg.1 as u32 + midnight_cell.fg.2 as u32;
+        // Compare brightness of terrain cells in the map area (past the panel)
+        // Average brightness of terrain cells (green-ish bg = terrain, not panel)
+        let sample_brightness = |snap: &game::FrameSnapshot| -> u32 {
+            let mut total = 0u64;
+            let mut count = 0u64;
+            for y in 3..15 {
+                for x in 30..55 {
+                    if y < snap.cells.len() && x < snap.cells[y].len() {
+                        let c = &snap.cells[y][x];
+                        if let Some(bg) = c.bg {
+                            // Only count cells with green-ish bg (terrain)
+                            if bg.1 > 20 {
+                                total += c.fg.0 as u64 + c.fg.1 as u64 + c.fg.2 as u64;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if count == 0 { 0 } else { (total / count) as u32 }
+        };
+        let noon_brightness = sample_brightness(&noon_snap);
+        let midnight_brightness = sample_brightness(&midnight_snap);
 
         assert!(
             noon_brightness > midnight_brightness,
