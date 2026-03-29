@@ -363,47 +363,7 @@ impl Game {
             }
         }
 
-        // Ecosystem: dens, berry bushes, prey, predators — kept far from settlement
-        let min_dist_sq = 30.0f64 * 30.0; // minimum 30 tiles from settlement
-        let den_spots = [
-            (cx.wrapping_sub(30), cy.wrapping_sub(30)),
-            (cx + 25, cy.wrapping_sub(20)),
-            (cx.wrapping_sub(25), cy + 25),
-            (cx + 30, cy + 15),
-        ];
-        let bush_spots = [
-            (cx.wrapping_sub(20), cy.wrapping_sub(35)),
-            (cx + 25, cy.wrapping_sub(25)),
-            (cx.wrapping_sub(30), cy.wrapping_sub(10)),
-            (cx + 15, cy + 20),
-            (cx.wrapping_sub(15), cy.wrapping_sub(20)),
-            (cx + 20, cy + 5),
-        ];
-
-        for &(dx, dy) in &den_spots {
-            let (ddx, ddy) = find_walkable(&map, dx, dy);
-            let ds = (ddx - start_cx as f64).powi(2) + (ddy - start_cy as f64).powi(2);
-            if ds < min_dist_sq { continue; } // skip if too close to settlement
-            ecs::spawn_den(&mut world, ddx, ddy);
-            let (rx, ry) = find_walkable(&map, dx + 1, dy + 1);
-            ecs::spawn_prey(&mut world, rx, ry, ddx, ddy);
-        }
-
-        for &(bx, by) in &bush_spots {
-            let (bbx, bby) = find_walkable(&map, bx, by);
-            let ds = (bbx - start_cx as f64).powi(2) + (bby - start_cy as f64).powi(2);
-            if ds < min_dist_sq { continue; }
-            ecs::spawn_berry_bush(&mut world, bbx, bby);
-        }
-
-        // Predators — far from settlement
-        let pred_spots = [(cx.wrapping_sub(35), cy.wrapping_sub(30)), (cx + 30, cy + 25)];
-        for &(px, py) in &pred_spots {
-            let (wx, wy) = find_walkable(&map, px, py);
-            let ds = (wx - start_cx as f64).powi(2) + (wy - start_cy as f64).powi(2);
-            if ds < min_dist_sq { continue; }
-            ecs::spawn_predator(&mut world, wx, wy);
-        }
+        // No wildlife at game start — wolves arrive via wolf surge events only.
 
         // Settlement: stockpile + villagers near found start position
         let scx = start_cx;
@@ -812,8 +772,9 @@ impl Game {
 
             ecs::system_movement(&mut self.world, &self.map);
 
-            // Update exploration: creatures reveal tiles around them
+            // Update exploration: only villagers reveal fog of war
             for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+                if creature.species != Species::Villager { continue; }
                 let x = pos.x as usize;
                 let y = pos.y as usize;
                 self.exploration.reveal(x, y, creature.sight_range as usize);
