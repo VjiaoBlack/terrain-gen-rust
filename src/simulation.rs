@@ -31,7 +31,7 @@ impl Default for SimConfig {
             rain_rate: 0.02,
             rain_amount: 0.001,
             flow_fraction: 0.5,
-            evaporation: 0.00001,
+            evaporation: 0.0001, // 10x higher to prevent lake accumulation
             erosion_enabled: false,
             erosion_strength: 1.0,
             avg_factor: 0.95,

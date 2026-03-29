@@ -567,6 +567,9 @@ impl super::Game {
         bt: BuildingType,
     ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
+        let is_farm = bt == BuildingType::Farm;
+        let mut best: Option<(i32, i32, f64)> = None;
+
         for r in 2i32..20 {
             for dy in -r..=r {
                 for dx in -r..=r {
@@ -576,12 +579,27 @@ impl super::Game {
                     let bx = cx as i32 + dx * bw;
                     let by = cy as i32 + dy * bh;
                     if self.can_place_building(bx, by, bt) {
-                        return Some((bx, by));
+                        // Score by soil fertility
+                        let soil_idx = by as usize * self.map.width + bx as usize;
+                        let fertility = if soil_idx < self.soil.len() {
+                            self.soil[soil_idx].yield_multiplier()
+                        } else {
+                            1.0
+                        };
+                        // Farms prefer high fertility, others prefer low
+                        let score = if is_farm { fertility } else { 2.0 - fertility };
+                        if best.is_none() || score > best.unwrap().2 {
+                            best = Some((bx, by, score));
+                        }
                     }
                 }
             }
+            // If we found any candidate in this ring, use the best one
+            if best.is_some() {
+                break;
+            }
         }
-        None
+        best.map(|(bx, by, _)| (bx, by))
     }
 
     /// Find a spot for a defensive wall between settlement center and nearest wolf.

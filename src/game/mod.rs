@@ -1389,9 +1389,10 @@ impl Game {
                 ecs::system_regrowth(&mut self.world, &self.map, self.tick);
 
                 // Forest regrowth: grass/scrubland adjacent to forest slowly becomes forest
-                if self.tick.is_multiple_of(500) {
+                if self.tick.is_multiple_of(200) {
+                    // faster regrowth
                     let mut rng = rand::rng();
-                    for _ in 0..10 {
+                    for _ in 0..20 {
                         let x =
                             rng.random_range(1..self.map.width.saturating_sub(1) as u32) as usize;
                         let y =
@@ -1408,7 +1409,8 @@ impl Game {
                                             .get((x as i32 + dx) as usize, (y as i32 + dy) as usize)
                                             == Some(&Terrain::Forest)
                                     });
-                            if near_forest && rng.random_range(0u32..100) < 8 {
+                            if near_forest && rng.random_range(0u32..100) < 15 {
+                                // 15% chance
                                 self.map.set(x, y, Terrain::Forest);
                             }
                         }
