@@ -1439,12 +1439,12 @@ impl Game {
                 tick_config.rain_rate *= mods.rain_mult;
                 tick_config.evaporation *= mods.evap_mult;
 
-                // Seasonal auto-rain (rain_mult: spring=1.5, summer=0.5, autumn=1.0, winter=0.3)
+                // Runtime water sim: rain + flow (NO erosion — terrain shaped by pipeline at startup)
+                tick_config.erosion_enabled = false;
                 let should_rain = self.raining || (self.tick % 20 == 0 && mods.rain_mult > 0.4);
                 if should_rain {
                     self.water.rain(&tick_config);
                 }
-                // Only run expensive water sim when there's actually water
                 let viewport_bounds = Some((
                     self.camera.x.max(0) as usize,
                     self.camera.y.max(0) as usize,
@@ -1460,11 +1460,6 @@ impl Game {
 
                 // Seasonal vegetation decay (winter/autumn)
                 self.vegetation.apply_season(mods.veg_growth_mult);
-
-                // rebuild tiles if erosion changed heights
-                if self.sim_config.erosion_enabled {
-                    terrain_gen::rebuild_tiles(&mut self.map, &self.heights, &self.terrain_config);
-                }
 
                 // advance day/night cycle and compute Blinn-Phong lighting + shadows (viewport only)
                 let prev_season = self.day_night.season;
