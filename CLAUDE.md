@@ -54,3 +54,55 @@ src/
 ## Game Loop
 
 `Game::step()` in `game/mod.rs` runs: input handling -> ECS systems (hunger, AI, movement, breeding, raids, death, farms, processing) -> simulation (water, vegetation, day/night) -> rendering.
+
+## Playing & Testing Non-Interactively
+
+```bash
+cargo run --release -- --play --ticks 500                    # work mode: plain text frame
+cargo run --release -- --play --inputs "tick:500,ansi"       # fun mode: ANSI color frame
+cargo run --release -- --play --inputs "tick:100,frame,input:ScrollDown,tick:100,frame"  # scripted
+cargo run --release -- --screenshot --width 80 --height 30   # single ANSI screenshot
+```
+
+## Buildings & Production Chains
+
+| Building   | Cost        | Recipe              | Notes                        |
+|------------|-------------|---------------------|------------------------------|
+| Farm       | 5w 1s       | (growth→food)       | Villagers tend it, harvests auto-collect |
+| Hut        | 10w 4s      | —                   | Housing, villagers sleep here at night |
+| Wall       | 2w 2s       | —                   | Defensive, blocks movement   |
+| Workshop   | 8w 3s       | 2 wood → 1 plank    | Needs worker + wood          |
+| Smithy     | 5w 8s       | 2 stone → 1 masonry | Needs worker + stone         |
+| Granary    | 6w 4s       | 3 food → 2 grain    | Preserves food for winter    |
+| Bakery     | 8w 4s 2p    | 2 grain + 1 wood → 3 bread | Prevents plague events |
+| Garrison   | 4w 6s 2m    | —                   | Defends against wolf raids   |
+| Stockpile  | —           | —                   | Auto-placed at start, resource depot |
+
+**Key**: w=wood, s=stone, p=planks, m=masonry
+
+## Controls
+
+| Key     | Action              | Key     | Action              |
+|---------|---------------------|---------|---------------------|
+| arrows  | scroll camera       | `b`     | toggle build mode   |
+| `k`     | query/inspect       | `o`     | cycle overlay       |
+| `f`     | cycle speed (1/2/5x)| `g`     | goto settlement     |
+| `a`     | toggle auto-build   | `space` | pause               |
+| `q` (x2)| quit               | `s`/`l` | save/load           |
+
+**Build mode**: `wasd` move cursor, `tab` cycle type, `enter` place, `x` demolish
+
+## Terrain & Movement
+
+| Terrain       | Speed | Walkable | A* Cost |
+|---------------|-------|----------|---------|
+| Road          | 1.5x  | yes      | 0.7     |
+| Grass/Floor   | 1.0x  | yes      | 1.0     |
+| Sand          | 0.8x  | yes      | 1.3     |
+| Forest        | 0.6x  | yes      | 1.7     |
+| Snow          | 0.4x  | yes      | 2.5     |
+| Mountain      | 0.25x | yes      | 4.0     |
+| Water         | —     | **no**   | ∞       |
+| BuildingWall  | —     | **no**   | ∞       |
+
+Villagers use A* pathfinding; prey/predators use direct movement.
