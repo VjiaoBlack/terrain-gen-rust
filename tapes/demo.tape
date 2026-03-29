@@ -12,10 +12,16 @@ Sleep 3s
 # Watch the settlement for a bit
 Sleep 5s
 
-# Scroll around
-Type "jjjj"
+# Scroll around with arrow keys
+Down
+Down
+Down
+Down
 Sleep 2s
-Type "llll"
+Right
+Right
+Right
+Right
 Sleep 2s
 
 # Toggle overlay
@@ -32,6 +38,10 @@ Sleep 3s
 
 # Back to normal
 Type "f"
+Sleep 2s
+
+# Goto settlement
+Type "g"
 Sleep 2s
 
 # Quit

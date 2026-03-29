@@ -13,25 +13,26 @@ Sleep 3s
 Type "b"
 Sleep 1s
 
-# Cycle to farm
-Type@100ms "	"
-Sleep 500ms
-
-# Move cursor and place
+# Move cursor with wasd
 Type "dddd"
 Sleep 500ms
 Type "ss"
 Sleep 500ms
+
+# Cycle to farm with tab
+Tab
+Sleep 500ms
+
+# Place farm
 Enter
 Sleep 2s
 
 # Cycle to wall
-Type@100ms "	"
-Sleep 500ms
-Type@100ms "	"
+Tab
+Tab
 Sleep 500ms
 
-# Place a wall
+# Move and place a wall
 Type "aaa"
 Sleep 500ms
 Enter
@@ -45,7 +46,14 @@ Sleep 2s
 Type "b"
 Sleep 2s
 
-# Quit
+# Speed up to watch villagers build
+Type "f"
+Type "f"
+Sleep 5s
+
+# Back to normal and quit
+Type "f"
+Sleep 1s
 Type "q"
 Sleep 500ms
 Type "q"
