@@ -484,8 +484,9 @@ impl Game {
         // Pre-reveal settlement start area (around map center)
         g.exploration.reveal(scx, scy, 15);
         // Start camera at settlement
-        g.camera.x = scx as i32 - 20;
-        g.camera.y = scy as i32 - 10;
+        // Center camera on settlement (will be clamped after first step)
+        g.camera.x = scx as i32 - 30;
+        g.camera.y = scy as i32 - 15;
         g.notify("Settlement founded! [b]uild, [k]query, arrows scroll".to_string());
         g
     }
@@ -635,8 +636,10 @@ impl Game {
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
             GameInput::GotoSettlement => {
                 let (scx, scy) = self.settlement_center();
-                self.camera.x = scx - 20;
-                self.camera.y = scy - 10;
+                let (vw, vh) = renderer.size();
+                let map_cols = vw.saturating_sub(PANEL_WIDTH) as i32 / CELL_ASPECT;
+                self.camera.x = scx - map_cols / 2;
+                self.camera.y = scy - vh as i32 / 2;
             }
             GameInput::CycleSpeed => {
                 self.game_speed = match self.game_speed {
