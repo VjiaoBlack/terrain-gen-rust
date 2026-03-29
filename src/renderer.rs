@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Color(pub u8, pub u8, pub u8);
@@ -13,7 +13,11 @@ pub struct Cell {
 
 impl Cell {
     pub fn blank() -> Self {
-        Cell { ch: ' ', fg: Color(255, 255, 255), bg: None }
+        Cell {
+            ch: ' ',
+            fg: Color(255, 255, 255),
+            bg: None,
+        }
     }
 }
 

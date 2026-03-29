@@ -1,7 +1,7 @@
-use rand::RngExt;
-use crate::ecs::{self, Creature, HutBuilding, Species, ProcessingBuilding, Recipe};
-use crate::simulation::Season;
 use super::{Game, GameEvent, Milestone};
+use crate::ecs::{self, Creature, HutBuilding, ProcessingBuilding, Recipe, Species};
+use crate::simulation::Season;
+use rand::RngExt;
 
 impl Game {
     /// Fire a Lua on_event hook with the given event name.
@@ -28,7 +28,9 @@ impl Game {
                 GameEvent::BountifulHarvest { ticks_remaining } => {
                     *ticks_remaining = ticks_remaining.saturating_sub(1);
                     if *ticks_remaining == 0 {
-                        self.events.event_log.push("Bountiful harvest season ends.".to_string());
+                        self.events
+                            .event_log
+                            .push("Bountiful harvest season ends.".to_string());
                         return false;
                     }
                     true
@@ -36,16 +38,22 @@ impl Game {
                 GameEvent::WolfSurge { ticks_remaining } => {
                     *ticks_remaining = ticks_remaining.saturating_sub(1);
                     if *ticks_remaining == 0 {
-                        self.events.event_log.push("Wolf surge subsides.".to_string());
+                        self.events
+                            .event_log
+                            .push("Wolf surge subsides.".to_string());
                         return false;
                     }
                     true
                 }
                 GameEvent::Migration { .. } => false, // instant, remove after spawning
-                GameEvent::Plague { ticks_remaining, .. } => {
+                GameEvent::Plague {
+                    ticks_remaining, ..
+                } => {
                     *ticks_remaining = ticks_remaining.saturating_sub(1);
                     if *ticks_remaining == 0 {
-                        self.events.event_log.push("The plague has passed.".to_string());
+                        self.events
+                            .event_log
+                            .push("The plague has passed.".to_string());
                         return false;
                     }
                     true
@@ -53,7 +61,9 @@ impl Game {
                 GameEvent::Blizzard { ticks_remaining } => {
                     *ticks_remaining = ticks_remaining.saturating_sub(1);
                     if *ticks_remaining == 0 {
-                        self.events.event_log.push("The blizzard has ended.".to_string());
+                        self.events
+                            .event_log
+                            .push("The blizzard has ended.".to_string());
                         return false;
                     }
                     true
@@ -80,11 +90,15 @@ impl Game {
 
         // Keep event log trimmed
         if self.events.event_log.len() > 5 {
-            self.events.event_log.drain(0..self.events.event_log.len() - 5);
+            self.events
+                .event_log
+                .drain(0..self.events.event_log.len() - 5);
         }
 
         // Check for new events every 100 ticks
-        if self.tick % 100 != 0 { return; }
+        if !self.tick.is_multiple_of(100) {
+            return;
+        }
 
         let mut rng = rand::rng();
         let season = self.day_night.season;
@@ -92,8 +106,12 @@ impl Game {
         match season {
             Season::Summer => {
                 if !self.events.has_event_type("drought") && rng.random_range(0u32..100) < 15 {
-                    self.events.active_events.push(GameEvent::Drought { ticks_remaining: 300 });
-                    self.events.event_log.push("Drought! Farm yields halved.".to_string());
+                    self.events.active_events.push(GameEvent::Drought {
+                        ticks_remaining: 300,
+                    });
+                    self.events
+                        .event_log
+                        .push("Drought! Farm yields halved.".to_string());
                     self.notify("Drought! Farm yields halved.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("drought");
@@ -101,8 +119,12 @@ impl Game {
             }
             Season::Autumn => {
                 if !self.events.has_event_type("harvest") && rng.random_range(0u32..100) < 20 {
-                    self.events.active_events.push(GameEvent::BountifulHarvest { ticks_remaining: 200 });
-                    self.events.event_log.push("Bountiful harvest! Farm yields doubled.".to_string());
+                    self.events.active_events.push(GameEvent::BountifulHarvest {
+                        ticks_remaining: 200,
+                    });
+                    self.events
+                        .event_log
+                        .push("Bountiful harvest! Farm yields doubled.".to_string());
                     self.notify("Bountiful harvest! Farm yields doubled.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("harvest");
@@ -110,10 +132,18 @@ impl Game {
             }
             Season::Spring => {
                 // Migration: new villagers arrive if food surplus and housing available
-                let villager_count = self.world.query::<&Creature>().iter()
-                    .filter(|c| c.species == Species::Villager).count() as u32;
-                let hut_capacity: u32 = self.world.query::<&HutBuilding>().iter()
-                    .map(|h| h.capacity).sum();
+                let villager_count = self
+                    .world
+                    .query::<&Creature>()
+                    .iter()
+                    .filter(|c| c.species == Species::Villager)
+                    .count() as u32;
+                let hut_capacity: u32 = self
+                    .world
+                    .query::<&HutBuilding>()
+                    .iter()
+                    .map(|h| h.capacity)
+                    .sum();
                 let has_housing = hut_capacity > villager_count;
                 if has_housing && self.resources.food > 30 && rng.random_range(0u32..100) < 20 {
                     let count = rng.random_range(1u32..4);
@@ -123,7 +153,9 @@ impl Game {
                         let oy = rng.random_range(-3i32..4) as f64;
                         ecs::spawn_villager(&mut self.world, cx as f64 + ox, cy as f64 + oy);
                     }
-                    self.events.event_log.push(format!("{} migrants arrived!", count));
+                    self.events
+                        .event_log
+                        .push(format!("{} migrants arrived!", count));
                     self.notify(format!("{} migrants arrived!", count));
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("migration");
@@ -131,16 +163,24 @@ impl Game {
             }
             Season::Winter => {
                 if !self.events.has_event_type("wolf_surge") && rng.random_range(0u32..100) < 25 {
-                    self.events.active_events.push(GameEvent::WolfSurge { ticks_remaining: 400 });
-                    self.events.event_log.push("Wolf surge! Pack activity increases.".to_string());
+                    self.events.active_events.push(GameEvent::WolfSurge {
+                        ticks_remaining: 400,
+                    });
+                    self.events
+                        .event_log
+                        .push("Wolf surge! Pack activity increases.".to_string());
                     self.notify("Wolf surge! Pack activity increases.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
                 }
                 // Blizzard: winter-only, halves movement speed
                 if !self.events.has_event_type("blizzard") && rng.random_range(0u32..100) < 10 {
-                    self.events.active_events.push(GameEvent::Blizzard { ticks_remaining: 200 });
-                    self.events.event_log.push("Blizzard! Movement slowed.".to_string());
+                    self.events.active_events.push(GameEvent::Blizzard {
+                        ticks_remaining: 200,
+                    });
+                    self.events
+                        .event_log
+                        .push("Blizzard! Movement slowed.".to_string());
                     self.notify("Blizzard! Movement slowed.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("blizzard");
@@ -152,12 +192,20 @@ impl Game {
 
         // Plague: year 2+, kills 1-2 villagers unless Bakery exists
         if year >= 2 && !self.events.has_event_type("plague") && rng.random_range(0u32..100) < 5 {
-            let has_bakery = self.world.query::<&ProcessingBuilding>().iter()
+            let has_bakery = self
+                .world
+                .query::<&ProcessingBuilding>()
+                .iter()
                 .any(|pb| pb.recipe == Recipe::GrainToBread);
             if !has_bakery {
                 let kills = rng.random_range(1u32..=2);
-                self.events.active_events.push(GameEvent::Plague { ticks_remaining: 300, kills_remaining: kills });
-                self.events.event_log.push(format!("Plague strikes! {} villagers at risk.", kills));
+                self.events.active_events.push(GameEvent::Plague {
+                    ticks_remaining: 300,
+                    kills_remaining: kills,
+                });
+                self.events
+                    .event_log
+                    .push(format!("Plague strikes! {} villagers at risk.", kills));
                 self.notify(format!("Plague strikes! {} villagers at risk.", kills));
                 #[cfg(feature = "lua")]
                 self.fire_event_hook("plague");
@@ -165,9 +213,16 @@ impl Game {
         }
 
         // Bandit raid: year 3+, steals 25% of resources
-        if year >= 3 && !self.events.has_event_type("bandit_raid") && rng.random_range(0u32..100) < 8 {
-            self.events.active_events.push(GameEvent::BanditRaid { stolen: false });
-            self.events.event_log.push("Bandit raid! Resources stolen!".to_string());
+        if year >= 3
+            && !self.events.has_event_type("bandit_raid")
+            && rng.random_range(0u32..100) < 8
+        {
+            self.events
+                .active_events
+                .push(GameEvent::BanditRaid { stolen: false });
+            self.events
+                .event_log
+                .push("Bandit raid! Resources stolen!".to_string());
             self.notify("Bandit raid incoming!".to_string());
             #[cfg(feature = "lua")]
             self.fire_event_hook("bandit_raid");
@@ -177,9 +232,18 @@ impl Game {
     /// Check and award milestones based on current game state.
     pub(super) fn check_milestones(&mut self) {
         let year = self.day_night.year;
-        let villager_count = self.world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Villager).count() as u32;
-        let has_garrison = self.world.query::<&crate::ecs::GarrisonBuilding>().iter().count() > 0;
+        let villager_count = self
+            .world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Villager)
+            .count() as u32;
+        let has_garrison = self
+            .world
+            .query::<&crate::ecs::GarrisonBuilding>()
+            .iter()
+            .count()
+            > 0;
 
         let check = |m: Milestone, milestones: &[Milestone]| !milestones.contains(&m);
 

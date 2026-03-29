@@ -14,9 +14,9 @@ pub use systems::*;
 mod tests {
     use super::*;
     use crate::headless_renderer::HeadlessRenderer;
-    use crate::tilemap::{Terrain, TileMap};
     use crate::renderer::Color;
     use crate::simulation::Season;
+    use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
     fn walkable_map(w: usize, h: usize) -> TileMap {
@@ -153,7 +153,10 @@ mod tests {
 
         let pf = world.get::<&Position>(e_forest).unwrap().x;
         let pg = world.get::<&Position>(e_grass).unwrap().x;
-        assert!(pf < pg, "forest entity should move slower than grass entity");
+        assert!(
+            pf < pg,
+            "forest entity should move slower than grass entity"
+        );
     }
 
     #[test]
@@ -230,13 +233,28 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
         }
 
         let end_pos = *world.get::<&Position>(e).unwrap();
         let dist = ((end_pos.x - start_pos.x).powi(2) + (end_pos.y - start_pos.y).powi(2)).sqrt();
-        assert!(dist > 0.1, "NPC should have moved from spawn: dist={}", dist);
+        assert!(
+            dist > 0.1,
+            "NPC should have moved from spawn: dist={}",
+            dist
+        );
     }
 
     #[test]
@@ -251,13 +269,28 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
         }
 
         let pos = *world.get::<&Position>(e).unwrap();
-        assert!(map.is_walkable(pos.x, pos.y),
-            "NPC should stay on walkable terrain: pos=({}, {})", pos.x, pos.y);
+        assert!(
+            map.is_walkable(pos.x, pos.y),
+            "NPC should stay on walkable terrain: pos=({}, {})",
+            pos.x,
+            pos.y
+        );
     }
 
     #[test]
@@ -274,7 +307,18 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
         }
 
@@ -291,19 +335,40 @@ mod tests {
 
         {
             let mut behavior = world.get::<&mut Behavior>(e).unwrap();
-            behavior.state = BehaviorState::Seek { target_x: 15.0, target_y: 15.0, reason: SeekReason::Unknown };
+            behavior.state = BehaviorState::Seek {
+                target_x: 15.0,
+                target_y: 15.0,
+                reason: SeekReason::Unknown,
+            };
         }
 
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
             let dist = ((pos.x - 15.0).powi(2) + (pos.y - 15.0).powi(2)).sqrt();
-            if dist < min_dist { min_dist = dist; }
+            if dist < min_dist {
+                min_dist = dist;
+            }
         }
 
-        assert!(min_dist < 2.0, "NPC should reach near target: min_dist={}", min_dist);
+        assert!(
+            min_dist < 2.0,
+            "NPC should reach near target: min_dist={}",
+            min_dist
+        );
     }
 
     #[test]
@@ -317,9 +382,17 @@ mod tests {
         }
 
         let end_hunger = world.get::<&Creature>(e).unwrap().hunger;
-        assert!(end_hunger > start_hunger, "hunger should increase: {} -> {}", start_hunger, end_hunger);
+        assert!(
+            end_hunger > start_hunger,
+            "hunger should increase: {} -> {}",
+            start_hunger,
+            end_hunger
+        );
         let expected = 0.0005 * 100.0;
-        assert!((end_hunger - start_hunger - expected).abs() < 0.001, "hunger should increase by 0.0005/tick for prey");
+        assert!(
+            (end_hunger - start_hunger - expected).abs() < 0.001,
+            "hunger should increase by 0.0005/tick for prey"
+        );
     }
 
     #[test]
@@ -336,11 +409,24 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
         match state {
-            BehaviorState::Seek { target_x, target_y, .. } => {
+            BehaviorState::Seek {
+                target_x, target_y, ..
+            } => {
                 assert!((target_x - 20.0).abs() < 0.1, "should seek food x");
                 assert!((target_y - 10.0).abs() < 0.1, "should seek food y");
             }
@@ -360,11 +446,25 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
-        assert!(matches!(state, BehaviorState::FleeHome { .. }),
-            "prey should flee when predator nearby, got: {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::FleeHome { .. }),
+            "prey should flee when predator nearby, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -378,11 +478,25 @@ mod tests {
             b.state = BehaviorState::FleeHome { timer: 120 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
-        assert!(matches!(state, BehaviorState::AtHome { .. }),
-            "prey at home position should transition to AtHome, got: {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::AtHome { .. }),
+            "prey at home position should transition to AtHome, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -399,11 +513,25 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
-        assert!(matches!(state, BehaviorState::Hunting { .. }),
-            "hungry predator should hunt visible prey, got: {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::Hunting { .. }),
+            "hungry predator should hunt visible prey, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -420,11 +548,25 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
-        assert!(!matches!(state, BehaviorState::Hunting { .. }),
-            "predator should not hunt prey that is at home, got: {:?}", state);
+        assert!(
+            !matches!(state, BehaviorState::Hunting { .. }),
+            "predator should not hunt prey that is at home, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -445,7 +587,18 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
 
             let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -456,7 +609,10 @@ mod tests {
             }
             if !rabbit_exists {
                 rabbit_alive = false;
-                eprintln!("tick {}: rabbit despawned, wolf state: {:?}", tick, wolf_state);
+                eprintln!(
+                    "tick {}: rabbit despawned, wolf state: {:?}",
+                    tick, wolf_state
+                );
                 break;
             }
 
@@ -465,8 +621,10 @@ mod tests {
                 let rp = *world.get::<&Position>(rabbit).unwrap();
                 let rs = world.get::<&Behavior>(rabbit).unwrap().state;
                 let d = ((wp.x - rp.x).powi(2) + (wp.y - rp.y).powi(2)).sqrt();
-                eprintln!("tick {}: wolf({:.1},{:.1}) {:?}  rabbit({:.1},{:.1}) {:?}  dist={:.1}",
-                    tick, wp.x, wp.y, wolf_state, rp.x, rp.y, rs, d);
+                eprintln!(
+                    "tick {}: wolf({:.1},{:.1}) {:?}  rabbit({:.1},{:.1}) {:?}  dist={:.1}",
+                    tick, wp.x, wp.y, wolf_state, rp.x, rp.y, rs, d
+                );
             }
         }
 
@@ -493,23 +651,52 @@ mod tests {
 
         for tick in 0..1000 {
             system_hunger(&mut world, 1.0);
-            system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
 
             let ws = world.get::<&Behavior>(wolf).unwrap().state;
-            let state_name = format!("{:?}", ws).split('{').next().unwrap_or("?").split('(').next().unwrap_or("?").trim().to_string();
+            let state_name = format!("{:?}", ws)
+                .split('{')
+                .next()
+                .unwrap_or("?")
+                .split('(')
+                .next()
+                .unwrap_or("?")
+                .trim()
+                .to_string();
             states_seen.insert(format!("wolf:{}", state_name));
 
             if let Ok(rb) = world.get::<&Behavior>(rabbit) {
-                let rstate = format!("{:?}", rb.state).split('{').next().unwrap_or("?").split('(').next().unwrap_or("?").trim().to_string();
+                let rstate = format!("{:?}", rb.state)
+                    .split('{')
+                    .next()
+                    .unwrap_or("?")
+                    .split('(')
+                    .next()
+                    .unwrap_or("?")
+                    .trim()
+                    .to_string();
                 states_seen.insert(format!("rabbit:{}", rstate));
             }
 
             if tick % 100 == 0 {
                 let wh = world.get::<&Creature>(wolf).unwrap().hunger;
                 let rabbit_alive = world.get::<&Position>(rabbit).is_ok();
-                eprintln!("tick {}: wolf hunger={:.2} state={:?} rabbit_alive={}",
-                    tick, wh, ws, rabbit_alive);
+                eprintln!(
+                    "tick {}: wolf hunger={:.2} state={:?} rabbit_alive={}",
+                    tick, wh, ws, rabbit_alive
+                );
             }
         }
 
@@ -530,7 +717,18 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
         assert!(hunger < 0.6, "eating should reduce hunger: {}", hunger);
@@ -551,11 +749,24 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
-            BehaviorState::Seek { target_x, target_y, .. } => {
+            BehaviorState::Seek {
+                target_x, target_y, ..
+            } => {
                 assert!((target_x - 20.0).abs() < 0.1, "should seek food x");
                 assert!((target_y - 10.0).abs() < 0.1, "should seek food y");
             }
@@ -576,11 +787,25 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::FleeHome { .. }),
-            "villager should flee when predator nearby, got: {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::FleeHome { .. }),
+            "villager should flee when predator nearby, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -600,11 +825,31 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Wood, .. }),
-            "villager near forest with low hunger should gather wood, got: {:?}", state);
+        assert!(
+            matches!(
+                state,
+                BehaviorState::Gathering {
+                    resource_type: ResourceType::Wood,
+                    ..
+                }
+            ),
+            "villager near forest with low hunger should gather wood, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -616,19 +861,46 @@ mod tests {
 
         {
             let mut b = world.get::<&mut Behavior>(villager).unwrap();
-            b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Wood };
+            b.state = BehaviorState::Gathering {
+                timer: 0,
+                resource_type: ResourceType::Wood,
+            };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
         match state {
-            BehaviorState::Hauling { target_x, target_y, resource_type } => {
-                assert!((target_x - 5.0).abs() < 0.1, "should haul toward stockpile x");
-                assert!((target_y - 5.0).abs() < 0.1, "should haul toward stockpile y");
+            BehaviorState::Hauling {
+                target_x,
+                target_y,
+                resource_type,
+            } => {
+                assert!(
+                    (target_x - 5.0).abs() < 0.1,
+                    "should haul toward stockpile x"
+                );
+                assert!(
+                    (target_y - 5.0).abs() < 0.1,
+                    "should haul toward stockpile y"
+                );
                 assert_eq!(resource_type, ResourceType::Wood, "should haul wood");
             }
-            _ => panic!("villager after gathering should haul to stockpile, got: {:?}", state),
+            _ => panic!(
+                "villager after gathering should haul to stockpile, got: {:?}",
+                state
+            ),
         }
     }
 
@@ -641,17 +913,39 @@ mod tests {
 
         {
             let mut b = world.get::<&mut Behavior>(villager).unwrap();
-            b.state = BehaviorState::Hauling { target_x: 5.0, target_y: 5.0, resource_type: ResourceType::Wood };
+            b.state = BehaviorState::Hauling {
+                target_x: 5.0,
+                target_y: 5.0,
+                resource_type: ResourceType::Wood,
+            };
         }
 
-        let result = system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        let result = system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
-        assert_eq!(result.deposited[0], ResourceType::Wood, "should deposit wood");
+        assert_eq!(
+            result.deposited[0],
+            ResourceType::Wood,
+            "should deposit wood"
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::Idle { .. }),
-            "villager should be idle after depositing, got: {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::Idle { .. }),
+            "villager should be idle after depositing, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -695,11 +989,25 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::Building { .. }),
-            "villager near build site with low hunger should start building, got: {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::Building { .. }),
+            "villager near build site with low hunger should start building, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -719,22 +1027,68 @@ mod tests {
             let mut c = world.get::<&mut Creature>(villager).unwrap();
             c.hunger = 0.2;
             let mut b = world.get::<&mut Behavior>(villager).unwrap();
-            b.state = BehaviorState::Building { target_x: 10.0, target_y: 10.0, timer: 5 };
+            b.state = BehaviorState::Building {
+                target_x: 10.0,
+                target_y: 10.0,
+                timer: 5,
+            };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let s = world.get::<&BuildSite>(site).unwrap();
-        assert!(s.progress >= s.required,
-            "build site should be complete: progress={} required={}", s.progress, s.required);
+        assert!(
+            s.progress >= s.required,
+            "build site should be complete: progress={} required={}",
+            s.progress,
+            s.required
+        );
     }
 
     #[test]
     fn building_type_costs_and_sizes() {
-        assert_eq!(BuildingType::Hut.cost(), Resources { wood: 10, stone: 4, ..Default::default() });
-        assert_eq!(BuildingType::Wall.cost(), Resources { wood: 2, stone: 2, ..Default::default() });
-        assert_eq!(BuildingType::Farm.cost(), Resources { wood: 5, stone: 1, ..Default::default() });
-        assert_eq!(BuildingType::Stockpile.cost(), Resources { wood: 4, ..Default::default() });
+        assert_eq!(
+            BuildingType::Hut.cost(),
+            Resources {
+                wood: 10,
+                stone: 4,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            BuildingType::Wall.cost(),
+            Resources {
+                wood: 2,
+                stone: 2,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            BuildingType::Farm.cost(),
+            Resources {
+                wood: 5,
+                stone: 1,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            BuildingType::Stockpile.cost(),
+            Resources {
+                wood: 4,
+                ..Default::default()
+            }
+        );
 
         assert_eq!(BuildingType::Hut.size(), (3, 3));
         assert_eq!(BuildingType::Wall.size(), (1, 1));
@@ -751,8 +1105,14 @@ mod tests {
         assert_eq!(wall_tiles[0], (0, 0, Terrain::BuildingWall));
 
         let hut_tiles = BuildingType::Hut.tiles();
-        let wall_count = hut_tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingWall).count();
-        let floor_count = hut_tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingFloor).count();
+        let wall_count = hut_tiles
+            .iter()
+            .filter(|(_, _, t)| *t == Terrain::BuildingWall)
+            .count();
+        let floor_count = hut_tiles
+            .iter()
+            .filter(|(_, _, t)| *t == Terrain::BuildingFloor)
+            .count();
         assert!(wall_count > 0, "hut should have wall tiles");
         assert!(floor_count > 0, "hut should have floor tiles");
     }
@@ -772,8 +1132,12 @@ mod tests {
         let winter_hunger = world.get::<&Creature>(e).unwrap().hunger;
         let winter_increase = winter_hunger - start;
 
-        assert!(winter_increase > normal_increase,
-            "winter hunger increase ({}) should exceed normal ({})", winter_increase, normal_increase);
+        assert!(
+            winter_increase > normal_increase,
+            "winter hunger increase ({}) should exceed normal ({})",
+            winter_increase,
+            normal_increase
+        );
     }
 
     #[test]
@@ -786,13 +1150,27 @@ mod tests {
         world.get::<&mut Creature>(wolf).unwrap().hunger = 0.9;
 
         for _ in 0..5 {
-            system_ai(&mut world, &map, 0.8, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            system_ai(
+                &mut world,
+                &map,
+                0.8,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             system_movement(&mut world, &map);
         }
 
         let state = world.get::<&Behavior>(wolf).unwrap().state;
-        assert!(matches!(state, BehaviorState::Hunting { .. }),
-            "hungry wolf should hunt villager in winter, got {:?}", state);
+        assert!(
+            matches!(state, BehaviorState::Hunting { .. }),
+            "hungry wolf should hunt villager in winter, got {:?}",
+            state
+        );
     }
 
     #[test]
@@ -804,7 +1182,10 @@ mod tests {
 
         let dead = system_death(&mut world);
         assert_eq!(dead.len(), 1, "one creature should die");
-        assert!(world.get::<&Creature>(e).is_err(), "dead creature should be despawned");
+        assert!(
+            world.get::<&Creature>(e).is_err(),
+            "dead creature should be despawned"
+        );
     }
 
     #[test]
@@ -814,17 +1195,27 @@ mod tests {
         world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
         world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::AtHome { timer: 100 };
 
-        let initial_count = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Prey).count();
+        let initial_count = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Prey)
+            .count();
         assert_eq!(initial_count, 1);
 
         for _ in 0..5000 {
             system_breeding(&mut world, Season::Spring, 1.0, 0);
         }
 
-        let final_count = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Prey).count();
-        assert!(final_count > 1, "prey should have bred in spring, count={}", final_count);
+        let final_count = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Prey)
+            .count();
+        assert!(
+            final_count > 1,
+            "prey should have bred in spring, count={}",
+            final_count
+        );
     }
 
     #[test]
@@ -834,17 +1225,27 @@ mod tests {
         world.get::<&mut Creature>(e).unwrap().hunger = 0.1;
         world.get::<&mut Behavior>(e).unwrap().state = BehaviorState::Wander { timer: 50 };
 
-        let initial_count = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Predator).count();
+        let initial_count = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Predator)
+            .count();
         assert_eq!(initial_count, 1);
 
         for _ in 0..10000 {
             system_breeding(&mut world, Season::Summer, 1.0, 0);
         }
 
-        let final_count = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Predator).count();
-        assert!(final_count > 1, "wolf should have bred when well-fed, count={}", final_count);
+        let final_count = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Predator)
+            .count();
+        assert!(
+            final_count > 1,
+            "wolf should have bred when well-fed, count={}",
+            final_count
+        );
     }
 
     #[test]
@@ -858,8 +1259,11 @@ mod tests {
             system_breeding(&mut world, Season::Winter, 1.0, 0);
         }
 
-        let count = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Prey).count();
+        let count = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Prey)
+            .count();
         assert_eq!(count, 1, "no breeding should occur in winter");
     }
 
@@ -876,9 +1280,16 @@ mod tests {
             system_breeding(&mut world, Season::Spring, 1.0, 0);
         }
 
-        let count = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Prey).count();
-        assert_eq!(count, 3, "prey should be capped at 3 per den, got {}", count);
+        let count = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Prey)
+            .count();
+        assert_eq!(
+            count, 3,
+            "prey should be capped at 3 per den, got {}",
+            count
+        );
     }
 
     #[test]
@@ -892,8 +1303,17 @@ mod tests {
             }
             system_farms(&mut world, Season::Summer, 1.0);
         }
-        let pending = world.query::<&FarmPlot>().iter().next().unwrap().pending_food;
-        assert!(pending >= 3, "farm with worker should have produced at least 3 pending food, got {}", pending);
+        let pending = world
+            .query::<&FarmPlot>()
+            .iter()
+            .next()
+            .unwrap()
+            .pending_food;
+        assert!(
+            pending >= 3,
+            "farm with worker should have produced at least 3 pending food, got {}",
+            pending
+        );
     }
 
     #[test]
@@ -906,7 +1326,11 @@ mod tests {
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
-        assert_eq!(growth, 0.0, "farm should not grow without worker, got {}", growth);
+        assert_eq!(
+            growth, 0.0,
+            "farm should not grow without worker, got {}",
+            growth
+        );
     }
 
     #[test]
@@ -922,7 +1346,11 @@ mod tests {
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
-        assert_eq!(growth, 0.0, "farm should not grow in winter even with worker, got {}", growth);
+        assert_eq!(
+            growth, 0.0,
+            "farm should not grow in winter even with worker, got {}",
+            growth
+        );
     }
 
     #[test]
@@ -930,7 +1358,9 @@ mod tests {
         let mut world = World::new();
         spawn_farm_plot(&mut world, 10.0, 10.0);
 
-        let ch = world.query::<&Sprite>().iter()
+        let ch = world
+            .query::<&Sprite>()
+            .iter()
             .find(|s| s.ch == '·')
             .map(|s| s.ch);
         assert_eq!(ch, Some('·'), "new farm should show dirt sprite");
@@ -944,7 +1374,11 @@ mod tests {
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
             let (_, sprite) = q.iter().next().unwrap();
-            assert_eq!(sprite.ch, '♠', "mid-growth farm should show growing sprite, got '{}'", sprite.ch);
+            assert_eq!(
+                sprite.ch, '♠',
+                "mid-growth farm should show growing sprite, got '{}'",
+                sprite.ch
+            );
         }
 
         for _ in 0..100 {
@@ -956,7 +1390,11 @@ mod tests {
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
             let (_, sprite) = q.iter().next().unwrap();
-            assert_eq!(sprite.ch, '"', "mature farm should show mature sprite, got '{}'", sprite.ch);
+            assert_eq!(
+                sprite.ch, '"',
+                "mature farm should show mature sprite, got '{}'",
+                sprite.ch
+            );
         }
     }
 
@@ -984,25 +1422,46 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
-            let r = system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+            let r = system_ai(
+                &mut world,
+                &map,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                &SkillMults::default(),
+                false,
+                false,
+            );
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
             system_death(&mut world);
 
             for (creature, behavior) in world.query::<(&Creature, &Behavior)>().iter() {
                 if creature.species == Species::Villager {
-                    if matches!(behavior.state, BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. }) {
+                    if matches!(
+                        behavior.state,
+                        BehaviorState::Gathering { .. } | BehaviorState::Hauling { .. }
+                    ) {
                         any_gathered = true;
                     }
                 }
             }
         }
 
-        let final_alive = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Villager).count();
+        let final_alive = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Villager)
+            .count();
 
         assert!(any_gathered, "villagers should gather from berry bushes");
-        assert!(final_alive >= 2, "at least 2 villagers should survive 3000 ticks, got {}", final_alive);
+        assert!(
+            final_alive >= 2,
+            "at least 2 villagers should survive 3000 ticks, got {}",
+            final_alive
+        );
     }
 
     #[test]
@@ -1020,12 +1479,29 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        let result = system_ai(&mut world, &map, 0.4, 10, 0, 0, 0, &SkillMults::default(), false, false);
+        let result = system_ai(
+            &mut world,
+            &map,
+            0.4,
+            10,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::Eating { .. }),
-            "hungry villager near stockpile with food should eat, got: {:?}", state);
-        assert_eq!(result.food_consumed, 1, "should consume 1 food from stockpile");
+        assert!(
+            matches!(state, BehaviorState::Eating { .. }),
+            "hungry villager near stockpile with food should eat, got: {:?}",
+            state
+        );
+        assert_eq!(
+            result.food_consumed, 1,
+            "should consume 1 food from stockpile"
+        );
     }
 
     #[test]
@@ -1044,11 +1520,31 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
-        assert!(matches!(state, BehaviorState::Gathering { resource_type: ResourceType::Stone, .. }),
-            "villager near stone deposit with low hunger should gather stone, got: {:?}", state);
+        assert!(
+            matches!(
+                state,
+                BehaviorState::Gathering {
+                    resource_type: ResourceType::Stone,
+                    ..
+                }
+            ),
+            "villager near stone deposit with low hunger should gather stone, got: {:?}",
+            state
+        );
     }
 
     #[test]
@@ -1067,12 +1563,21 @@ mod tests {
 
         let serialized = serialize_world(&world);
 
-        let villager_count = world.query::<(&Creature,)>().iter()
-            .filter(|(c,)| c.species == Species::Villager).count();
-        let prey_count = world.query::<(&Creature,)>().iter()
-            .filter(|(c,)| c.species == Species::Prey).count();
-        let predator_count = world.query::<(&Creature,)>().iter()
-            .filter(|(c,)| c.species == Species::Predator).count();
+        let villager_count = world
+            .query::<(&Creature,)>()
+            .iter()
+            .filter(|(c,)| c.species == Species::Villager)
+            .count();
+        let prey_count = world
+            .query::<(&Creature,)>()
+            .iter()
+            .filter(|(c,)| c.species == Species::Prey)
+            .count();
+        let predator_count = world
+            .query::<(&Creature,)>()
+            .iter()
+            .filter(|(c,)| c.species == Species::Predator)
+            .count();
         let food_count = world.query::<(&FoodSource,)>().iter().count();
         let stone_count = world.query::<(&StoneDeposit,)>().iter().count();
         let den_count = world.query::<(&Den,)>().iter().count();
@@ -1082,21 +1587,52 @@ mod tests {
 
         let new_world = deserialize_world(&serialized);
 
-        assert_eq!(new_world.query::<(&Creature,)>().iter()
-            .filter(|(c,)| c.species == Species::Villager).count(), villager_count);
-        assert_eq!(new_world.query::<(&Creature,)>().iter()
-            .filter(|(c,)| c.species == Species::Prey).count(), prey_count);
-        assert_eq!(new_world.query::<(&Creature,)>().iter()
-            .filter(|(c,)| c.species == Species::Predator).count(), predator_count);
-        assert_eq!(new_world.query::<(&FoodSource,)>().iter().count(), food_count);
-        assert_eq!(new_world.query::<(&StoneDeposit,)>().iter().count(), stone_count);
+        assert_eq!(
+            new_world
+                .query::<(&Creature,)>()
+                .iter()
+                .filter(|(c,)| c.species == Species::Villager)
+                .count(),
+            villager_count
+        );
+        assert_eq!(
+            new_world
+                .query::<(&Creature,)>()
+                .iter()
+                .filter(|(c,)| c.species == Species::Prey)
+                .count(),
+            prey_count
+        );
+        assert_eq!(
+            new_world
+                .query::<(&Creature,)>()
+                .iter()
+                .filter(|(c,)| c.species == Species::Predator)
+                .count(),
+            predator_count
+        );
+        assert_eq!(
+            new_world.query::<(&FoodSource,)>().iter().count(),
+            food_count
+        );
+        assert_eq!(
+            new_world.query::<(&StoneDeposit,)>().iter().count(),
+            stone_count
+        );
         assert_eq!(new_world.query::<(&Den,)>().iter().count(), den_count);
-        assert_eq!(new_world.query::<(&Stockpile,)>().iter().count(), stockpile_count);
-        assert_eq!(new_world.query::<(&BuildSite,)>().iter().count(), build_site_count);
+        assert_eq!(
+            new_world.query::<(&Stockpile,)>().iter().count(),
+            stockpile_count
+        );
+        assert_eq!(
+            new_world.query::<(&BuildSite,)>().iter().count(),
+            build_site_count
+        );
         assert_eq!(new_world.query::<(&FarmPlot,)>().iter().count(), farm_count);
 
         let mut query = new_world.query::<(&Position, &Creature)>();
-        let (pos, _creature) = query.iter()
+        let (pos, _creature) = query
+            .iter()
             .find(|(_, c)| c.species == Species::Villager)
             .unwrap();
         assert!((pos.x - 10.0).abs() < 0.01);
@@ -1105,7 +1641,14 @@ mod tests {
 
     #[test]
     fn workshop_building_type_properties() {
-        assert_eq!(BuildingType::Workshop.cost(), Resources { wood: 15, stone: 8, ..Default::default() });
+        assert_eq!(
+            BuildingType::Workshop.cost(),
+            Resources {
+                wood: 15,
+                stone: 8,
+                ..Default::default()
+            }
+        );
         assert_eq!(BuildingType::Workshop.size(), (3, 3));
         assert_eq!(BuildingType::Workshop.build_time(), 220);
         assert_eq!(BuildingType::Workshop.name(), "Workshop");
@@ -1113,7 +1656,14 @@ mod tests {
 
     #[test]
     fn smithy_building_type_properties() {
-        assert_eq!(BuildingType::Smithy.cost(), Resources { wood: 10, stone: 15, ..Default::default() });
+        assert_eq!(
+            BuildingType::Smithy.cost(),
+            Resources {
+                wood: 10,
+                stone: 15,
+                ..Default::default()
+            }
+        );
         assert_eq!(BuildingType::Smithy.size(), (3, 3));
         assert_eq!(BuildingType::Smithy.build_time(), 270);
         assert_eq!(BuildingType::Smithy.name(), "Smithy");
@@ -1123,10 +1673,15 @@ mod tests {
     fn system_processing_converts_wood_to_planks() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
-        let mut resources = Resources { wood: 10, ..Default::default() };
+        let mut resources = Resources {
+            wood: 10,
+            ..Default::default()
+        };
 
         for _ in 0..120 {
-            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
+            for b in world.query_mut::<&mut ProcessingBuilding>() {
+                b.worker_present = true;
+            }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -1138,10 +1693,15 @@ mod tests {
     fn system_processing_converts_stone_to_masonry() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::StoneToMasonry);
-        let mut resources = Resources { stone: 4, ..Default::default() };
+        let mut resources = Resources {
+            stone: 4,
+            ..Default::default()
+        };
 
         for _ in 0..120 {
-            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
+            for b in world.query_mut::<&mut ProcessingBuilding>() {
+                b.worker_present = true;
+            }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -1153,10 +1713,15 @@ mod tests {
     fn system_processing_converts_food_to_grain() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::FoodToGrain);
-        let mut resources = Resources { food: 6, ..Default::default() };
+        let mut resources = Resources {
+            food: 6,
+            ..Default::default()
+        };
 
         for _ in 0..120 {
-            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
+            for b in world.query_mut::<&mut ProcessingBuilding>() {
+                b.worker_present = true;
+            }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -1168,33 +1733,57 @@ mod tests {
     fn system_processing_no_process_insufficient_resources() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
-        let mut resources = Resources { wood: 1, ..Default::default() };
+        let mut resources = Resources {
+            wood: 1,
+            ..Default::default()
+        };
 
         for _ in 0..120 {
             system_processing(&mut world, &mut resources, 1.0);
         }
 
-        assert_eq!(resources.wood, 1, "wood should be unchanged with insufficient amount");
+        assert_eq!(
+            resources.wood, 1,
+            "wood should be unchanged with insufficient amount"
+        );
         assert_eq!(resources.planks, 0, "no planks should be produced");
     }
 
     #[test]
     fn new_building_types_in_all_list() {
         let all = BuildingType::all();
-        assert!(all.contains(&BuildingType::Workshop), "all() should contain Workshop");
-        assert!(all.contains(&BuildingType::Smithy), "all() should contain Smithy");
-        assert!(all.contains(&BuildingType::Granary), "all() should contain Granary");
-        assert!(all.contains(&BuildingType::Bakery), "all() should contain Bakery");
+        assert!(
+            all.contains(&BuildingType::Workshop),
+            "all() should contain Workshop"
+        );
+        assert!(
+            all.contains(&BuildingType::Smithy),
+            "all() should contain Smithy"
+        );
+        assert!(
+            all.contains(&BuildingType::Granary),
+            "all() should contain Granary"
+        );
+        assert!(
+            all.contains(&BuildingType::Bakery),
+            "all() should contain Bakery"
+        );
     }
 
     #[test]
     fn bakery_converts_grain_to_bread() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::GrainToBread);
-        let mut resources = Resources { grain: 4, wood: 2, ..Default::default() };
+        let mut resources = Resources {
+            grain: 4,
+            wood: 2,
+            ..Default::default()
+        };
 
         for _ in 0..150 {
-            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
+            for b in world.query_mut::<&mut ProcessingBuilding>() {
+                b.worker_present = true;
+            }
             system_processing(&mut world, &mut resources, 1.0);
         }
 
@@ -1216,31 +1805,60 @@ mod tests {
     fn workshop_and_smithy_tiles_are_3x3() {
         let workshop_tiles = BuildingType::Workshop.tiles();
         let smithy_tiles = BuildingType::Smithy.tiles();
-        assert!(workshop_tiles.len() >= 9, "workshop should have at least 9 tiles");
-        assert!(smithy_tiles.len() >= 9, "smithy should have at least 9 tiles");
+        assert!(
+            workshop_tiles.len() >= 9,
+            "workshop should have at least 9 tiles"
+        );
+        assert!(
+            smithy_tiles.len() >= 9,
+            "smithy should have at least 9 tiles"
+        );
     }
 
     #[test]
     fn skill_mult_speeds_up_processing() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
-        let mut resources = Resources { wood: 10, ..Default::default() };
+        let mut resources = Resources {
+            wood: 10,
+            ..Default::default()
+        };
 
         for _ in 0..60 {
-            for b in world.query_mut::<&mut ProcessingBuilding>() { b.worker_present = true; }
+            for b in world.query_mut::<&mut ProcessingBuilding>() {
+                b.worker_present = true;
+            }
             system_processing(&mut world, &mut resources, 2.0);
         }
 
-        assert_eq!(resources.wood, 8, "should have consumed 2 wood at double speed");
-        assert_eq!(resources.planks, 1, "should have produced 1 planks at double speed");
+        assert_eq!(
+            resources.wood, 8,
+            "should have consumed 2 wood at double speed"
+        );
+        assert_eq!(
+            resources.planks, 1,
+            "should have produced 1 planks at double speed"
+        );
     }
 
     #[test]
     fn garrison_building_has_correct_cost_and_size() {
         let garrison = BuildingType::Garrison;
-        assert_eq!(garrison.cost(), Resources { planks: 10, masonry: 10, ..Default::default() }, "garrison cost should be 10 planks, 10 masonry");
+        assert_eq!(
+            garrison.cost(),
+            Resources {
+                planks: 10,
+                masonry: 10,
+                ..Default::default()
+            },
+            "garrison cost should be 10 planks, 10 masonry"
+        );
         assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
-        assert_eq!(garrison.build_time(), 180, "garrison build time should be 180");
+        assert_eq!(
+            garrison.build_time(),
+            180,
+            "garrison build time should be 180"
+        );
         assert_eq!(garrison.name(), "Garrison");
         assert!(BuildingType::all().contains(&BuildingType::Garrison));
     }
@@ -1248,10 +1866,24 @@ mod tests {
     #[test]
     fn garrison_tiles_have_wall_perimeter() {
         let tiles = BuildingType::Garrison.tiles();
-        let wall_count = tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingWall).count();
-        let floor_count = tiles.iter().filter(|(_, _, t)| *t == Terrain::BuildingFloor).count();
-        assert!(wall_count >= 7, "garrison should have at least 7 wall tiles, got {}", wall_count);
-        assert!(floor_count >= 1, "garrison should have at least 1 floor tile, got {}", floor_count);
+        let wall_count = tiles
+            .iter()
+            .filter(|(_, _, t)| *t == Terrain::BuildingWall)
+            .count();
+        let floor_count = tiles
+            .iter()
+            .filter(|(_, _, t)| *t == Terrain::BuildingFloor)
+            .count();
+        assert!(
+            wall_count >= 7,
+            "garrison should have at least 7 wall tiles, got {}",
+            wall_count
+        );
+        assert!(
+            floor_count >= 1,
+            "garrison should have at least 1 floor tile, got {}",
+            floor_count
+        );
     }
 
     #[test]
@@ -1283,7 +1915,18 @@ mod tests {
             c.hunger = 0.1;
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), true, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            true,
+            false,
+        );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
         let is_hunting_villager = match wolf_state {
@@ -1294,8 +1937,11 @@ mod tests {
             }
             _ => false,
         };
-        assert!(!is_hunting_villager,
-            "wolf should not hunt villagers when settlement is defended, state: {:?}", wolf_state);
+        assert!(
+            !is_hunting_villager,
+            "wolf should not hunt villagers when settlement is defended, state: {:?}",
+            wolf_state
+        );
     }
 
     #[test]
@@ -1312,23 +1958,52 @@ mod tests {
             c.hunger = 0.7;
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
-        assert!(matches!(wolf_state, BehaviorState::Hunting { .. }),
-            "wolf should hunt when defense is insufficient, got: {:?}", wolf_state);
+        assert!(
+            matches!(wolf_state, BehaviorState::Hunting { .. }),
+            "wolf should hunt when defense is insufficient, got: {:?}",
+            wolf_state
+        );
     }
 
     #[test]
     fn resources_can_afford_and_deduct() {
-        let mut res = Resources { food: 10, wood: 5, stone: 3, planks: 2, masonry: 1, grain: 4, bread: 0 };
-        let cost = Resources { wood: 3, stone: 2, ..Default::default() };
+        let mut res = Resources {
+            food: 10,
+            wood: 5,
+            stone: 3,
+            planks: 2,
+            masonry: 1,
+            grain: 4,
+            bread: 0,
+        };
+        let cost = Resources {
+            wood: 3,
+            stone: 2,
+            ..Default::default()
+        };
         assert!(res.can_afford(&cost));
         res.deduct(&cost);
         assert_eq!(res.wood, 2);
         assert_eq!(res.stone, 1);
 
-        let expensive = Resources { planks: 10, ..Default::default() };
+        let expensive = Resources {
+            planks: 10,
+            ..Default::default()
+        };
         assert!(!res.can_afford(&expensive));
     }
 
@@ -1340,10 +2015,22 @@ mod tests {
         assert_eq!(cost.wood, 0, "garrison should not require raw wood");
         assert_eq!(cost.stone, 0, "garrison should not require raw stone");
 
-        let raw_only = Resources { food: 100, wood: 100, stone: 100, ..Default::default() };
-        assert!(!raw_only.can_afford(&cost), "raw resources alone should not afford garrison");
+        let raw_only = Resources {
+            food: 100,
+            wood: 100,
+            stone: 100,
+            ..Default::default()
+        };
+        assert!(
+            !raw_only.can_afford(&cost),
+            "raw resources alone should not afford garrison"
+        );
 
-        let refined = Resources { planks: 10, masonry: 10, ..Default::default() };
+        let refined = Resources {
+            planks: 10,
+            masonry: 10,
+            ..Default::default()
+        };
         assert!(refined.can_afford(&cost));
     }
 
@@ -1352,11 +2039,18 @@ mod tests {
         let mut world = World::new();
         let pb = spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
 
-        let mut resources = Resources { wood: 10, ..Default::default() };
+        let mut resources = Resources {
+            wood: 10,
+            ..Default::default()
+        };
         system_processing(&mut world, &mut resources, 1.0);
         {
             let sprite = world.get::<&Sprite>(pb).unwrap();
-            assert_eq!(sprite.fg, Color(80, 80, 80), "should be dark gray without worker");
+            assert_eq!(
+                sprite.fg,
+                Color(80, 80, 80),
+                "should be dark gray without worker"
+            );
         }
 
         {
@@ -1366,7 +2060,11 @@ mod tests {
         system_processing(&mut world, &mut resources, 1.0);
         {
             let sprite = world.get::<&Sprite>(pb).unwrap();
-            assert_eq!(sprite.fg, Color(255, 200, 50), "should be bright yellow with worker+inputs");
+            assert_eq!(
+                sprite.fg,
+                Color(255, 200, 50),
+                "should be bright yellow with worker+inputs"
+            );
         }
 
         resources.wood = 0;
@@ -1377,7 +2075,11 @@ mod tests {
         system_processing(&mut world, &mut resources, 1.0);
         {
             let sprite = world.get::<&Sprite>(pb).unwrap();
-            assert_eq!(sprite.fg, Color(100, 100, 100), "should be dim gray when no inputs");
+            assert_eq!(
+                sprite.fg,
+                Color(100, 100, 100),
+                "should be dim gray when no inputs"
+            );
         }
     }
 
@@ -1394,17 +2096,40 @@ mod tests {
             c.hunger = 0.6;
         }
 
-        let result = system_ai(&mut world, &map, 0.4, 5, 0, 0, 5, &SkillMults::default(), false, false);
+        let result = system_ai(
+            &mut world,
+            &map,
+            0.4,
+            5,
+            0,
+            0,
+            5,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         if result.grain_consumed > 0 || result.food_consumed > 0 {
-            assert!(result.grain_consumed > 0, "should prefer grain over raw food");
-            assert_eq!(result.food_consumed, 0, "should not consume food when grain available");
+            assert!(
+                result.grain_consumed > 0,
+                "should prefer grain over raw food"
+            );
+            assert_eq!(
+                result.food_consumed, 0,
+                "should not consume food when grain available"
+            );
         }
     }
 
     #[test]
     fn road_building_type_properties() {
-        assert_eq!(BuildingType::Road.cost(), Resources { stone: 2, ..Default::default() });
+        assert_eq!(
+            BuildingType::Road.cost(),
+            Resources {
+                stone: 2,
+                ..Default::default()
+            }
+        );
         assert_eq!(BuildingType::Road.build_time(), 30);
         assert_eq!(BuildingType::Road.size(), (1, 1));
         assert_eq!(BuildingType::Road.tiles(), vec![(0, 0, Terrain::Road)]);
@@ -1423,15 +2148,16 @@ mod tests {
         map.set(5, 5, Terrain::Road);
         map.set(6, 5, Terrain::Road);
 
-        let e = world.spawn((
-            Position { x: 5.0, y: 5.0 },
-            Velocity { dx: 0.1, dy: 0.0 },
-        ));
+        let e = world.spawn((Position { x: 5.0, y: 5.0 }, Velocity { dx: 0.1, dy: 0.0 }));
 
         system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
-        assert!((pos.x - 5.15).abs() < 0.001, "road should give 1.5x speed: got {}", pos.x);
+        assert!(
+            (pos.x - 5.15).abs() < 0.001,
+            "road should give 1.5x speed: got {}",
+            pos.x
+        );
     }
 
     #[test]
@@ -1439,15 +2165,16 @@ mod tests {
         let mut world = World::new();
         let map = TileMap::new(20, 20, Terrain::Grass);
 
-        let e = world.spawn((
-            Position { x: 5.0, y: 5.0 },
-            Velocity { dx: 0.1, dy: 0.0 },
-        ));
+        let e = world.spawn((Position { x: 5.0, y: 5.0 }, Velocity { dx: 0.1, dy: 0.0 }));
 
         system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
-        assert!((pos.x - 5.1).abs() < 0.001, "grass should give 1.0x speed: got {}", pos.x);
+        assert!(
+            (pos.x - 5.1).abs() < 0.001,
+            "grass should give 1.0x speed: got {}",
+            pos.x
+        );
     }
 
     #[test]
@@ -1479,14 +2206,33 @@ mod tests {
 
         {
             let mut b = world.get::<&mut Behavior>(v).unwrap();
-            b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Food };
+            b.state = BehaviorState::Gathering {
+                timer: 0,
+                resource_type: ResourceType::Food,
+            };
         }
 
         let initial = world.get::<&ResourceYield>(bush).unwrap().remaining;
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
         let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
-        assert!(after < initial, "resource yield should decrease: was {}, now {}", initial, after);
+        assert!(
+            after < initial,
+            "resource yield should decrease: was {}, now {}",
+            initial,
+            after
+        );
     }
 
     #[test]
@@ -1503,12 +2249,29 @@ mod tests {
         let v = spawn_villager(&mut world, 10.0, 10.0);
         {
             let mut b = world.get::<&mut Behavior>(v).unwrap();
-            b.state = BehaviorState::Gathering { timer: 0, resource_type: ResourceType::Food };
+            b.state = BehaviorState::Gathering {
+                timer: 0,
+                resource_type: ResourceType::Food,
+            };
         }
 
-        system_ai(&mut world, &map, 0.4, 0, 0, 0, 0, &SkillMults::default(), false, false);
+        system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+        );
 
-        assert!(world.get::<&FoodSource>(bush).is_err(), "depleted resource should be despawned");
+        assert!(
+            world.get::<&FoodSource>(bush).is_err(),
+            "depleted resource should be despawned"
+        );
     }
 
     #[test]
@@ -1537,12 +2300,16 @@ mod tests {
         let serialized = serialize_world(&world);
         let world2 = deserialize_world(&serialized);
 
-        let bush_yield: Vec<u32> = world2.query::<(&FoodSource, &ResourceYield)>().iter()
+        let bush_yield: Vec<u32> = world2
+            .query::<(&FoodSource, &ResourceYield)>()
+            .iter()
             .map(|(_, ry)| ry.remaining)
             .collect();
         assert_eq!(bush_yield, vec![15], "bush yield should round-trip");
 
-        let stone_yield: Vec<u32> = world2.query::<(&StoneDeposit, &ResourceYield)>().iter()
+        let stone_yield: Vec<u32> = world2
+            .query::<(&StoneDeposit, &ResourceYield)>()
+            .iter()
             .map(|(_, ry)| ry.remaining)
             .collect();
         assert_eq!(stone_yield, vec![5], "stone yield should round-trip");
@@ -1559,14 +2326,24 @@ mod tests {
         }
         // At year 0, cap is 4 — breeding should not increase past 4
         // We already have 5 wolves, so no breeding should occur
-        let before = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Predator).count();
+        let before = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Predator)
+            .count();
         for _ in 0..5000 {
             system_breeding(&mut world, Season::Summer, 1.0, 0);
         }
-        let after = world.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Predator).count();
-        assert_eq!(after, before, "year 0: wolves above cap 4 should not breed, got {}", after);
+        let after = world
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Predator)
+            .count();
+        assert_eq!(
+            after, before,
+            "year 0: wolves above cap 4 should not breed, got {}",
+            after
+        );
 
         // Year 2: cap = 4 + 2*2 = 8
         let mut world2 = World::new();
@@ -1579,9 +2356,16 @@ mod tests {
         for _ in 0..10000 {
             system_breeding(&mut world2, Season::Summer, 1.0, 2);
         }
-        let after2 = world2.query::<&Creature>().iter()
-            .filter(|c| c.species == Species::Predator).count();
-        assert!(after2 > 5, "year 2: wolves below cap 8 should breed, got {}", after2);
+        let after2 = world2
+            .query::<&Creature>()
+            .iter()
+            .filter(|c| c.species == Species::Predator)
+            .count();
+        assert!(
+            after2 > 5,
+            "year 2: wolves below cap 8 should breed, got {}",
+            after2
+        );
     }
 
     #[test]
@@ -1608,6 +2392,9 @@ mod tests {
             spawn_predator(&mut world3, 30.0 + i as f64, 30.0);
         }
         let raided3 = system_wolf_raids(&mut world3, 25.0, 25.0, 50, 10);
-        assert!(raided3, "year 10: 3 wolves should raid (threshold 3, clamped)");
+        assert!(
+            raided3,
+            "year 10: 3 wolves should raid (threshold 3, clamped)"
+        );
     }
 }

@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::renderer::Color;
 use crate::tilemap::Terrain;
@@ -7,14 +7,18 @@ use crate::tilemap::Terrain;
 
 /// Skill-derived multipliers passed into AI systems.
 pub struct SkillMults {
-    pub gather_wood_speed: f64,  // multiplier on gathering timer (lower = faster)
+    pub gather_wood_speed: f64, // multiplier on gathering timer (lower = faster)
     pub gather_stone_speed: f64,
-    pub build_speed: u32,        // extra progress per tick
+    pub build_speed: u32, // extra progress per tick
 }
 
 impl Default for SkillMults {
     fn default() -> Self {
-        Self { gather_wood_speed: 1.0, gather_stone_speed: 1.0, build_speed: 0 }
+        Self {
+            gather_wood_speed: 1.0,
+            gather_stone_speed: 1.0,
+            build_speed: 0,
+        }
     }
 }
 
@@ -58,7 +62,14 @@ pub enum Species {
 
 // Resource types
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum ResourceType { Food, Wood, Stone, Planks, Masonry, Grain }
+pub enum ResourceType {
+    Food,
+    Wood,
+    Stone,
+    Planks,
+    Masonry,
+    Grain,
+}
 
 /// Marker for stockpile location (where villagers deposit resources).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -88,7 +99,11 @@ pub enum BehaviorState {
     /// Wander randomly. Timer counts down to next direction change.
     Wander { timer: u32 },
     /// Move toward a target position with a reason for debugging.
-    Seek { target_x: f64, target_y: f64, reason: SeekReason },
+    Seek {
+        target_x: f64,
+        target_y: f64,
+        reason: SeekReason,
+    },
     /// Stand still. Timer counts down before switching to Wander.
     Idle { timer: u32 },
     /// Prey: eating at a food source.
@@ -102,13 +117,24 @@ pub enum BehaviorState {
     /// Prey: captured by a predator, frozen in place until consumed.
     Captured,
     /// Villager: gathering a resource at a location.
-    Gathering { timer: u32, resource_type: ResourceType },
+    Gathering {
+        timer: u32,
+        resource_type: ResourceType,
+    },
     /// Villager: hauling gathered resource back to stockpile.
-    Hauling { target_x: f64, target_y: f64, resource_type: ResourceType },
+    Hauling {
+        target_x: f64,
+        target_y: f64,
+        resource_type: ResourceType,
+    },
     /// Villager: sleeping at night.
     Sleeping { timer: u32 },
     /// Villager: building at a build site.
-    Building { target_x: f64, target_y: f64, timer: u32 },
+    Building {
+        target_x: f64,
+        target_y: f64,
+        timer: u32,
+    },
     /// Villager: tending a farm (standing at farm, advancing growth).
     Farming { target_x: f64, target_y: f64 },
     /// Villager: operating a workshop/smithy (standing at building, advancing processing).
@@ -124,10 +150,10 @@ pub struct Behavior {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Creature {
     pub species: Species,
-    pub hunger: f64,       // 0.0 = full, 1.0 = starving
+    pub hunger: f64, // 0.0 = full, 1.0 = starving
     pub home_x: f64,
     pub home_y: f64,
-    pub sight_range: f64,  // how far this creature can see
+    pub sight_range: f64, // how far this creature can see
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -174,21 +200,33 @@ impl BuildingType {
         match self {
             BuildingType::Hut => BuildingDef {
                 name: "Hut",
-                cost: Resources { wood: 10, stone: 4, ..DEF_RES },
+                cost: Resources {
+                    wood: 10,
+                    stone: 4,
+                    ..DEF_RES
+                },
                 build_time: 180,
                 size: (3, 3),
                 layout: TileLayout::WallsDoorSouth,
             },
             BuildingType::Wall => BuildingDef {
                 name: "Wall",
-                cost: Resources { wood: 2, stone: 2, ..DEF_RES },
+                cost: Resources {
+                    wood: 2,
+                    stone: 2,
+                    ..DEF_RES
+                },
                 build_time: 45,
                 size: (1, 1),
                 layout: TileLayout::Single(Terrain::BuildingWall),
             },
             BuildingType::Farm => BuildingDef {
                 name: "Farm",
-                cost: Resources { wood: 5, stone: 1, ..DEF_RES },
+                cost: Resources {
+                    wood: 5,
+                    stone: 1,
+                    ..DEF_RES
+                },
                 build_time: 120,
                 size: (3, 3),
                 layout: TileLayout::FilledFloor,
@@ -202,42 +240,67 @@ impl BuildingType {
             },
             BuildingType::Workshop => BuildingDef {
                 name: "Workshop",
-                cost: Resources { wood: 15, stone: 8, ..DEF_RES },
+                cost: Resources {
+                    wood: 15,
+                    stone: 8,
+                    ..DEF_RES
+                },
                 build_time: 220,
                 size: (3, 3),
                 layout: TileLayout::WallsDoorNorth,
             },
             BuildingType::Smithy => BuildingDef {
                 name: "Smithy",
-                cost: Resources { wood: 10, stone: 15, ..DEF_RES },
+                cost: Resources {
+                    wood: 10,
+                    stone: 15,
+                    ..DEF_RES
+                },
                 build_time: 270,
                 size: (3, 3),
                 layout: TileLayout::WallsDoorNorth,
             },
             BuildingType::Garrison => BuildingDef {
                 name: "Garrison",
-                cost: Resources { planks: 10, masonry: 10, ..DEF_RES },
+                cost: Resources {
+                    planks: 10,
+                    masonry: 10,
+                    ..DEF_RES
+                },
                 build_time: 180,
                 size: (3, 3),
                 layout: TileLayout::WallsNoDoor,
             },
             BuildingType::Road => BuildingDef {
                 name: "Road",
-                cost: Resources { stone: 2, ..DEF_RES },
+                cost: Resources {
+                    stone: 2,
+                    ..DEF_RES
+                },
                 build_time: 30,
                 size: (1, 1),
                 layout: TileLayout::Single(Terrain::Road),
             },
             BuildingType::Granary => BuildingDef {
                 name: "Granary",
-                cost: Resources { wood: 12, stone: 8, planks: 4, ..DEF_RES },
+                cost: Resources {
+                    wood: 12,
+                    stone: 8,
+                    planks: 4,
+                    ..DEF_RES
+                },
                 build_time: 240,
                 size: (3, 3),
                 layout: TileLayout::WallsDoorNorth,
             },
             BuildingType::Bakery => BuildingDef {
                 name: "Bakery",
-                cost: Resources { wood: 8, stone: 6, planks: 5, ..DEF_RES },
+                cost: Resources {
+                    wood: 8,
+                    stone: 6,
+                    planks: 5,
+                    ..DEF_RES
+                },
                 build_time: 210,
                 size: (3, 3),
                 layout: TileLayout::WallsDoorNorth,
@@ -245,10 +308,18 @@ impl BuildingType {
         }
     }
 
-    pub fn cost(&self) -> Resources { self.def().cost }
-    pub fn build_time(&self) -> u32 { self.def().build_time }
-    pub fn size(&self) -> (i32, i32) { self.def().size }
-    pub fn name(&self) -> &'static str { self.def().name }
+    pub fn cost(&self) -> Resources {
+        self.def().cost
+    }
+    pub fn build_time(&self) -> u32 {
+        self.def().build_time
+    }
+    pub fn size(&self) -> (i32, i32) {
+        self.def().size
+    }
+    pub fn name(&self) -> &'static str {
+        self.def().name
+    }
 
     pub fn tiles(&self) -> Vec<(i32, i32, Terrain)> {
         let d = self.def();
@@ -303,14 +374,31 @@ impl BuildingType {
     }
 
     pub fn all() -> &'static [BuildingType] {
-        &[BuildingType::Hut, BuildingType::Wall, BuildingType::Farm, BuildingType::Stockpile,
-          BuildingType::Workshop, BuildingType::Smithy, BuildingType::Garrison,
-          BuildingType::Road, BuildingType::Granary, BuildingType::Bakery]
+        &[
+            BuildingType::Hut,
+            BuildingType::Wall,
+            BuildingType::Farm,
+            BuildingType::Stockpile,
+            BuildingType::Workshop,
+            BuildingType::Smithy,
+            BuildingType::Garrison,
+            BuildingType::Road,
+            BuildingType::Granary,
+            BuildingType::Bakery,
+        ]
     }
 }
 
 /// Zero-valued Resources constant for struct update syntax in const-like contexts.
-const DEF_RES: Resources = Resources { food: 0, wood: 0, stone: 0, planks: 0, masonry: 0, grain: 0, bread: 0 };
+const DEF_RES: Resources = Resources {
+    food: 0,
+    wood: 0,
+    stone: 0,
+    planks: 0,
+    masonry: 0,
+    grain: 0,
+    bread: 0,
+};
 
 /// A build site entity — placed by the player, worked on by villagers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -324,12 +412,12 @@ pub struct BuildSite {
 /// Marker for a completed farm plot — grows crops and produces food.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FarmPlot {
-    pub growth: f64,        // 0.0 to 1.0
+    pub growth: f64, // 0.0 to 1.0
     pub harvest_ready: bool,
     #[serde(default)]
     pub worker_present: bool, // must have villager tending for growth
     #[serde(default)]
-    pub pending_food: u32,    // harvested food waiting for pickup
+    pub pending_food: u32, // harvested food waiting for pickup
 }
 
 /// Marker component for berry bushes (food source for prey).
@@ -366,10 +454,10 @@ pub struct Den;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Recipe {
-    WoodToPlanks,    // 2 Wood -> 1 Planks
-    StoneToMasonry,  // 2 Stone -> 1 Masonry
-    FoodToGrain,     // 3 Food -> 2 Grain
-    GrainToBread,    // 2 Grain + 1 Wood -> 3 Bread (highest food value)
+    WoodToPlanks,   // 2 Wood -> 1 Planks
+    StoneToMasonry, // 2 Stone -> 1 Masonry
+    FoodToGrain,    // 3 Food -> 2 Grain
+    GrainToBread,   // 2 Grain + 1 Wood -> 3 Bread (highest food value)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -397,8 +485,12 @@ pub struct Resources {
 
 impl Resources {
     pub fn can_afford(&self, cost: &Resources) -> bool {
-        self.food >= cost.food && self.wood >= cost.wood && self.stone >= cost.stone
-            && self.planks >= cost.planks && self.masonry >= cost.masonry && self.grain >= cost.grain
+        self.food >= cost.food
+            && self.wood >= cost.wood
+            && self.stone >= cost.stone
+            && self.planks >= cost.planks
+            && self.masonry >= cost.masonry
+            && self.grain >= cost.grain
             && self.bread >= cost.bread
     }
 

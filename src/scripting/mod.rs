@@ -38,8 +38,8 @@ impl ScriptEngine {
 
     /// Load and execute a Lua script file.
     pub fn load_script(&self, path: &str) -> Result<(), mlua::Error> {
-        let code = std::fs::read_to_string(path)
-            .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+        let code =
+            std::fs::read_to_string(path).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
         self.lua.load(&code).exec()?;
         Ok(())
     }
@@ -57,8 +57,8 @@ impl ScriptEngine {
     /// Reload all .lua scripts from a directory (hot reload).
     /// This re-executes every .lua file, updating function definitions.
     pub fn reload_scripts(&self, dir: &str) -> Result<(), mlua::Error> {
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "lua") {
@@ -97,12 +97,20 @@ mod tests {
     fn test_update_state_sets_globals() {
         let engine = ScriptEngine::new().unwrap();
         let res = Resources {
-            food: 50, wood: 30, stone: 20, planks: 5, masonry: 3, grain: 10, bread: 8,
+            food: 50,
+            wood: 30,
+            stone: 20,
+            planks: 5,
+            masonry: 3,
+            grain: 10,
+            bread: 8,
         };
         engine.update_state(12, &res, "Summer", 4).unwrap();
 
         // Read back from Lua
-        engine.exec(r#"
+        engine
+            .exec(
+                r#"
             assert(villager_count == 12, "villager_count")
             assert(wolf_count == 4, "wolf_count")
             assert(season == "Summer", "season")
@@ -113,7 +121,9 @@ mod tests {
             assert(resources.masonry == 3, "masonry")
             assert(resources.grain == 10, "grain")
             assert(resources.bread == 8, "bread")
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
     }
 
     #[test]
@@ -126,7 +136,9 @@ mod tests {
     #[test]
     fn test_call_hook_exists() {
         let engine = ScriptEngine::new().unwrap();
-        engine.exec("function on_tick() hook_called = true end").unwrap();
+        engine
+            .exec("function on_tick() hook_called = true end")
+            .unwrap();
         let called = engine.call_hook("on_tick").unwrap();
         assert!(called);
         engine.exec("assert(hook_called == true)").unwrap();

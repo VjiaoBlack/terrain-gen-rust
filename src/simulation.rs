@@ -1,5 +1,5 @@
 use rand::RngExt;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::renderer::Color;
 
@@ -10,16 +10,16 @@ pub struct WaterMap {
     pub width: usize,
     pub height: usize,
     water: Vec<f64>,
-    water_temp: Vec<f64>,   // transfer buffer for this frame
-    water_avg: Vec<f64>,    // smoothed for rendering
+    water_temp: Vec<f64>, // transfer buffer for this frame
+    water_avg: Vec<f64>,  // smoothed for rendering
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SimConfig {
-    pub rain_rate: f64,        // fraction of tiles that get rain per tick
-    pub rain_amount: f64,      // water added per raindrop
-    pub flow_fraction: f64,    // how much of height diff flows per tick
-    pub evaporation: f64,      // water removed per tile per tick
+    pub rain_rate: f64,     // fraction of tiles that get rain per tick
+    pub rain_amount: f64,   // water added per raindrop
+    pub flow_fraction: f64, // how much of height diff flows per tick
+    pub evaporation: f64,   // water removed per tile per tick
     pub erosion_enabled: bool,
     pub erosion_strength: f64, // multiplier for erosion effect
     pub avg_factor: f64,       // smoothing: 0.95 = slow, 0.5 = fast
@@ -105,7 +105,12 @@ impl WaterMap {
     /// `heights` is the terrain height map (same dimensions), and may be modified by erosion.
     /// `viewport` is an optional `(x_start, y_start, x_end, y_end)` bounds; when Some, only
     /// tiles within the viewport plus a 32-tile margin are simulated.
-    pub fn update(&mut self, heights: &mut Vec<f64>, config: &SimConfig, viewport: Option<(usize, usize, usize, usize)>) {
+    pub fn update(
+        &mut self,
+        heights: &mut Vec<f64>,
+        config: &SimConfig,
+        viewport: Option<(usize, usize, usize, usize)>,
+    ) {
         self.water_temp.fill(0.0);
 
         let w = self.width;
@@ -198,11 +203,7 @@ impl WaterMap {
 
                 if config.erosion_enabled && self.water_temp[i].abs() > 1e-10 {
                     let change = self.water_temp[i];
-                    let mut erode = if change > 0.0 {
-                        change * 0.5
-                    } else {
-                        change
-                    };
+                    let mut erode = if change > 0.0 { change * 0.5 } else { change };
 
                     if self.water[i] > 0.001 {
                         erode *= (erode * 0.1 / self.water[i]).abs();
@@ -214,16 +215,22 @@ impl WaterMap {
 
                     heights[i] += erode / 8.0;
                     for &(dx, dy, wt) in &[
-                        (1i32, 0i32, 16.0), (-1, 0, 16.0), (0, 1, 16.0), (0, -1, 16.0),
-                        (1, 1, 22.63), (-1, -1, 22.63), (1, -1, 22.63), (-1, 1, 22.63),
+                        (1i32, 0i32, 16.0),
+                        (-1, 0, 16.0),
+                        (0, 1, 16.0),
+                        (0, -1, 16.0),
+                        (1, 1, 22.63),
+                        (-1, -1, 22.63),
+                        (1, -1, 22.63),
+                        (-1, 1, 22.63),
                     ] {
                         let (nx, ny) = self.wrapping_coords(x as i32 + dx, y as i32 + dy);
                         heights[ny * w + nx] += erode / wt;
                     }
                 }
 
-                self.water[i] = (self.water[i] + self.water_temp[i] - config.evaporation)
-                    .clamp(0.0, 1.0);
+                self.water[i] =
+                    (self.water[i] + self.water_temp[i] - config.evaporation).clamp(0.0, 1.0);
             }
         }
     }
@@ -262,7 +269,12 @@ impl MoistureMap {
 
     /// Update moisture from water presence and propagate.
     /// Also updates vegetation based on moisture bands.
-    pub fn update(&mut self, water: &WaterMap, vegetation: &mut VegetationMap, map: &crate::tilemap::TileMap) {
+    pub fn update(
+        &mut self,
+        water: &WaterMap,
+        vegetation: &mut VegetationMap,
+        map: &crate::tilemap::TileMap,
+    ) {
         // Step 1: moisture from water — gentle contribution, faster decay
         // Skip Water terrain tiles (permanent oceans) — only rain water drives moisture
         for y in 0..self.height {
@@ -317,7 +329,9 @@ impl MoistureMap {
             for x in 0..self.width {
                 let terrain = map.get(x, y);
                 let can_grow = match terrain {
-                    Some(crate::tilemap::Terrain::Sand) | Some(crate::tilemap::Terrain::Water) => false,
+                    Some(crate::tilemap::Terrain::Sand) | Some(crate::tilemap::Terrain::Water) => {
+                        false
+                    }
                     _ => true,
                 };
                 let m = self.moisture[y * self.width + x];
@@ -379,13 +393,13 @@ pub struct SeasonModifiers {
 /// Day/night cycle with Blinn-Phong lighting, terrain normals, and shadow raytracing.
 #[derive(Serialize, Deserialize)]
 pub struct DayNightCycle {
-    pub hour: f64,           // 0.0 - 24.0
-    pub tick_rate: f64,      // hours per tick
+    pub hour: f64,      // 0.0 - 24.0
+    pub tick_rate: f64, // hours per tick
     pub enabled: bool,
-    pub day: u32,            // current day (0-indexed within season)
+    pub day: u32, // current day (0-indexed within season)
     pub season: Season,
     pub year: u32,
-    light_map: Vec<f64>,     // per-tile total lighting intensity (combined diffuse + shadow)
+    light_map: Vec<f64>, // per-tile total lighting intensity (combined diffuse + shadow)
     light_w: usize,
     light_h: usize,
 }
@@ -393,7 +407,7 @@ pub struct DayNightCycle {
 impl DayNightCycle {
     pub fn new(width: usize, height: usize) -> Self {
         Self {
-            hour: 10.0, // start at 10am
+            hour: 10.0,      // start at 10am
             tick_rate: 0.02, // ~8 minutes per real second at 30fps
             enabled: true,
             day: 0,
@@ -420,7 +434,10 @@ impl DayNightCycle {
                     Season::Spring => Season::Summer,
                     Season::Summer => Season::Autumn,
                     Season::Autumn => Season::Winter,
-                    Season::Winter => { self.year += 1; Season::Spring },
+                    Season::Winter => {
+                        self.year += 1;
+                        Season::Spring
+                    }
                 };
             }
         }
@@ -429,16 +446,45 @@ impl DayNightCycle {
     /// Get season-dependent modifiers for simulation systems.
     pub fn season_modifiers(&self) -> SeasonModifiers {
         match self.season {
-            Season::Spring => SeasonModifiers { rain_mult: 1.5, evap_mult: 1.0, veg_growth_mult: 2.0, hunger_mult: 1.0, wolf_aggression: 0.95 },
-            Season::Summer => SeasonModifiers { rain_mult: 0.5, evap_mult: 2.0, veg_growth_mult: 1.5, hunger_mult: 0.8, wolf_aggression: 0.95 },
-            Season::Autumn => SeasonModifiers { rain_mult: 1.0, evap_mult: 1.0, veg_growth_mult: 0.3, hunger_mult: 1.0, wolf_aggression: 0.8 },
-            Season::Winter => SeasonModifiers { rain_mult: 0.3, evap_mult: 0.5, veg_growth_mult: 0.0, hunger_mult: 2.5, wolf_aggression: 0.6 },
+            Season::Spring => SeasonModifiers {
+                rain_mult: 1.5,
+                evap_mult: 1.0,
+                veg_growth_mult: 2.0,
+                hunger_mult: 1.0,
+                wolf_aggression: 0.95,
+            },
+            Season::Summer => SeasonModifiers {
+                rain_mult: 0.5,
+                evap_mult: 2.0,
+                veg_growth_mult: 1.5,
+                hunger_mult: 0.8,
+                wolf_aggression: 0.95,
+            },
+            Season::Autumn => SeasonModifiers {
+                rain_mult: 1.0,
+                evap_mult: 1.0,
+                veg_growth_mult: 0.3,
+                hunger_mult: 1.0,
+                wolf_aggression: 0.8,
+            },
+            Season::Winter => SeasonModifiers {
+                rain_mult: 0.3,
+                evap_mult: 0.5,
+                veg_growth_mult: 0.0,
+                hunger_mult: 2.5,
+                wolf_aggression: 0.6,
+            },
         }
     }
 
     /// Format date as "Y1 Spring D1".
     pub fn date_string(&self) -> String {
-        format!("Y{} {} D{}", self.year + 1, self.season.name(), self.day + 1)
+        format!(
+            "Y{} {} D{}",
+            self.year + 1,
+            self.season.name(),
+            self.day + 1
+        )
     }
 
     /// Returns true if it's nighttime (sun below horizon, roughly 6pm-6am).
@@ -500,7 +546,13 @@ impl DayNightCycle {
     /// Compute terrain normal at (x, y) from height finite differences.
     /// Returns a normalized (nx, ny, nz) vector. The z-scale controls how
     /// exaggerated the slopes appear (higher = flatter normals).
-    fn terrain_normal(heights: &[f64], width: usize, height: usize, x: usize, y: usize) -> (f64, f64, f64) {
+    fn terrain_normal(
+        heights: &[f64],
+        width: usize,
+        height: usize,
+        x: usize,
+        y: usize,
+    ) -> (f64, f64, f64) {
         let h = |xi: i32, yi: i32| -> f64 {
             let cx = (xi.max(0) as usize).min(width - 1);
             let cy = (yi.max(0) as usize).min(height - 1);
@@ -585,7 +637,9 @@ impl DayNightCycle {
 
         // Determine sweep order: sweep FROM the sun side TO the shadow side.
         // Weight neighbor contributions by how much light comes from each axis.
-        let horiz_len = (light_dx * light_dx + light_dy * light_dy).sqrt().max(0.001);
+        let horiz_len = (light_dx * light_dx + light_dy * light_dy)
+            .sqrt()
+            .max(0.001);
         let wx = (light_dx.abs() / horiz_len).min(1.0); // weight of x-neighbor
         let wy = (light_dy.abs() / horiz_len).min(1.0); // weight of y-neighbor
 
@@ -613,7 +667,11 @@ impl DayNightCycle {
 
                 // X-neighbor (only if light has meaningful x-component)
                 if wx > 0.1 {
-                    let prev_x = if sweep_x_rev { x_pos + 1 } else { x_pos.wrapping_sub(1) };
+                    let prev_x = if sweep_x_rev {
+                        x_pos + 1
+                    } else {
+                        x_pos.wrapping_sub(1)
+                    };
                     if prev_x >= x0 && prev_x < x1 {
                         let prev_si = (y_pos - y0) * sw + (prev_x - x0);
                         max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay / wx);
@@ -621,7 +679,11 @@ impl DayNightCycle {
                 }
                 // Y-neighbor (only if light has meaningful y-component)
                 if wy > 0.1 {
-                    let prev_y = if sweep_y_rev { y_pos + 1 } else { y_pos.wrapping_sub(1) };
+                    let prev_y = if sweep_y_rev {
+                        y_pos + 1
+                    } else {
+                        y_pos.wrapping_sub(1)
+                    };
                     if prev_y >= y0 && prev_y < y1 {
                         let prev_si = (prev_y - y0) * sw + (x_pos - x0);
                         max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay / wy);
@@ -629,8 +691,16 @@ impl DayNightCycle {
                 }
                 // Diagonal neighbor (when light comes from both directions)
                 if wx > 0.3 && wy > 0.3 {
-                    let prev_x = if sweep_x_rev { x_pos + 1 } else { x_pos.wrapping_sub(1) };
-                    let prev_y = if sweep_y_rev { y_pos + 1 } else { y_pos.wrapping_sub(1) };
+                    let prev_x = if sweep_x_rev {
+                        x_pos + 1
+                    } else {
+                        x_pos.wrapping_sub(1)
+                    };
+                    let prev_y = if sweep_y_rev {
+                        y_pos + 1
+                    } else {
+                        y_pos.wrapping_sub(1)
+                    };
                     if prev_x >= x0 && prev_x < x1 && prev_y >= y0 && prev_y < y1 {
                         let prev_si = (prev_y - y0) * sw + (prev_x - x0);
                         max_shadow = max_shadow.max(shadow[prev_si] - shadow_decay * 1.414);
@@ -665,7 +735,8 @@ impl DayNightCycle {
                 let (nx, ny, nz) = Self::terrain_normal(heights, map_w, map_h, x_pos, y_pos);
 
                 // Diffuse: L·N, scaled by light source strength
-                let l_dot_n = (light_dx * nx + light_dy * ny + light_dz * nz).max(0.0) * light_strength;
+                let l_dot_n =
+                    (light_dx * nx + light_dy * ny + light_dz * nz).max(0.0) * light_strength;
 
                 // Specular: (H·N)^k, view = straight down (0,0,1)
                 // Attenuate when light is high to avoid uniform wash
@@ -754,7 +825,13 @@ impl DayNightCycle {
         let h = self.hour as u32;
         let m = ((self.hour - h as f64) * 60.0) as u32;
         let period = if h < 12 { "AM" } else { "PM" };
-        let display_h = if h == 0 { 12 } else if h > 12 { h - 12 } else { h };
+        let display_h = if h == 0 {
+            12
+        } else if h > 12 {
+            h - 12
+        } else {
+            h
+        };
         format!("{:2}:{:02}{}", display_h, m, period)
     }
 }
@@ -849,7 +926,11 @@ impl InfluenceMap {
     /// sources: (x, y, strength) — villagers emit 1.0, buildings emit 0.5
     /// `viewport` is an optional `(x_start, y_start, x_end, y_end)` bounds; when Some, only
     /// tiles within the viewport plus a 32-tile margin are processed.
-    pub fn update(&mut self, sources: &[(f64, f64, f64)], viewport: Option<(usize, usize, usize, usize)>) {
+    pub fn update(
+        &mut self,
+        sources: &[(f64, f64, f64)],
+        viewport: Option<(usize, usize, usize, usize)>,
+    ) {
         let (y_lo, y_hi, x_lo, x_hi) = match viewport {
             Some((xs, ys, xe, ye)) => (
                 ys.saturating_sub(32),
@@ -940,20 +1021,23 @@ impl TrafficMap {
 
     /// Return tiles that exceed the road threshold and are eligible for conversion.
     /// Only converts walkable non-road terrain (grass, sand, forest, building floor).
-    pub fn road_candidates(&self, map: &crate::tilemap::TileMap, threshold: f64) -> Vec<(usize, usize)> {
+    pub fn road_candidates(
+        &self,
+        map: &crate::tilemap::TileMap,
+        threshold: f64,
+    ) -> Vec<(usize, usize)> {
         let mut result = Vec::new();
         for y in 0..self.height {
             for x in 0..self.width {
-                if self.traffic[y * self.width + x] >= threshold {
-                    if let Some(terrain) = map.get(x, y) {
-                        if terrain.is_walkable()
+                if self.traffic[y * self.width + x] >= threshold
+                    && let Some(terrain) = map.get(x, y)
+                        && terrain.is_walkable()
                             && *terrain != crate::tilemap::Terrain::Road
                             && *terrain != crate::tilemap::Terrain::BuildingFloor
-                            && *terrain != crate::tilemap::Terrain::BuildingWall {
+                            && *terrain != crate::tilemap::Terrain::BuildingWall
+                        {
                             result.push((x, y));
                         }
-                    }
-                }
             }
         }
         result
@@ -1065,7 +1149,10 @@ mod tests {
         // water should have moved right (downhill)
         let left_water: f64 = (0..5).map(|y| wm.water[y * 5 + 0]).sum();
         let right_water: f64 = (0..5).map(|y| wm.water[y * 5 + 4]).sum();
-        assert!(right_water > left_water, "water should flow to lower terrain");
+        assert!(
+            right_water > left_water,
+            "water should flow to lower terrain"
+        );
     }
 
     #[test]
@@ -1086,7 +1173,10 @@ mod tests {
         }
 
         // most water should be at the center (lowest point)
-        assert!(wm.water[2] > wm.water[0], "water should pool at basin center");
+        assert!(
+            wm.water[2] > wm.water[0],
+            "water should pool at basin center"
+        );
     }
 
     #[test]
@@ -1101,7 +1191,10 @@ mod tests {
         }
 
         let total: f64 = wm.water.iter().sum();
-        assert!(total < 0.001 * 25.0, "evaporation should reduce water over time");
+        assert!(
+            total < 0.001 * 25.0,
+            "evaporation should reduce water over time"
+        );
     }
 
     #[test]
@@ -1123,7 +1216,9 @@ mod tests {
             wm.update(&mut heights, &config, None);
         }
 
-        let diffs: f64 = heights.iter().zip(original_heights.iter())
+        let diffs: f64 = heights
+            .iter()
+            .zip(original_heights.iter())
             .map(|(a, b)| (a - b).abs())
             .sum();
         assert!(diffs > 0.0, "erosion should modify terrain heights");
@@ -1141,9 +1236,16 @@ mod tests {
             mm.update(&wm, &mut vm, &map);
         }
 
-        assert!(mm.get(5, 5) > 0.05, "tile with water should have moisture: got {}", mm.get(5, 5));
+        assert!(
+            mm.get(5, 5) > 0.05,
+            "tile with water should have moisture: got {}",
+            mm.get(5, 5)
+        );
         assert!(mm.get(5, 6) > 0.0, "moisture should propagate forward");
-        assert!(mm.get(5, 5) > mm.get(0, 0), "water tile should be more moist than dry tile");
+        assert!(
+            mm.get(5, 5) > mm.get(0, 0),
+            "water tile should be more moist than dry tile"
+        );
     }
 
     #[test]
@@ -1159,7 +1261,11 @@ mod tests {
             mm.update(&wm, &mut vm, &map);
         }
 
-        assert!(mm.get(5, 5) < 0.1, "moisture should decay without water source: got {}", mm.get(5, 5));
+        assert!(
+            mm.get(5, 5) < 0.1,
+            "moisture should decay without water source: got {}",
+            mm.get(5, 5)
+        );
     }
 
     #[test]
@@ -1187,7 +1293,11 @@ mod tests {
             mm.update(&wm, &mut vm, &map);
         }
 
-        assert!(vm.get(5, 5) > 0.0, "vegetation should grow with sustained moisture: got {}", vm.get(5, 5));
+        assert!(
+            vm.get(5, 5) > 0.0,
+            "vegetation should grow with sustained moisture: got {}",
+            vm.get(5, 5)
+        );
     }
 
     #[test]
@@ -1203,7 +1313,11 @@ mod tests {
             mm.update(&wm, &mut vm, &map);
         }
 
-        assert!(vm.get(5, 5) < 0.1, "vegetation should decay without moisture: got {}", vm.get(5, 5));
+        assert!(
+            vm.get(5, 5) < 0.1,
+            "vegetation should decay without moisture: got {}",
+            vm.get(5, 5)
+        );
     }
 
     #[test]
@@ -1274,7 +1388,11 @@ mod tests {
         dn.compute_lighting(&heights, 20, 20, 0, 0, 20, 20);
 
         // The peak itself should be brighter than a shadowed cell behind it
-        assert!(dn.get_light(10, 10) > 0.3, "peak should be well-lit: got {}", dn.get_light(10, 10));
+        assert!(
+            dn.get_light(10, 10) > 0.3,
+            "peak should be well-lit: got {}",
+            dn.get_light(10, 10)
+        );
     }
 
     #[test]
@@ -1293,8 +1411,11 @@ mod tests {
         dn.compute_lighting(&heights, 10, 10, 0, 0, 10, 10);
 
         let slope_light = dn.get_light(5, 5);
-        assert!(slope_light > 0.0 && slope_light < 1.0,
-            "slope should have intermediate lighting: got {}", slope_light);
+        assert!(
+            slope_light > 0.0 && slope_light < 1.0,
+            "slope should have intermediate lighting: got {}",
+            slope_light
+        );
     }
 
     #[test]
@@ -1310,7 +1431,12 @@ mod tests {
         dn.compute_lighting(&vec![0.5; 100], 10, 10, 0, 0, 10, 10);
         let night_color = dn.apply_lighting(base, 5, 5);
 
-        assert!(day_color.0 > night_color.0, "day should be brighter than night: day={:?} night={:?}", day_color, night_color);
+        assert!(
+            day_color.0 > night_color.0,
+            "day should be brighter than night: day={:?} night={:?}",
+            day_color,
+            night_color
+        );
     }
 
     #[test]
@@ -1321,7 +1447,11 @@ mod tests {
 
         // Moon should provide some directional light (not just 0.0)
         let light = dn.get_light(5, 5);
-        assert!(light > 0.0, "moon should provide light at midnight: got {}", light);
+        assert!(
+            light > 0.0,
+            "moon should provide light at midnight: got {}",
+            light
+        );
     }
 
     #[test]
@@ -1342,8 +1472,12 @@ mod tests {
         // Moonlit midnight should be >= dimmer hours
         let moonlit_b = moonlit.0 as u32 + moonlit.1 as u32 + moonlit.2 as u32;
         let dim_b = dim.0 as u32 + dim.1 as u32 + dim.2 as u32;
-        assert!(moonlit_b >= dim_b,
-            "midnight should be >= 4am brightness: midnight={} 4am={}", moonlit_b, dim_b);
+        assert!(
+            moonlit_b >= dim_b,
+            "midnight should be >= 4am brightness: midnight={} 4am={}",
+            moonlit_b,
+            dim_b
+        );
     }
 
     #[test]
@@ -1364,7 +1498,10 @@ mod tests {
         dn.enabled = false;
         let base = Color(100, 150, 200);
         let result = dn.apply_lighting(base, 0, 0);
-        assert_eq!(result, base, "disabled day/night should pass colors through");
+        assert_eq!(
+            result, base,
+            "disabled day/night should pass colors through"
+        );
     }
 
     #[test]
@@ -1394,19 +1531,39 @@ mod tests {
 
             // Within each side, lighting should be fairly uniform (not wildly varying)
             let west_min = lights_west.iter().cloned().fold(f64::INFINITY, f64::min);
-            let west_max = lights_west.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let west_max = lights_west
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
             let east_min = lights_east.iter().cloned().fold(f64::INFINITY, f64::min);
-            let east_max = lights_east.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let east_max = lights_east
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
 
-            assert!(west_max - west_min < 0.3,
-                "hour={}: west side lighting should be consistent: min={} max={}", hour, west_min, west_max);
-            assert!(east_max - east_min < 0.3,
-                "hour={}: east side lighting should be consistent: min={} max={}", hour, east_min, east_max);
+            assert!(
+                west_max - west_min < 0.3,
+                "hour={}: west side lighting should be consistent: min={} max={}",
+                hour,
+                west_min,
+                west_max
+            );
+            assert!(
+                east_max - east_min < 0.3,
+                "hour={}: east side lighting should be consistent: min={} max={}",
+                hour,
+                east_min,
+                east_max
+            );
 
             // The ridge itself should be well-lit (faces the light)
             let ridge_light = dn.get_light(10, 10);
-            assert!(ridge_light > 0.05,
-                "hour={}: ridge should receive light: got {}", hour, ridge_light);
+            assert!(
+                ridge_light > 0.05,
+                "hour={}: ridge should receive light: got {}",
+                hour,
+                ridge_light
+            );
         }
     }
 
@@ -1464,8 +1621,14 @@ mod tests {
         dn.season = Season::Winter;
         let mods = dn.season_modifiers();
         assert!(mods.hunger_mult > 1.0, "winter should increase hunger");
-        assert_eq!(mods.veg_growth_mult, 0.0, "winter should stop vegetation growth");
-        assert!(mods.wolf_aggression < 0.8, "winter wolves should attack villagers at lower hunger threshold");
+        assert_eq!(
+            mods.veg_growth_mult, 0.0,
+            "winter should stop vegetation growth"
+        );
+        assert!(
+            mods.wolf_aggression < 0.8,
+            "winter wolves should attack villagers at lower hunger threshold"
+        );
     }
 
     #[test]
@@ -1485,7 +1648,11 @@ mod tests {
         im.update(&[(5.0, 5.0, 5.0)], None);
 
         // Center should have influence
-        assert!(im.get(5, 5) > 0.0, "center should have influence after source: got {}", im.get(5, 5));
+        assert!(
+            im.get(5, 5) > 0.0,
+            "center should have influence after source: got {}",
+            im.get(5, 5)
+        );
 
         // Run more ticks to let it diffuse
         for _ in 0..20 {
@@ -1493,13 +1660,32 @@ mod tests {
         }
 
         // Neighbors should have picked up some influence via diffusion
-        assert!(im.get(4, 5) > 0.0, "left neighbor should have influence via diffusion: got {}", im.get(4, 5));
-        assert!(im.get(6, 5) > 0.0, "right neighbor should have influence via diffusion: got {}", im.get(6, 5));
-        assert!(im.get(5, 4) > 0.0, "top neighbor should have influence via diffusion: got {}", im.get(5, 4));
-        assert!(im.get(5, 6) > 0.0, "bottom neighbor should have influence via diffusion: got {}", im.get(5, 6));
+        assert!(
+            im.get(4, 5) > 0.0,
+            "left neighbor should have influence via diffusion: got {}",
+            im.get(4, 5)
+        );
+        assert!(
+            im.get(6, 5) > 0.0,
+            "right neighbor should have influence via diffusion: got {}",
+            im.get(6, 5)
+        );
+        assert!(
+            im.get(5, 4) > 0.0,
+            "top neighbor should have influence via diffusion: got {}",
+            im.get(5, 4)
+        );
+        assert!(
+            im.get(5, 6) > 0.0,
+            "bottom neighbor should have influence via diffusion: got {}",
+            im.get(5, 6)
+        );
 
         // Center should be stronger than edges
-        assert!(im.get(5, 5) > im.get(1, 1), "center should be stronger than corner");
+        assert!(
+            im.get(5, 5) > im.get(1, 1),
+            "center should be stronger than corner"
+        );
     }
 
     #[test]
@@ -1516,8 +1702,12 @@ mod tests {
         }
 
         let after = im.get(5, 5);
-        assert!(after < initial * 0.1,
-            "influence should decay significantly without sources: initial={} after={}", initial, after);
+        assert!(
+            after < initial * 0.1,
+            "influence should decay significantly without sources: initial={} after={}",
+            initial,
+            after
+        );
     }
 
     #[test]
@@ -1528,7 +1718,11 @@ mod tests {
         for _ in 0..1000 {
             vm.apply_season(0.0);
         }
-        assert!(vm.get(2, 2) < 0.3, "vegetation should decay in winter: got {}", vm.get(2, 2));
+        assert!(
+            vm.get(2, 2) < 0.3,
+            "vegetation should decay in winter: got {}",
+            vm.get(2, 2)
+        );
     }
 
     #[test]
@@ -1552,14 +1746,19 @@ mod tests {
             tm.decay();
         }
         let after = tm.get(3, 3);
-        assert!(after < before * 0.5, "traffic should decay over time: {} -> {}", before, after);
+        assert!(
+            after < before * 0.5,
+            "traffic should decay over time: {} -> {}",
+            before,
+            after
+        );
     }
 
     #[test]
     fn traffic_road_candidates_only_walkable() {
         let mut map = TileMap::new(10, 10, Terrain::Grass);
         map.set(2, 2, Terrain::Water); // unwalkable
-        map.set(3, 3, Terrain::Road);  // already road
+        map.set(3, 3, Terrain::Road); // already road
 
         let mut tm = TrafficMap::new(10, 10);
         // Accumulate traffic on grass, water, and road tiles
@@ -1570,9 +1769,18 @@ mod tests {
         }
 
         let candidates = tm.road_candidates(&map, 100.0);
-        assert!(candidates.contains(&(1, 1)), "grass tile with high traffic should be candidate");
-        assert!(!candidates.contains(&(2, 2)), "water tile should not be candidate");
-        assert!(!candidates.contains(&(3, 3)), "existing road should not be candidate");
+        assert!(
+            candidates.contains(&(1, 1)),
+            "grass tile with high traffic should be candidate"
+        );
+        assert!(
+            !candidates.contains(&(2, 2)),
+            "water tile should not be candidate"
+        );
+        assert!(
+            !candidates.contains(&(3, 3)),
+            "existing road should not be candidate"
+        );
     }
 
     #[test]
@@ -1583,7 +1791,10 @@ mod tests {
         tm.step_on(5, 5);
 
         let candidates = tm.road_candidates(&map, 100.0);
-        assert!(candidates.is_empty(), "low traffic should not produce road candidates");
+        assert!(
+            candidates.is_empty(),
+            "low traffic should not produce road candidates"
+        );
     }
 
     // --- ExplorationMap tests ---
@@ -1593,7 +1804,12 @@ mod tests {
         let em = ExplorationMap::new(32, 32);
         for y in 0..32 {
             for x in 0..32 {
-                assert!(!em.is_revealed(x, y), "tile ({}, {}) should start unrevealed", x, y);
+                assert!(
+                    !em.is_revealed(x, y),
+                    "tile ({}, {}) should start unrevealed",
+                    x,
+                    y
+                );
             }
         }
     }
@@ -1709,8 +1925,14 @@ mod tests {
             for x in 28..36 {
                 let i = y * size + x;
                 let diff = (wm_full.water[i] - wm_vp.water[i]).abs();
-                assert!(diff < 1e-10,
-                    "water mismatch at ({}, {}): full={} vp={}", x, y, wm_full.water[i], wm_vp.water[i]);
+                assert!(
+                    diff < 1e-10,
+                    "water mismatch at ({}, {}): full={} vp={}",
+                    x,
+                    y,
+                    wm_full.water[i],
+                    wm_vp.water[i]
+                );
             }
         }
     }
@@ -1750,10 +1972,14 @@ mod tests {
         }
 
         // The tile at (0,0) should be unchanged since it's outside viewport+margin
-        assert_eq!(wm.water[far_idx], initial_water,
-            "tile outside viewport+margin should not be modified");
-        assert_eq!(wm.water_avg[far_idx], initial_avg,
-            "water_avg outside viewport+margin should not be modified");
+        assert_eq!(
+            wm.water[far_idx], initial_water,
+            "tile outside viewport+margin should not be modified"
+        );
+        assert_eq!(
+            wm.water_avg[far_idx], initial_avg,
+            "water_avg outside viewport+margin should not be modified"
+        );
     }
 
     #[test]
@@ -1777,8 +2003,14 @@ mod tests {
         for y in 5..15 {
             for x in 5..15 {
                 let diff = (im_full.get(x, y) - im_vp.get(x, y)).abs();
-                assert!(diff < 1e-10,
-                    "influence mismatch at ({}, {}): full={} vp={}", x, y, im_full.get(x, y), im_vp.get(x, y));
+                assert!(
+                    diff < 1e-10,
+                    "influence mismatch at ({}, {}): full={} vp={}",
+                    x,
+                    y,
+                    im_full.get(x, y),
+                    im_vp.get(x, y)
+                );
             }
         }
     }
@@ -1803,7 +2035,10 @@ mod tests {
         im.update(&[], viewport);
 
         // Tile at (0, 0) should not have decayed (it's outside the bounds)
-        assert_eq!(im.get(0, 0), initial_val,
-            "influence outside viewport+margin should not decay");
+        assert_eq!(
+            im.get(0, 0),
+            initial_val,
+            "influence outside viewport+margin should not decay"
+        );
     }
 }

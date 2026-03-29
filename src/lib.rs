@@ -1,9 +1,9 @@
-pub mod renderer;
-pub mod headless_renderer;
-pub mod game;
 pub mod ecs;
-pub mod tilemap;
-pub mod terrain_gen;
-pub mod simulation;
+pub mod game;
+pub mod headless_renderer;
+pub mod renderer;
 #[cfg(feature = "lua")]
 pub mod scripting;
+pub mod simulation;
+pub mod terrain_gen;
+pub mod tilemap;

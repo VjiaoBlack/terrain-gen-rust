@@ -1,12 +1,12 @@
 use hecs::{Entity, World};
 use rand::RngExt;
 
-use crate::renderer::{Color, Renderer};
-use crate::simulation::Season;
-use crate::tilemap::{TileMap, Terrain};
 use super::ai::*;
 use super::components::*;
 use super::spawn::*;
+use crate::renderer::{Color, Renderer};
+use crate::simulation::Season;
+use crate::tilemap::{Terrain, TileMap};
 
 // --- Systems ---
 
@@ -50,7 +50,7 @@ pub fn system_hunger(world: &mut World, hunger_mult: f64) {
     for creature in world.query_mut::<&mut Creature>() {
         let rate = match creature.species {
             Species::Prey => 0.0005,
-            Species::Predator => 0.0006, // predators burn slightly more
+            Species::Predator => 0.0006,  // predators burn slightly more
             Species::Villager => 0.00015, // villagers burn slowly — settlements need time to establish
         };
         creature.hunger = (creature.hunger + rate * hunger_mult).min(1.0);
@@ -72,7 +72,18 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 }
 
 /// AI system: updates velocity based on behavior, species, and world state.
-pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpile_food: u32, stockpile_wood: u32, stockpile_stone: u32, stockpile_grain: u32, skill_mults: &SkillMults, settlement_defended: bool, is_night: bool) -> AiResult {
+pub fn system_ai(
+    world: &mut World,
+    map: &TileMap,
+    wolf_aggression: f64,
+    stockpile_food: u32,
+    stockpile_wood: u32,
+    stockpile_stone: u32,
+    stockpile_grain: u32,
+    skill_mults: &SkillMults,
+    settlement_defended: bool,
+    is_night: bool,
+) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
@@ -93,7 +104,17 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         .query::<(Entity, &Position, &Creature, &Behavior)>()
         .iter()
         .filter(|(_, _, c, _)| c.species == Species::Prey)
-        .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::AtHome { .. } | BehaviorState::Captured)))
+        .map(|(e, p, _, b)| {
+            (
+                e,
+                p.x,
+                p.y,
+                matches!(
+                    b.state,
+                    BehaviorState::AtHome { .. } | BehaviorState::Captured
+                ),
+            )
+        })
         .collect();
 
     let villager_positions: Vec<(Entity, f64, f64, bool)> = world
@@ -148,7 +169,9 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
     let mut harvest_positions: Vec<(f64, f64, ResourceType)> = Vec::new(); // where harvests completed
     for e in entities {
         // Read position (copy) and check if it's a creature
-        let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else { continue };
+        let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else {
+            continue;
+        };
         let is_creature = world.get::<&Creature>(e).is_ok();
 
         if !is_creature {
@@ -179,8 +202,14 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                     .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
 
                 let (s, vx, vy, h) = ai_prey(
-                    &pos, &creature, &behavior_state, speed, predator_nearby,
-                    &food_positions, map, &mut rng,
+                    &pos,
+                    &creature,
+                    &behavior_state,
+                    speed,
+                    predator_nearby,
+                    &food_positions,
+                    map,
+                    &mut rng,
                 );
                 (s, vx, vy, h, None, None)
             }
@@ -191,9 +220,15 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                     wolf_aggression
                 };
                 let (s, vx, vy, h, k) = ai_predator(
-                    &pos, &creature, &behavior_state, speed,
-                    &prey_positions, &villager_positions, effective_aggression,
-                    map, &mut rng,
+                    &pos,
+                    &creature,
+                    &behavior_state,
+                    speed,
+                    &prey_positions,
+                    &villager_positions,
+                    effective_aggression,
+                    map,
+                    &mut rng,
                 );
                 (s, vx, vy, h, k, None)
             }
@@ -208,16 +243,29 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                 let remaining_food = stockpile_food.saturating_sub(food_consumed);
                 let has_food = remaining_grain > 0 || remaining_food > 0;
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
-                let near_food_source = food_positions.iter()
+                let near_food_source = food_positions
+                    .iter()
                     .any(|&(fx, fy)| dist(pos.x, pos.y, fx, fy) < 2.0);
 
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
-                    &pos, &creature, &behavior_state, speed, predator_nearby,
-                    &food_positions, &stockpile_positions, &build_site_positions,
-                    &stone_deposit_positions, has_food, remaining_food + remaining_grain,
-                    stockpile_wood, stockpile_stone,
-                    map, skill_mults, &mut rng,
-                    &hut_positions, is_night,
+                    &pos,
+                    &creature,
+                    &behavior_state,
+                    speed,
+                    predator_nearby,
+                    &food_positions,
+                    &stockpile_positions,
+                    &build_site_positions,
+                    &stone_deposit_positions,
+                    has_food,
+                    remaining_food + remaining_grain,
+                    stockpile_wood,
+                    stockpile_stone,
+                    map,
+                    skill_mults,
+                    &mut rng,
+                    &hut_positions,
+                    is_night,
                 );
 
                 // If villager just started eating near stockpile (not near berry bush), consume grain first, then food
@@ -229,17 +277,19 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
                     }
                 }
                 // If villager claims a build site, mark it assigned
-                if let Some(site_entity) = claim_site {
-                    if let Ok(mut site) = world.get::<&mut BuildSite>(site_entity) {
+                if let Some(site_entity) = claim_site
+                    && let Ok(mut site) = world.get::<&mut BuildSite>(site_entity) {
                         site.assigned = true;
                     }
-                }
                 // Track harvest completions for resource depletion
-                if matches!(behavior_state, BehaviorState::Gathering { timer: 1, .. } | BehaviorState::Gathering { timer: 0, .. }) {
-                    if let BehaviorState::Hauling { resource_type, .. } = s {
+                if matches!(
+                    behavior_state,
+                    BehaviorState::Gathering { timer: 1, .. }
+                        | BehaviorState::Gathering { timer: 0, .. }
+                )
+                    && let BehaviorState::Hauling { resource_type, .. } = s {
                         harvest_positions.push((pos.x, pos.y, resource_type));
                     }
-                }
                 (s, vx, vy, h, None, dep)
             }
         };
@@ -262,22 +312,36 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         // Track build progress and activity for skills
         if creature.species == Species::Villager {
             match new_state {
-                BehaviorState::Building { target_x, target_y, .. } => {
+                BehaviorState::Building {
+                    target_x, target_y, ..
+                } => {
                     build_progress.push((target_x, target_y));
                     building_ticks += 1;
                 }
-                BehaviorState::Gathering { resource_type: ResourceType::Wood, .. } => {
+                BehaviorState::Gathering {
+                    resource_type: ResourceType::Wood,
+                    ..
+                } => {
                     woodcutting_ticks += 1;
                 }
-                BehaviorState::Gathering { resource_type: ResourceType::Stone, .. } => {
+                BehaviorState::Gathering {
+                    resource_type: ResourceType::Stone,
+                    ..
+                } => {
                     mining_ticks += 1;
                 }
-                BehaviorState::Gathering { resource_type: ResourceType::Food, .. } => {
+                BehaviorState::Gathering {
+                    resource_type: ResourceType::Food,
+                    ..
+                } => {
                     farming_ticks += 1;
                 }
                 _ => {}
             }
-        } else if let BehaviorState::Building { target_x, target_y, .. } = new_state {
+        } else if let BehaviorState::Building {
+            target_x, target_y, ..
+        } = new_state
+        {
             build_progress.push((target_x, target_y));
         }
         if let Some(prey_e) = kill {
@@ -327,37 +391,41 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
         match rt {
             ResourceType::Food => {
                 let mut best: Option<(Entity, f64)> = None;
-                for (e, pos, _fs, _ry) in world.query::<(Entity, &Position, &FoodSource, &mut ResourceYield)>().iter() {
+                for (e, pos, _fs, _ry) in world
+                    .query::<(Entity, &Position, &FoodSource, &mut ResourceYield)>()
+                    .iter()
+                {
                     let d = dist(pos.x, pos.y, hx, hy);
-                    if d < 3.0 && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
+                    if d < 3.0 && best.as_ref().is_none_or(|(_, bd)| d < *bd) {
                         best = Some((e, d));
                     }
                 }
-                if let Some((e, _)) = best {
-                    if let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
+                if let Some((e, _)) = best
+                    && let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
                         ry.remaining = ry.remaining.saturating_sub(1);
                         if ry.remaining == 0 {
                             to_deplete_despawn.push(e);
                         }
                     }
-                }
             }
             ResourceType::Stone => {
                 let mut best: Option<(Entity, f64)> = None;
-                for (e, pos, _sd, _ry) in world.query::<(Entity, &Position, &StoneDeposit, &mut ResourceYield)>().iter() {
+                for (e, pos, _sd, _ry) in world
+                    .query::<(Entity, &Position, &StoneDeposit, &mut ResourceYield)>()
+                    .iter()
+                {
                     let d = dist(pos.x, pos.y, hx, hy);
-                    if d < 3.0 && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
+                    if d < 3.0 && best.as_ref().is_none_or(|(_, bd)| d < *bd) {
                         best = Some((e, d));
                     }
                 }
-                if let Some((e, _)) = best {
-                    if let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
+                if let Some((e, _)) = best
+                    && let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
                         ry.remaining = ry.remaining.saturating_sub(1);
                         if ry.remaining == 0 {
                             to_deplete_despawn.push(e);
                         }
                     }
-                }
             }
             _ => {} // Wood comes from terrain, not entities
         }
@@ -381,7 +449,9 @@ pub fn system_ai(world: &mut World, map: &TileMap, wolf_aggression: f64, stockpi
 /// Trees regrow from Forest terrain naturally. Stone does NOT regrow.
 pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
     // Only check every 400 ticks
-    if tick % 400 != 0 { return; }
+    if !tick.is_multiple_of(400) {
+        return;
+    }
 
     let mut rng = rand::rng();
 
@@ -395,11 +465,13 @@ pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
             let y = rng.random_range(1..map.height.saturating_sub(1) as u32) as usize;
             if map.get(x, y) == Some(&Terrain::Grass) {
                 // Check if forest is nearby
-                let near_forest = [(-1i32,0),(1,0),(0,-1),(0,1)].iter().any(|&(dx,dy)| {
-                    let nx = (x as i32 + dx) as usize;
-                    let ny = (y as i32 + dy) as usize;
-                    map.get(nx, ny) == Some(&Terrain::Forest)
-                });
+                let near_forest = [(-1i32, 0), (1, 0), (0, -1), (0, 1)]
+                    .iter()
+                    .any(|&(dx, dy)| {
+                        let nx = (x as i32 + dx) as usize;
+                        let ny = (y as i32 + dy) as usize;
+                        map.get(nx, ny) == Some(&Terrain::Forest)
+                    });
                 if near_forest && rng.random_range(0u32..100) < 3 {
                     spawn_berry_bush(world, x as f64, y as f64);
                 }
@@ -412,12 +484,23 @@ pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
 /// Priority: farms with pending food > farms needing tending > workshops with inputs.
 pub fn system_assign_workers(world: &mut World, resources: &Resources) {
     // Collect farm positions and their state
-    let farms: Vec<(f64, f64, bool, u32)> = world.query::<(&Position, &FarmPlot)>().iter()
-        .map(|(p, f)| (p.x, p.y, f.harvest_ready || f.pending_food > 0, f.pending_food))
+    let farms: Vec<(f64, f64, bool, u32)> = world
+        .query::<(&Position, &FarmPlot)>()
+        .iter()
+        .map(|(p, f)| {
+            (
+                p.x,
+                p.y,
+                f.harvest_ready || f.pending_food > 0,
+                f.pending_food,
+            )
+        })
         .collect();
 
     // Collect processing building positions and whether they have inputs
-    let workshops: Vec<(f64, f64, bool)> = world.query::<(&Position, &ProcessingBuilding)>().iter()
+    let workshops: Vec<(f64, f64, bool)> = world
+        .query::<(&Position, &ProcessingBuilding)>()
+        .iter()
         .map(|(p, b)| {
             let has_input = match b.recipe {
                 Recipe::WoodToPlanks => resources.wood >= 2,
@@ -458,9 +541,16 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
     // Find idle/wandering villagers and assign them
     let mut assignments: Vec<(Entity, BehaviorState)> = Vec::new();
 
-    for (e, pos, creature, behavior) in world.query::<(Entity, &Position, &Creature, &Behavior)>().iter() {
-        if creature.species != Species::Villager { continue; }
-        if creature.hunger > 0.5 { continue; } // too hungry to work
+    for (e, pos, creature, behavior) in world
+        .query::<(Entity, &Position, &Creature, &Behavior)>()
+        .iter()
+    {
+        if creature.species != Species::Villager {
+            continue;
+        }
+        if creature.hunger > 0.5 {
+            continue;
+        } // too hungry to work
         match behavior.state {
             BehaviorState::Idle { .. } | BehaviorState::Wander { .. } => {}
             _ => continue, // already busy
@@ -479,7 +569,13 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         if let Some((i, _)) = best_farm {
             let (fx, fy, _, _) = farms[i];
             farm_workers[i] += 1;
-            assignments.push((e, BehaviorState::Farming { target_x: fx, target_y: fy }));
+            assignments.push((
+                e,
+                BehaviorState::Farming {
+                    target_x: fx,
+                    target_y: fy,
+                },
+            ));
             continue;
         }
 
@@ -496,7 +592,13 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         if let Some((i, _)) = best_tend {
             let (fx, fy, _, _) = farms[i];
             farm_workers[i] += 1;
-            assignments.push((e, BehaviorState::Farming { target_x: fx, target_y: fy }));
+            assignments.push((
+                e,
+                BehaviorState::Farming {
+                    target_x: fx,
+                    target_y: fy,
+                },
+            ));
             continue;
         }
 
@@ -513,7 +615,13 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         if let Some((i, _)) = best_workshop {
             let (wx, wy, _) = workshops[i];
             workshop_workers[i] += 1;
-            assignments.push((e, BehaviorState::Working { target_x: wx, target_y: wy }));
+            assignments.push((
+                e,
+                BehaviorState::Working {
+                    target_x: wx,
+                    target_y: wy,
+                },
+            ));
         }
     }
 
@@ -541,11 +649,15 @@ pub fn system_mark_workers(world: &mut World) -> u32 {
     let mut food_pickups: Vec<(Entity, f64, f64, u32)> = Vec::new(); // (villager, stockpile_x, stockpile_y, amount)
 
     // Get stockpile positions for hauling
-    let stockpiles: Vec<(f64, f64)> = world.query::<(&Position, &Stockpile)>().iter()
+    let stockpiles: Vec<(f64, f64)> = world
+        .query::<(&Position, &Stockpile)>()
+        .iter()
         .map(|(p, _)| (p.x, p.y))
         .collect();
 
-    let farm_entities: Vec<(Entity, f64, f64)> = world.query::<(Entity, &Position, &FarmPlot)>().iter()
+    let farm_entities: Vec<(Entity, f64, f64)> = world
+        .query::<(Entity, &Position, &FarmPlot)>()
+        .iter()
         .map(|(e, p, _)| (e, p.x, p.y))
         .collect();
 
@@ -561,7 +673,8 @@ pub fn system_mark_workers(world: &mut World) -> u32 {
                             let amount = farm.pending_food;
                             farm.pending_food = 0;
                             // Find nearest stockpile for hauling
-                            let nearest = stockpiles.iter()
+                            let nearest = stockpiles
+                                .iter()
                                 .map(|&(sx, sy)| (sx, sy, dist(vx, vy, sx, sy)))
                                 .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
                             if let Some((sx, sy, _)) = nearest {
@@ -580,7 +693,8 @@ pub fn system_mark_workers(world: &mut World) -> u32 {
     for (ve, sx, sy, amount) in &food_pickups {
         if let Ok(mut behavior) = world.get::<&mut Behavior>(*ve) {
             behavior.state = BehaviorState::Hauling {
-                target_x: *sx, target_y: *sy,
+                target_x: *sx,
+                target_y: *sy,
                 resource_type: ResourceType::Food,
             };
         }
@@ -588,7 +702,9 @@ pub fn system_mark_workers(world: &mut World) -> u32 {
     }
 
     // Mark workshops with workers
-    let workshop_entities: Vec<(Entity, f64, f64)> = world.query::<(Entity, &Position, &ProcessingBuilding)>().iter()
+    let workshop_entities: Vec<(Entity, f64, f64)> = world
+        .query::<(Entity, &Position, &ProcessingBuilding)>()
+        .iter()
         .map(|(e, p, _)| (e, p.x, p.y))
         .collect();
 
@@ -658,13 +774,13 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
             sprite.fg = Color(220, 200, 40); // harvest ready — gold
             sprite.ch = '♣';
         } else if farm.growth < 0.3 {
-            sprite.fg = Color(120, 80, 30);  // dirt
+            sprite.fg = Color(120, 80, 30); // dirt
             sprite.ch = '·';
         } else if farm.growth < 0.7 {
-            sprite.fg = Color(80, 160, 40);  // growing
+            sprite.fg = Color(80, 160, 40); // growing
             sprite.ch = '♠';
         } else {
-            sprite.fg = Color(60, 180, 40);  // mature
+            sprite.fg = Color(60, 180, 40); // mature
             sprite.ch = '"';
         }
     }
@@ -739,7 +855,10 @@ pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64,
         std::collections::HashMap::new();
     for creature in world.query::<&Creature>().iter() {
         if creature.species == Species::Prey {
-            let key = (creature.home_x.round() as i32, creature.home_y.round() as i32);
+            let key = (
+                creature.home_x.round() as i32,
+                creature.home_y.round() as i32,
+            );
             *den_prey_count.entry(key).or_insert(0) += 1;
         }
     }
@@ -817,9 +936,17 @@ pub fn system_breeding(world: &mut World, season: Season, wolf_breed_boost: f64,
 /// Coordinated wolf raid system: when 5+ wolves are within range of each other,
 /// they attack as a pack toward the settlement center.
 /// Returns true if a raid was launched this tick.
-pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64, tick: u64, year: u32) -> bool {
+pub fn system_wolf_raids(
+    world: &mut World,
+    settlement_x: f64,
+    settlement_y: f64,
+    tick: u64,
+    year: u32,
+) -> bool {
     // Only check every 50 ticks to avoid constant scanning
-    if tick % 50 != 0 { return false; }
+    if !tick.is_multiple_of(50) {
+        return false;
+    }
 
     // Collect wolf positions
     let wolves: Vec<(Entity, f64, f64)> = world
@@ -830,12 +957,15 @@ pub fn system_wolf_raids(world: &mut World, settlement_x: f64, settlement_y: f64
         .collect();
 
     let raid_threshold = 3u32.max(5u32.saturating_sub(year)) as usize;
-    if wolves.len() < raid_threshold { return false; }
+    if wolves.len() < raid_threshold {
+        return false;
+    }
 
     // Find clusters of raid_threshold+ wolves within 15 tiles of each other
     let cluster_radius = 15.0;
     for &(_, wx, wy) in &wolves {
-        let pack: Vec<Entity> = wolves.iter()
+        let pack: Vec<Entity> = wolves
+            .iter()
             .filter(|(_, x, y)| dist(wx, wy, *x, *y) < cluster_radius)
             .map(|(e, _, _)| *e)
             .collect();

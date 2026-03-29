@@ -1,8 +1,11 @@
+use super::{CELL_ASPECT, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
 #[allow(unused_imports)] // some used only in demolish_at
-use crate::ecs::{self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position, ProcessingBuilding, Recipe, Species, Stockpile};
+use crate::ecs::{
+    self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position,
+    ProcessingBuilding, Recipe, Species, Stockpile,
+};
 use crate::renderer::Renderer;
 use crate::tilemap::Terrain;
-use super::{CELL_ASPECT, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
 
 impl super::Game {
     pub fn can_place_building(&self, bx: i32, by: i32, building_type: BuildingType) -> bool {
@@ -11,7 +14,11 @@ impl super::Game {
             for dx in 0..w {
                 let tx = bx + dx;
                 let ty = by + dy;
-                if tx < 0 || ty < 0 || tx as usize >= self.map.width || ty as usize >= self.map.height {
+                if tx < 0
+                    || ty < 0
+                    || tx as usize >= self.map.width
+                    || ty as usize >= self.map.height
+                {
                     return false;
                 }
                 if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
@@ -36,15 +43,17 @@ impl super::Game {
         }
 
         // Must be within settlement influence (any tile of building footprint)
-        let in_territory = (0..h).any(|dy| (0..w).any(|dx| {
-            let tx = bx + dx;
-            let ty = by + dy;
-            if tx >= 0 && ty >= 0 {
-                self.influence.get(tx as usize, ty as usize) > 0.1
-            } else {
-                false
-            }
-        }));
+        let in_territory = (0..h).any(|dy| {
+            (0..w).any(|dx| {
+                let tx = bx + dx;
+                let ty = by + dy;
+                if tx >= 0 && ty >= 0 {
+                    self.influence.get(tx as usize, ty as usize) > 0.1
+                } else {
+                    false
+                }
+            })
+        });
         if !in_territory {
             return false;
         }
@@ -101,7 +110,8 @@ impl super::Game {
                 let tx = bx + dx;
                 let ty = by + dy;
                 if tx >= 0 && ty >= 0 {
-                    self.map.set(tx as usize, ty as usize, Terrain::BuildingFloor);
+                    self.map
+                        .set(tx as usize, ty as usize, Terrain::BuildingFloor);
                 }
             }
         }
@@ -168,7 +178,10 @@ impl super::Game {
 
     /// Compute the average position of all villagers as the settlement center.
     pub fn settlement_center(&self) -> (i32, i32) {
-        let positions: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
+        let positions: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
             .filter(|(_, c)| c.species == Species::Villager)
             .map(|(p, _)| (p.x, p.y))
             .collect();
@@ -182,7 +195,10 @@ impl super::Game {
 
     /// Compute a defense rating from garrison buildings, wall tiles, and military skill.
     pub(super) fn compute_defense_rating(&self) -> f64 {
-        let garrison_defense: f64 = self.world.query::<&GarrisonBuilding>().iter()
+        let garrison_defense: f64 = self
+            .world
+            .query::<&GarrisonBuilding>()
+            .iter()
             .map(|g| g.defense_bonus)
             .sum();
 
@@ -192,11 +208,10 @@ impl super::Game {
             for dx in -20i32..=20 {
                 let tx = cx + dx;
                 let ty = cy + dy;
-                if tx >= 0 && ty >= 0 {
-                    if let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize) {
+                if tx >= 0 && ty >= 0
+                    && let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize) {
                         wall_tiles += 1;
                     }
-                }
             }
         }
 
@@ -206,7 +221,11 @@ impl super::Game {
     /// Check for completed build sites and apply their tiles to the map.
     pub(super) fn check_build_completion(&mut self) {
         let mut completed: Vec<(hecs::Entity, Position, BuildSite)> = Vec::new();
-        for (e, (pos, site)) in self.world.query::<(hecs::Entity, (&Position, &BuildSite))>().iter() {
+        for (e, (pos, site)) in self
+            .world
+            .query::<(hecs::Entity, (&Position, &BuildSite))>()
+            .iter()
+        {
             if site.progress >= site.required {
                 completed.push((e, *pos, *site));
             }
@@ -236,7 +255,12 @@ impl super::Game {
                 ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::WoodToPlanks);
             }
             if site.building_type == BuildingType::Smithy {
-                ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::StoneToMasonry);
+                ecs::spawn_processing_building(
+                    &mut self.world,
+                    pos.x,
+                    pos.y,
+                    Recipe::StoneToMasonry,
+                );
             }
             if site.building_type == BuildingType::Garrison {
                 ecs::spawn_garrison(&mut self.world, pos.x, pos.y);
@@ -298,13 +322,15 @@ impl super::Game {
         }
 
         // Slow decay every 10 ticks
-        if self.tick % 10 == 0 {
+        if self.tick.is_multiple_of(10) {
             self.traffic.decay();
         }
 
         // Check for road conversion every 100 ticks
-        if self.tick % 100 == 0 {
-            let candidates = self.traffic.road_candidates(&self.map, ROAD_TRAFFIC_THRESHOLD);
+        if self.tick.is_multiple_of(100) {
+            let candidates = self
+                .traffic
+                .road_candidates(&self.map, ROAD_TRAFFIC_THRESHOLD);
             for (x, y) in candidates {
                 self.map.set(x, y, Terrain::Road);
             }
@@ -315,12 +341,18 @@ impl super::Game {
     /// Births require: 2+ villagers, food >= 5, and housing capacity.
     /// More surplus housing = shorter birth cooldown (min 200, max 800 ticks).
     pub(super) fn try_population_growth(&mut self) {
-        let villager_count = self.world.query::<&Creature>().iter()
+        let villager_count = self
+            .world
+            .query::<&Creature>()
+            .iter()
             .filter(|c| c.species == Species::Villager)
             .count() as u32;
 
         // Count total hut capacity
-        let total_capacity: u32 = self.world.query::<&HutBuilding>().iter()
+        let total_capacity: u32 = self
+            .world
+            .query::<&HutBuilding>()
+            .iter()
             .map(|h| h.capacity)
             .sum();
 
@@ -345,18 +377,20 @@ impl super::Game {
         self.resources.food -= 5;
 
         // Collect villager positions to find a spawn point nearby
-        let villager_pos: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
             .filter(|(_, c)| c.species == Species::Villager)
             .map(|(p, _)| (p.x, p.y))
             .collect();
 
-        if let Some(&(vx, vy)) = villager_pos.first() {
-            if let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5) {
+        if let Some(&(vx, vy)) = villager_pos.first()
+            && let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5) {
                 ecs::spawn_villager(&mut self.world, nx, ny);
                 self.last_birth_tick = self.tick;
                 self.notify("New villager born!".to_string());
             }
-        }
     }
 
     /// Find a walkable tile within `radius` of (cx, cy).
@@ -381,7 +415,10 @@ impl super::Game {
     /// Auto-build: place buildings automatically based on settlement needs.
     pub(super) fn auto_build_tick(&mut self) {
         // Find settlement center from villager positions
-        let villager_pos: Vec<(f64, f64)> = self.world.query::<(&Position, &Creature)>().iter()
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
             .filter(|(_, c)| c.species == Species::Villager)
             .map(|(p, _)| (p.x, p.y))
             .collect();
@@ -393,8 +430,12 @@ impl super::Game {
 
         // Count existing farms (completed + in-progress)
         let farm_count = self.world.query::<&FarmPlot>().iter().count()
-            + self.world.query::<&BuildSite>().iter()
-                .filter(|s| s.building_type == BuildingType::Farm).count();
+            + self
+                .world
+                .query::<&BuildSite>()
+                .iter()
+                .filter(|s| s.building_type == BuildingType::Farm)
+                .count();
 
         // Count existing build sites being worked on
         let pending_builds = self.world.query::<&BuildSite>().iter().count();
@@ -405,38 +446,45 @@ impl super::Game {
 
         // Priority 1: Farm when food is low and we don't have many farms
         let villager_count = villager_pos.len() as u32;
-        if self.resources.food < 8 + villager_count * 2 && farm_count < (villager_count as usize + 1) / 2 {
+        if self.resources.food < 8 + villager_count * 2
+            && farm_count < (villager_count as usize).div_ceil(2)
+        {
             let cost = BuildingType::Farm.cost();
-            if self.resources.can_afford(&cost) {
-                if let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm) {
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm) {
                     self.resources.deduct(&cost);
                     self.place_build_site(bx, by, BuildingType::Farm);
                     self.notify("Auto-build: Farm queued".to_string());
                     return;
                 }
-            }
         }
 
         // Priority 2: Hut when population is growing and needs housing
-        let hut_count = self.world.query::<&BuildSite>().iter()
-            .filter(|s| s.building_type == BuildingType::Hut).count();
+        let hut_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Hut)
+            .count();
         // Count completed huts by checking for Hut-shaped building floor clusters
         // Simple heuristic: 1 hut per 3 villagers needed
-        let huts_needed = (villager_count as usize + 2) / 3;
+        let huts_needed = (villager_count as usize).div_ceil(3);
         if hut_count < huts_needed && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
-            if self.resources.can_afford(&cost) {
-                if let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut) {
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut) {
                     self.resources.deduct(&cost);
                     self.place_build_site(bx, by, BuildingType::Hut);
                     self.notify("Auto-build: Hut queued".to_string());
                     return;
                 }
-            }
         }
 
         // Priority 3: Walls when wolves are nearby settlement
-        let wolf_near = self.world.query::<(&Position, &Creature)>().iter()
+        let wolf_near = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
             .filter(|(_, c)| c.species == Species::Predator)
             .any(|(p, _)| {
                 let dx = p.x - cx;
@@ -457,7 +505,12 @@ impl super::Game {
     }
 
     /// Find a valid spot for a building near (cx, cy), searching outward in rings.
-    pub(super) fn find_building_spot(&self, cx: f64, cy: f64, bt: BuildingType) -> Option<(i32, i32)> {
+    pub(super) fn find_building_spot(
+        &self,
+        cx: f64,
+        cy: f64,
+        bt: BuildingType,
+    ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
         for r in 2i32..20 {
             for dy in -r..=r {
@@ -482,7 +535,9 @@ impl super::Game {
         let mut nearest_dist = f64::MAX;
         let mut wolf_dir = (0.0f64, 0.0f64);
         for (p, c) in self.world.query::<(&Position, &Creature)>().iter() {
-            if c.species != Species::Predator { continue; }
+            if c.species != Species::Predator {
+                continue;
+            }
             let dx = p.x - cx;
             let dy = p.y - cy;
             let dist = dx * dx + dy * dy;
@@ -514,13 +569,16 @@ impl super::Game {
 
     /// Demolish any building at (bx, by). Restores terrain to grass and despawns entity.
     pub(super) fn demolish_at(&mut self, bx: i32, by: i32) {
-
         // Find building entity at this position
         let mut to_demolish: Option<hecs::Entity> = None;
         let mut building_size = (1i32, 1i32);
 
         // Check for huts
-        for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &HutBuilding))>().iter() {
+        for (entity, (pos, _)) in self
+            .world
+            .query::<(hecs::Entity, (&Position, &HutBuilding))>()
+            .iter()
+        {
             let (w, h) = BuildingType::Hut.size();
             let ex = pos.x as i32 - w / 2;
             let ey = pos.y as i32 - h / 2;
@@ -533,7 +591,11 @@ impl super::Game {
 
         // Check for farms
         if to_demolish.is_none() {
-            for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &FarmPlot))>().iter() {
+            for (entity, (pos, _)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &FarmPlot))>()
+                .iter()
+            {
                 let (w, h) = BuildingType::Farm.size();
                 let ex = pos.x as i32 - w / 2;
                 let ey = pos.y as i32 - h / 2;
@@ -547,7 +609,11 @@ impl super::Game {
 
         // Check for garrisons
         if to_demolish.is_none() {
-            for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &GarrisonBuilding))>().iter() {
+            for (entity, (pos, _)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &GarrisonBuilding))>()
+                .iter()
+            {
                 let (w, h) = BuildingType::Garrison.size();
                 let ex = pos.x as i32 - w / 2;
                 let ey = pos.y as i32 - h / 2;
@@ -561,7 +627,11 @@ impl super::Game {
 
         // Check for processing buildings (workshop, smithy, bakery)
         if to_demolish.is_none() {
-            for (entity, (pos, _)) in self.world.query::<(hecs::Entity, (&Position, &ProcessingBuilding))>().iter() {
+            for (entity, (pos, _)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &ProcessingBuilding))>()
+                .iter()
+            {
                 let (w, h) = (3, 3); // processing buildings are 3x3
                 let ex = pos.x as i32 - w / 2;
                 let ey = pos.y as i32 - h / 2;
@@ -575,7 +645,11 @@ impl super::Game {
 
         // Check for build sites (in-progress buildings)
         if to_demolish.is_none() {
-            for (entity, (pos, site)) in self.world.query::<(hecs::Entity, (&Position, &BuildSite))>().iter() {
+            for (entity, (pos, site)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &BuildSite))>()
+                .iter()
+            {
                 let (w, h) = site.building_type.size();
                 let ex = pos.x as i32;
                 let ey = pos.y as i32;
@@ -597,11 +671,10 @@ impl super::Game {
                     if tx >= 0 && ty >= 0 {
                         let tux = tx as usize;
                         let tuy = ty as usize;
-                        if let Some(t) = self.map.get(tux, tuy) {
-                            if matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall) {
+                        if let Some(t) = self.map.get(tux, tuy)
+                            && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall) {
                                 self.map.set(tux, tuy, Terrain::Grass);
                             }
-                        }
                     }
                 }
             }

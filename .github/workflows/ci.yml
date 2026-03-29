@@ -1,0 +1,38 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Build
+        run: cargo build
+
+      - name: Run lib tests
+        run: cargo test --lib
+
+      - name: Run bin tests
+        run: cargo test --bin terrain-gen-rust
+
+      - name: Build with png feature
+        run: cargo build --features png
+
+      - name: Build with lua feature
+        run: cargo build --features lua
+
+      - name: Run lua tests
+        run: cargo test --lib --features lua

@@ -83,10 +83,13 @@ impl HeadlessRenderer {
                     }
                 }
 
-                if cell.ch == ' ' { continue; }
+                if cell.ch == ' ' {
+                    continue;
+                }
 
                 // Try to get glyph from font8x8
-                let glyph = font8x8::BASIC_FONTS.get(cell.ch)
+                let glyph = font8x8::BASIC_FONTS
+                    .get(cell.ch)
                     .or_else(|| font8x8::BLOCK_FONTS.get(cell.ch))
                     .or_else(|| font8x8::BOX_FONTS.get(cell.ch))
                     .or_else(|| font8x8::MISC_FONTS.get(cell.ch));

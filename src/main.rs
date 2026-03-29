@@ -1,11 +1,11 @@
 mod crossterm_renderer;
 
-use terrain_gen_rust::renderer::{self, Renderer};
-use terrain_gen_rust::headless_renderer;
 use terrain_gen_rust::game;
+use terrain_gen_rust::headless_renderer;
+use terrain_gen_rust::renderer::{self, Renderer};
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use std::time::{Duration, Instant};
 
 use crossterm_renderer::CrosstermRenderer;
@@ -101,7 +101,12 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
                         input = mapped;
                     }
                 }
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, .. }) => {
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                    ..
+                }) => {
                     input = GameInput::MouseClick { x: column, y: row };
                 }
                 Event::Resize(w, h) => {
@@ -133,11 +138,10 @@ fn run_interactive(game: &mut Game, renderer: &mut CrosstermRenderer) -> Result<
         game.step(input, renderer)?;
 
         // Handle Load after step (replaces game state)
-        if input == GameInput::Load {
-            if let Ok(loaded) = Game::load("savegame.json", game.target_fps) {
+        if input == GameInput::Load
+            && let Ok(loaded) = Game::load("savegame.json", game.target_fps) {
                 *game = loaded;
             }
-        }
 
         // FPS counter
         frame_count += 1;
@@ -169,20 +173,28 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--screenshot") {
         // Render a single frame as ANSI to stdout and exit
-        let w: u16 = args.iter().position(|a| a == "--width")
+        let w: u16 = args
+            .iter()
+            .position(|a| a == "--width")
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse().ok())
             .unwrap_or(120);
-        let h: u16 = args.iter().position(|a| a == "--height")
+        let h: u16 = args
+            .iter()
+            .position(|a| a == "--height")
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse().ok())
             .unwrap_or(40);
-        let ticks: u64 = args.iter().position(|a| a == "--ticks")
+        let ticks: u64 = args
+            .iter()
+            .position(|a| a == "--ticks")
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse().ok())
             .unwrap_or(60);
 
-        let seed: u32 = args.iter().position(|a| a == "--seed")
+        let seed: u32 = args
+            .iter()
+            .position(|a| a == "--seed")
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse().ok())
             .unwrap_or(42);
@@ -209,23 +221,46 @@ fn main() -> Result<()> {
         }
 
         // Output as PNG if --png flag given, otherwise ANSI
-        let png_path = args.iter().position(|a| a == "--png")
+        let png_path = args
+            .iter()
+            .position(|a| a == "--png")
             .and_then(|i| args.get(i + 1).cloned());
 
         // Print game state summary
-        eprintln!("=== State: tick={} season={} day={} hour={:.1} year={} ===",
-            game.tick, game.day_night.season.name(), game.day_night.day + 1,
-            game.day_night.hour, game.day_night.year + 1);
-        eprintln!("  resources: food={} wood={} stone={} planks={} masonry={}",
-            game.resources.food, game.resources.wood, game.resources.stone,
-            game.resources.planks, game.resources.masonry);
+        eprintln!(
+            "=== State: tick={} season={} day={} hour={:.1} year={} ===",
+            game.tick,
+            game.day_night.season.name(),
+            game.day_night.day + 1,
+            game.day_night.hour,
+            game.day_night.year + 1
+        );
+        eprintln!(
+            "  resources: food={} wood={} stone={} planks={} masonry={}",
+            game.resources.food,
+            game.resources.wood,
+            game.resources.stone,
+            game.resources.planks,
+            game.resources.masonry
+        );
         {
             use terrain_gen_rust::ecs::{Creature, Species};
-            let vc = game.world.query::<&Creature>().iter()
-                .filter(|c| c.species == Species::Villager).count();
-            let wc = game.world.query::<&Creature>().iter()
-                .filter(|c| c.species == Species::Predator).count();
-            eprintln!("  pop: {} villagers, {} wolves, auto_build={}", vc, wc, game.auto_build);
+            let vc = game
+                .world
+                .query::<&Creature>()
+                .iter()
+                .filter(|c| c.species == Species::Villager)
+                .count();
+            let wc = game
+                .world
+                .query::<&Creature>()
+                .iter()
+                .filter(|c| c.species == Species::Predator)
+                .count();
+            eprintln!(
+                "  pop: {} villagers, {} wolves, auto_build={}",
+                vc, wc, game.auto_build
+            );
         }
         eprintln!("  camera: ({}, {})", game.camera.x, game.camera.y);
 
@@ -237,7 +272,9 @@ fn main() -> Result<()> {
             }
             #[cfg(not(feature = "png"))]
             {
-                eprintln!("PNG support requires --features png. Compile with: cargo run --release --features png");
+                eprintln!(
+                    "PNG support requires --features png. Compile with: cargo run --release --features png"
+                );
                 let _ = path;
             }
         } else {
@@ -263,24 +300,42 @@ fn main() -> Result<()> {
         // Non-interactive play mode: reads commands from --inputs or runs N ticks
         // Usage: --play [--width W] [--height H] [--seed S] [--inputs "tick:100,input:ScrollDown,tick:50"]
         // Or: --play --ticks 500 (just run and dump final frame)
-        let w: u16 = args.iter().position(|a| a == "--width")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(80);
-        let h: u16 = args.iter().position(|a| a == "--height")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(30);
-        let seed: u32 = args.iter().position(|a| a == "--seed")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(42);
+        let w: u16 = args
+            .iter()
+            .position(|a| a == "--width")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(80);
+        let h: u16 = args
+            .iter()
+            .position(|a| a == "--height")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(30);
+        let seed: u32 = args
+            .iter()
+            .position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(42);
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
 
-        let inputs_str = args.iter().position(|a| a == "--inputs")
+        let inputs_str = args
+            .iter()
+            .position(|a| a == "--inputs")
             .and_then(|i| args.get(i + 1).cloned())
             .unwrap_or_default();
 
         if inputs_str.is_empty() {
             // Just run ticks and dump
-            let ticks: u64 = args.iter().position(|a| a == "--ticks")
-                .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(200);
+            let ticks: u64 = args
+                .iter()
+                .position(|a| a == "--ticks")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(200);
             for _ in 0..ticks {
                 game_obj.step(GameInput::None, &mut r)?;
             }
@@ -337,20 +392,40 @@ fn main() -> Result<()> {
     if args.iter().any(|a| a == "--terrain") {
         // Terrain-only mode: just run water/erosion simulation, no entities
         // Usage: --terrain [--seed S] [--ticks N] [--png out.png]
-        let seed: u32 = args.iter().position(|a| a == "--seed")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(42);
-        let erosion_ticks: u32 = args.iter().position(|a| a == "--ticks")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(500);
-        let w: u16 = args.iter().position(|a| a == "--width")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(160);
-        let h: u16 = args.iter().position(|a| a == "--height")
-            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(48);
+        let seed: u32 = args
+            .iter()
+            .position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(42);
+        let erosion_ticks: u32 = args
+            .iter()
+            .position(|a| a == "--ticks")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(500);
+        let w: u16 = args
+            .iter()
+            .position(|a| a == "--width")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(160);
+        let h: u16 = args
+            .iter()
+            .position(|a| a == "--height")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(48);
 
-        use terrain_gen_rust::terrain_gen::{self, TerrainGenConfig};
         use terrain_gen_rust::simulation::{SimConfig, WaterMap};
+        use terrain_gen_rust::terrain_gen::{self, TerrainGenConfig};
         use terrain_gen_rust::tilemap::Terrain;
 
-        let terrain_config = TerrainGenConfig { seed, scale: 0.015, ..Default::default() };
+        let terrain_config = TerrainGenConfig {
+            seed,
+            scale: 0.015,
+            ..Default::default()
+        };
         let (mut map, mut heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
         let mut water = WaterMap::new(256, 256);
         for y in 0..256 {
@@ -366,7 +441,10 @@ fn main() -> Result<()> {
         config.erosion_enabled = true;
         config.erosion_strength = 0.5;
 
-        eprintln!("Running {} erosion ticks on seed {}...", erosion_ticks, seed);
+        eprintln!(
+            "Running {} erosion ticks on seed {}...",
+            erosion_ticks, seed
+        );
         for t in 0..erosion_ticks {
             water.rain(&config);
             water.update(&mut heights, &config, None);
@@ -407,7 +485,13 @@ fn main() -> Result<()> {
                     let bg = terrain.bg().unwrap_or(renderer::Color(0, 0, 0));
                     let water_depth = water.get(wx, wy);
                     if water_depth > 0.01 {
-                        r.draw(sx, sy, '~', renderer::Color(60, 110, 220), Some(renderer::Color(20, 40, 100)));
+                        r.draw(
+                            sx,
+                            sy,
+                            '~',
+                            renderer::Color(60, 110, 220),
+                            Some(renderer::Color(20, 40, 100)),
+                        );
                     } else {
                         r.draw(sx, sy, terrain.ch(), fg, Some(bg));
                     }
@@ -415,7 +499,9 @@ fn main() -> Result<()> {
             }
         }
 
-        let png_path = args.iter().position(|a| a == "--png")
+        let png_path = args
+            .iter()
+            .position(|a| a == "--png")
             .and_then(|i| args.get(i + 1).cloned());
         if let Some(path) = png_path {
             #[cfg(feature = "png")]
@@ -477,7 +563,11 @@ mod tests {
         assert_eq!(snap.cells.len(), 20);
         assert_eq!(snap.cells[0].len(), 40);
         // frame should contain terrain chars, not be blank
-        let non_blank = snap.text.chars().filter(|c| *c != ' ' && *c != '\n').count();
+        let non_blank = snap
+            .text
+            .chars()
+            .filter(|c| *c != ' ' && *c != '\n')
+            .count();
         assert!(non_blank > 0, "frame should have terrain content");
     }
 
@@ -516,7 +606,11 @@ mod tests {
         // should contain terrain characters
         let terrain_chars = ['~', '·', '\'', ':', '^'];
         let has_terrain = frame.chars().any(|c| terrain_chars.contains(&c));
-        assert!(has_terrain, "frame should contain terrain characters:\n{}", frame);
+        assert!(
+            has_terrain,
+            "frame should contain terrain characters:\n{}",
+            frame
+        );
     }
 
     #[test]
@@ -526,7 +620,11 @@ mod tests {
         game.step(GameInput::None, &mut r).unwrap();
 
         let frame = r.frame_as_string();
-        assert!(frame.contains("tick:1"), "expected tick in status line:\n{}", frame);
+        assert!(
+            frame.contains("tick:1"),
+            "expected tick in status line:\n{}",
+            frame
+        );
     }
 
     #[test]
@@ -538,7 +636,10 @@ mod tests {
         let snap2 = game.step_headless(GameInput::None, &mut r).unwrap();
 
         let diff = snap1.diff(&snap2);
-        assert!(!diff.changes.is_empty(), "NPC movement should cause frame changes");
+        assert!(
+            !diff.changes.is_empty(),
+            "NPC movement should cause frame changes"
+        );
     }
 
     #[test]
@@ -591,7 +692,10 @@ mod tests {
 
         let snap1 = game.step_headless(GameInput::None, &mut r).unwrap();
         let diff = snap1.diff(&snap1);
-        assert!(diff.changes.is_empty(), "diffing a frame against itself should be empty");
+        assert!(
+            diff.changes.is_empty(),
+            "diffing a frame against itself should be empty"
+        );
     }
 
     #[test]
@@ -617,7 +721,9 @@ mod tests {
                     break;
                 }
             }
-            if has_water { break; }
+            if has_water {
+                break;
+            }
         }
         assert!(has_water, "rain should add water to the map");
     }
@@ -662,11 +768,19 @@ mod tests {
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("rain:[r]-"), "should show rain off:\n{}", frame);
+        assert!(
+            frame.contains("rain:[r]-"),
+            "should show rain off:\n{}",
+            frame
+        );
 
         game.step(GameInput::ToggleRain, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("rain:[r]+"), "should show rain ON:\n{}", frame);
+        assert!(
+            frame.contains("rain:[r]+"),
+            "should show rain ON:\n{}",
+            frame
+        );
     }
 
     #[test]
@@ -677,12 +791,20 @@ mod tests {
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("time:[t]+"), "should show time ON:\n{}", frame);
+        assert!(
+            frame.contains("time:[t]+"),
+            "should show time ON:\n{}",
+            frame
+        );
 
         game.step(GameInput::ToggleDayNight, &mut r).unwrap();
         assert!(!game.day_night.enabled);
         let frame = r.frame_as_string();
-        assert!(frame.contains("time:[t]-"), "should show time off:\n{}", frame);
+        assert!(
+            frame.contains("time:[t]-"),
+            "should show time off:\n{}",
+            frame
+        );
     }
 
     #[test]
@@ -693,16 +815,28 @@ mod tests {
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
-        assert!(frame.contains("view:[v]-"), "should show normal view:\n{}", frame);
+        assert!(
+            frame.contains("view:[v]-"),
+            "should show normal view:\n{}",
+            frame
+        );
 
         game.step(GameInput::ToggleDebugView, &mut r).unwrap();
         assert!(game.debug_view);
         let frame = r.frame_as_string();
-        assert!(frame.contains("view:[v]D"), "should show DEBUG view:\n{}", frame);
+        assert!(
+            frame.contains("view:[v]D"),
+            "should show DEBUG view:\n{}",
+            frame
+        );
 
         // debug view uses uppercase terrain letters
         let has_debug_chars = frame.chars().any(|c| "WSGFMN".contains(c));
-        assert!(has_debug_chars, "debug view should use uppercase terrain letters:\n{}", frame);
+        assert!(
+            has_debug_chars,
+            "debug view should use uppercase terrain letters:\n{}",
+            frame
+        );
     }
 
     #[test]
@@ -724,10 +858,15 @@ mod tests {
         let midnight_cell = &midnight_snap.cells[5][35];
 
         let noon_brightness = noon_cell.fg.0 as u32 + noon_cell.fg.1 as u32 + noon_cell.fg.2 as u32;
-        let midnight_brightness = midnight_cell.fg.0 as u32 + midnight_cell.fg.1 as u32 + midnight_cell.fg.2 as u32;
+        let midnight_brightness =
+            midnight_cell.fg.0 as u32 + midnight_cell.fg.1 as u32 + midnight_cell.fg.2 as u32;
 
-        assert!(noon_brightness > midnight_brightness,
-            "noon should be brighter than midnight: noon={} midnight={}", noon_brightness, midnight_brightness);
+        assert!(
+            noon_brightness > midnight_brightness,
+            "noon should be brighter than midnight: noon={} midnight={}",
+            noon_brightness,
+            midnight_brightness
+        );
     }
 
     #[test]
@@ -747,8 +886,8 @@ mod tests {
 
     #[test]
     fn profile_frame_phases() {
-        use std::time::Instant;
         use crate::renderer::Renderer;
+        use std::time::Instant;
 
         let mut r = HeadlessRenderer::new(120, 40); // realistic terminal size
         let mut game = test_game();
@@ -788,7 +927,8 @@ mod tests {
         for _ in 0..n {
             game.water.rain(&game.sim_config);
             game.water.update(&mut game.heights, &game.sim_config, None);
-            game.moisture.update(&game.water, &mut game.vegetation, &game.map);
+            game.moisture
+                .update(&game.water, &mut game.vegetation, &game.map);
         }
         let water_us = start.elapsed().as_micros() / n as u128;
 
@@ -796,8 +936,13 @@ mod tests {
         let start = Instant::now();
         for _ in 0..n {
             game.day_night.compute_lighting(
-                &game.heights, game.map.width, game.map.height,
-                game.camera.x, game.camera.y, 120, 40,
+                &game.heights,
+                game.map.width,
+                game.map.height,
+                game.camera.x,
+                game.camera.y,
+                120,
+                40,
             );
         }
         let light_us = start.elapsed().as_micros() / n as u128;
@@ -822,8 +967,10 @@ mod tests {
         eprintln!("    lighting:       {}us", light_us);
         eprintln!("    draw:           {}us", draw_us);
         eprintln!("    flush:          {}us", flush_us);
-        eprintln!("    total:          {}us ({:.0} fps budget)",
+        eprintln!(
+            "    total:          {}us ({:.0} fps budget)",
             water_us + light_us + draw_us + flush_us,
-            1_000_000.0 / (water_us + light_us + draw_us + flush_us) as f64);
+            1_000_000.0 / (water_us + light_us + draw_us + flush_us) as f64
+        );
     }
 }

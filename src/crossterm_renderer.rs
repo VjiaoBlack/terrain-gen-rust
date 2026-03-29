@@ -1,8 +1,9 @@
 use anyhow::Result;
 use crossterm::{
-    cursor, execute, queue,
-    event::EnableMouseCapture,
+    cursor,
     event::DisableMouseCapture,
+    event::EnableMouseCapture,
+    execute, queue,
     style::{Color as CColor, Colors, ResetColor, SetColors},
     terminal,
 };
@@ -14,8 +15,8 @@ pub struct CrosstermRenderer {
     stdout: Stdout,
     width: u16,
     height: u16,
-    back: Vec<Cell>,   // what we drew last frame
-    front: Vec<Cell>,  // what we want to draw this frame
+    back: Vec<Cell>,  // what we drew last frame
+    front: Vec<Cell>, // what we want to draw this frame
 }
 
 impl CrosstermRenderer {
@@ -26,9 +27,18 @@ impl CrosstermRenderer {
         let mut stdout = io::stdout();
 
         terminal::enable_raw_mode()?;
-        execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide, EnableMouseCapture)?;
+        execute!(
+            stdout,
+            terminal::EnterAlternateScreen,
+            cursor::Hide,
+            EnableMouseCapture
+        )?;
         // clear the alternate screen with the default background
-        execute!(stdout, ResetColor, terminal::Clear(terminal::ClearType::All))?;
+        execute!(
+            stdout,
+            ResetColor,
+            terminal::Clear(terminal::ClearType::All)
+        )?;
 
         Ok(Self {
             stdout,
@@ -42,13 +52,23 @@ impl CrosstermRenderer {
 
 impl Drop for CrosstermRenderer {
     fn drop(&mut self) {
-        let _ = execute!(self.stdout, DisableMouseCapture, ResetColor, terminal::LeaveAlternateScreen, cursor::Show);
+        let _ = execute!(
+            self.stdout,
+            DisableMouseCapture,
+            ResetColor,
+            terminal::LeaveAlternateScreen,
+            cursor::Show
+        );
         let _ = terminal::disable_raw_mode();
     }
 }
 
 fn to_ccolor(c: Color) -> CColor {
-    CColor::Rgb { r: c.0, g: c.1, b: c.2 }
+    CColor::Rgb {
+        r: c.0,
+        g: c.1,
+        b: c.2,
+    }
 }
 
 impl CrosstermRenderer {
@@ -60,7 +80,11 @@ impl CrosstermRenderer {
         self.back = buf.clone();
         self.front = buf;
         // force full redraw
-        let _ = execute!(self.stdout, ResetColor, terminal::Clear(terminal::ClearType::All));
+        let _ = execute!(
+            self.stdout,
+            ResetColor,
+            terminal::Clear(terminal::ClearType::All)
+        );
     }
 }
 

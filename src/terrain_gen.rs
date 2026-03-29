@@ -1,5 +1,5 @@
 use noise::{NoiseFn, Perlin};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::tilemap::{Terrain, TileMap};
 
@@ -43,7 +43,8 @@ fn fbm(perlin: &Perlin, x: f64, y: f64, config: &TerrainGenConfig) -> f64 {
     let mut max_amplitude = 0.0;
 
     for _ in 0..config.octaves {
-        value += amplitude * perlin.get([x * frequency * config.scale, y * frequency * config.scale]);
+        value +=
+            amplitude * perlin.get([x * frequency * config.scale, y * frequency * config.scale]);
         max_amplitude += amplitude;
         amplitude *= config.persistence;
         frequency *= config.lacunarity;
@@ -70,7 +71,11 @@ pub fn height_to_terrain(h: f64, config: &TerrainGenConfig) -> Terrain {
 }
 
 /// Returns (TileMap, height_data) where height_data is the raw f64 heights for simulation.
-pub fn generate_terrain(width: usize, height: usize, config: &TerrainGenConfig) -> (TileMap, Vec<f64>) {
+pub fn generate_terrain(
+    width: usize,
+    height: usize,
+    config: &TerrainGenConfig,
+) -> (TileMap, Vec<f64>) {
     let perlin = Perlin::new(config.seed);
     let mut map = TileMap::new(width, height, Terrain::Grass);
     let mut heights = vec![0.0f64; width * height];
@@ -148,7 +153,10 @@ mod tests {
                 }
             }
         }
-        assert!(diffs > 0, "different seeds should produce different terrain");
+        assert!(
+            diffs > 0,
+            "different seeds should produce different terrain"
+        );
     }
 
     #[test]

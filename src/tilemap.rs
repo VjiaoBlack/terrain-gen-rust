@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::renderer::{Color, Renderer};
 
@@ -27,7 +27,7 @@ impl Terrain {
     pub fn ch(&self) -> char {
         match self {
             Terrain::Water => '~',
-            Terrain::Sand => '·',      // middle dot: lighter than '.' but visible
+            Terrain::Sand => '·', // middle dot: lighter than '.' but visible
             Terrain::Grass => '\'',
             Terrain::Forest => ':',
             Terrain::Mountain => '^',
@@ -127,23 +127,44 @@ impl TileMap {
 
     /// A* pathfinding from (sx, sy) to (gx, gy). Returns next waypoint (not full path).
     /// Returns None if no path found within search budget. max_steps caps exploration.
-    pub fn astar_next(&self, sx: f64, sy: f64, gx: f64, gy: f64, max_steps: usize) -> Option<(f64, f64)> {
-        use std::collections::BinaryHeap;
+    pub fn astar_next(
+        &self,
+        sx: f64,
+        sy: f64,
+        gx: f64,
+        gy: f64,
+        max_steps: usize,
+    ) -> Option<(f64, f64)> {
         use std::cmp::Ordering;
+        use std::collections::BinaryHeap;
 
         let si = sx.round() as i32;
         let sj = sy.round() as i32;
         let gi = gx.round() as i32;
         let gj = gy.round() as i32;
 
-        if si == gi && sj == gj { return Some((gx, gy)); }
+        if si == gi && sj == gj {
+            return Some((gx, gy));
+        }
 
         #[derive(Clone)]
-        struct Node { cost: f64, heuristic: f64, x: i32, y: i32, parent: usize }
-        impl PartialEq for Node { fn eq(&self, o: &Self) -> bool { self.cost + self.heuristic == o.cost + o.heuristic } }
+        struct Node {
+            cost: f64,
+            heuristic: f64,
+            x: i32,
+            y: i32,
+            parent: usize,
+        }
+        impl PartialEq for Node {
+            fn eq(&self, o: &Self) -> bool {
+                self.cost + self.heuristic == o.cost + o.heuristic
+            }
+        }
         impl Eq for Node {}
         impl PartialOrd for Node {
-            fn partial_cmp(&self, o: &Self) -> Option<Ordering> { Some(self.cmp(o)) }
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+                Some(self.cmp(o))
+            }
         }
         impl Ord for Node {
             fn cmp(&self, o: &Self) -> Ordering {
@@ -160,28 +181,45 @@ impl TileMap {
         let mut nodes: Vec<Node> = Vec::new();
         let mut heap = BinaryHeap::new();
 
-        let heuristic = |x: i32, y: i32| -> f64 {
-            ((x - gi) as f64).abs() + ((y - gj) as f64).abs()
-        };
+        let heuristic =
+            |x: i32, y: i32| -> f64 { ((x - gi) as f64).abs() + ((y - gj) as f64).abs() };
 
-        let start = Node { cost: 0.0, heuristic: heuristic(si, sj), x: si, y: sj, parent: usize::MAX };
+        let start = Node {
+            cost: 0.0,
+            heuristic: heuristic(si, sj),
+            x: si,
+            y: sj,
+            parent: usize::MAX,
+        };
         nodes.push(start.clone());
         heap.push((nodes.len() - 1, start));
 
         const DIRS: [(i32, i32); 8] = [
-            (1, 0), (-1, 0), (0, 1), (0, -1),
-            (1, 1), (1, -1), (-1, 1), (-1, -1),
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
         ];
 
         let mut steps = 0;
         while let Some((idx, node)) = heap.pop() {
-            if steps >= max_steps { break; }
+            if steps >= max_steps {
+                break;
+            }
             steps += 1;
 
             let vx = node.x as usize;
             let vy = node.y as usize;
-            if vx >= self.width || vy >= self.height { continue; }
-            if visited[vy * self.width + vx] { continue; }
+            if vx >= self.width || vy >= self.height {
+                continue;
+            }
+            if visited[vy * self.width + vx] {
+                continue;
+            }
             visited[vy * self.width + vx] = true;
 
             if node.x == gi && node.y == gj {
@@ -199,12 +237,18 @@ impl TileMap {
             for &(dx, dy) in &DIRS {
                 let nx = node.x + dx;
                 let ny = node.y + dy;
-                if nx < 0 || ny < 0 || nx >= w || ny >= h { continue; }
+                if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                    continue;
+                }
                 let ni = ny as usize * self.width + nx as usize;
-                if visited[ni] { continue; }
+                if visited[ni] {
+                    continue;
+                }
 
                 let terrain = &self.tiles[ni];
-                if !terrain.is_walkable() { continue; }
+                if !terrain.is_walkable() {
+                    continue;
+                }
 
                 let step_cost = terrain.move_cost() * if dx != 0 && dy != 0 { 1.414 } else { 1.0 };
                 let new_cost = node.cost + step_cost;
@@ -263,11 +307,10 @@ pub fn render_map(map: &TileMap, camera: &Camera, renderer: &mut dyn Renderer) {
         for sx in 0..vw {
             let wx = camera.x + sx as i32;
             let wy = camera.y + sy as i32;
-            if wx >= 0 && wy >= 0 {
-                if let Some(terrain) = map.get(wx as usize, wy as usize) {
+            if wx >= 0 && wy >= 0
+                && let Some(terrain) = map.get(wx as usize, wy as usize) {
                     renderer.draw(sx, sy, terrain.ch(), terrain.fg(), terrain.bg());
                 }
-            }
         }
     }
 }
@@ -331,7 +374,10 @@ mod tests {
 
         // everything should be blank
         let frame = r.frame_as_string();
-        assert!(!frame.contains(','), "should not render grass past map edge");
+        assert!(
+            !frame.contains(','),
+            "should not render grass past map edge"
+        );
     }
 
     #[test]
@@ -394,7 +440,10 @@ mod tests {
         assert!(next.is_some(), "should find a path around water");
         // The first step should move south (toward the gap) not east (into water)
         let (nx, ny) = next.unwrap();
-        assert!(ny > 5.0 || nx < 5.0, "should route around water, not through it");
+        assert!(
+            ny > 5.0 || nx < 5.0,
+            "should route around water, not through it"
+        );
     }
 
     #[test]
@@ -419,6 +468,9 @@ mod tests {
             }
         }
         let next = map.astar_next(0.0, 0.0, 5.0, 5.0, 500);
-        assert!(next.is_none(), "should return None when target is unreachable");
+        assert!(
+            next.is_none(),
+            "should return None when target is unreachable"
+        );
     }
 }

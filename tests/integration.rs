@@ -48,11 +48,17 @@ fn seasonal_cycle_completes() {
     // Run enough ticks to cycle through all 4 seasons
     for _ in 0..15000 {
         game.step(GameInput::None, &mut renderer).unwrap();
-        if game.game_over { break; }
+        if game.game_over {
+            break;
+        }
     }
 
     // Should have progressed through multiple seasons
-    assert!(game.tick >= 5000, "should survive at least 5000 ticks with food: tick={}", game.tick);
+    assert!(
+        game.tick >= 5000,
+        "should survive at least 5000 ticks with food: tick={}",
+        game.tick
+    );
 }
 
 // --- Settlement Survival ---
@@ -66,15 +72,21 @@ fn villagers_survive_with_adequate_resources() {
     game.resources.food = 500;
 
     let initial_villagers = count_villagers(&game);
-    assert!(initial_villagers >= 3, "should start with at least 3 villagers");
+    assert!(
+        initial_villagers >= 3,
+        "should start with at least 3 villagers"
+    );
 
     for _ in 0..2000 {
         game.step(GameInput::None, &mut renderer).unwrap();
     }
 
     let final_villagers = count_villagers(&game);
-    assert!(final_villagers >= 1,
-        "with 500 food, at least one villager should survive 2000 ticks, got {}", final_villagers);
+    assert!(
+        final_villagers >= 1,
+        "with 500 food, at least one villager should survive 2000 ticks, got {}",
+        final_villagers
+    );
 }
 
 #[test]
@@ -88,7 +100,8 @@ fn starvation_causes_game_over_eventually() {
     game.resources.bread = 0;
 
     // Despawn all berry bushes so villagers can't forage
-    let food_entities: Vec<hecs::Entity> = game.world
+    let food_entities: Vec<hecs::Entity> = game
+        .world
         .query::<(hecs::Entity, &FoodSource)>()
         .iter()
         .map(|(e, _)| e)
@@ -98,7 +111,8 @@ fn starvation_causes_game_over_eventually() {
     }
 
     // Despawn all farms so villagers can't grow food
-    let farm_entities: Vec<hecs::Entity> = game.world
+    let farm_entities: Vec<hecs::Entity> = game
+        .world
         .query::<(hecs::Entity, &FarmPlot)>()
         .iter()
         .map(|(e, _)| e)
@@ -117,8 +131,11 @@ fn starvation_causes_game_over_eventually() {
 
     // If not game over, at least all villagers should be dead
     let villagers = count_villagers(&game);
-    assert!(villagers == 0 || game.game_over,
-        "with no food, settlement should collapse: {} villagers remain", villagers);
+    assert!(
+        villagers == 0 || game.game_over,
+        "with no food, settlement should collapse: {} villagers remain",
+        villagers
+    );
 }
 
 // --- Resource Management ---
@@ -130,9 +147,21 @@ fn resources_stay_non_negative() {
 
     for _ in 0..3000 {
         game.step(GameInput::None, &mut renderer).unwrap();
-        assert!(game.resources.food >= 0, "food went negative at tick {}", game.tick);
-        assert!(game.resources.wood >= 0, "wood went negative at tick {}", game.tick);
-        assert!(game.resources.stone >= 0, "stone went negative at tick {}", game.tick);
+        assert!(
+            game.resources.food >= 0,
+            "food went negative at tick {}",
+            game.tick
+        );
+        assert!(
+            game.resources.wood >= 0,
+            "wood went negative at tick {}",
+            game.tick
+        );
+        assert!(
+            game.resources.stone >= 0,
+            "stone went negative at tick {}",
+            game.tick
+        );
     }
 }
 
@@ -179,8 +208,11 @@ fn heavy_traffic_creates_roads() {
     game.tick = 100;
     game.update_traffic();
 
-    assert_eq!(*game.map.get(tx, ty).unwrap(), Terrain::Road,
-        "heavily trafficked grass tile should become road");
+    assert_eq!(
+        *game.map.get(tx, ty).unwrap(),
+        Terrain::Road,
+        "heavily trafficked grass tile should become road"
+    );
 }
 
 #[test]
@@ -295,13 +327,19 @@ fn population_growth_works_with_housing() {
     // Run for population growth
     for _ in 0..5000 {
         game.step(GameInput::None, &mut renderer).unwrap();
-        if game.game_over { break; }
+        if game.game_over {
+            break;
+        }
     }
 
     let final_count = count_villagers(&game);
     // With a hut (capacity 4) and food, population should grow
-    assert!(final_count >= initial,
-        "population should grow or stay stable with food+housing: {} -> {}", initial, final_count);
+    assert!(
+        final_count >= initial,
+        "population should grow or stay stable with food+housing: {} -> {}",
+        initial,
+        final_count
+    );
 }
 
 #[test]
@@ -326,14 +364,19 @@ fn events_activate_during_gameplay() {
             any_event = true;
             break;
         }
-        if game.game_over { break; }
+        if game.game_over {
+            break;
+        }
     }
 
     // Events are RNG-based, so we just check the system doesn't crash
     // If we survived long enough, we should see at least one event
     if game.tick > 5000 {
-        assert!(any_event,
-            "after {} ticks, at least one event should have occurred", game.tick);
+        assert!(
+            any_event,
+            "after {} ticks, at least one event should have occurred",
+            game.tick
+        );
     }
 }
 
@@ -350,9 +393,12 @@ fn influence_map_expands_around_settlement() {
     let center_influence = game.influence.get(cx as usize, cy as usize);
     let far_influence = game.influence.get(0, 0);
 
-    assert!(center_influence > far_influence,
+    assert!(
+        center_influence > far_influence,
         "influence should be stronger near settlement center: center={} far={}",
-        center_influence, far_influence);
+        center_influence,
+        far_influence
+    );
 }
 
 #[test]
@@ -360,16 +406,20 @@ fn building_placement_requires_influence() {
     let mut game = test_game();
 
     // Far corner — no influence
-    assert!(!game.can_place_building(5, 5, ecs::BuildingType::Wall),
-        "should not build far from settlement");
+    assert!(
+        !game.can_place_building(5, 5, ecs::BuildingType::Wall),
+        "should not build far from settlement"
+    );
 
     // Near settlement — warm up influence
     for _ in 0..10 {
         game.update_influence();
     }
     let (cx, cy) = game.settlement_center();
-    assert!(game.can_place_building(cx + 2, cy + 2, ecs::BuildingType::Wall),
-        "should build near settlement with influence");
+    assert!(
+        game.can_place_building(cx + 2, cy + 2, ecs::BuildingType::Wall),
+        "should build near settlement with influence"
+    );
 }
 
 // --- Stress Tests ---
@@ -381,23 +431,35 @@ fn handles_many_entities() {
 
     // Spawn many wolves and bushes
     for i in 0..50 {
-        ecs::spawn_predator(&mut game.world, 100.0 + (i % 10) as f64, 100.0 + (i / 10) as f64);
+        ecs::spawn_predator(
+            &mut game.world,
+            100.0 + (i % 10) as f64,
+            100.0 + (i / 10) as f64,
+        );
     }
     for i in 0..30 {
-        ecs::spawn_berry_bush(&mut game.world, 120.0 + (i % 6) as f64, 120.0 + (i / 6) as f64);
+        ecs::spawn_berry_bush(
+            &mut game.world,
+            120.0 + (i % 6) as f64,
+            120.0 + (i / 6) as f64,
+        );
     }
 
     // Should not panic with lots of entities
     for _ in 0..500 {
         game.step(GameInput::None, &mut renderer).unwrap();
-        if game.game_over { break; }
+        if game.game_over {
+            break;
+        }
     }
 }
 
 // --- Helpers ---
 
 fn count_villagers(game: &Game) -> usize {
-    game.world.query::<&ecs::Creature>().iter()
+    game.world
+        .query::<&ecs::Creature>()
+        .iter()
         .filter(|c| c.species == ecs::Species::Villager)
         .count()
 }
