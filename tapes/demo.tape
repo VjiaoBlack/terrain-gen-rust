@@ -1,4 +1,4 @@
-# Demo: settlement founding and early gameplay
+# Demo: settlement overview (~8 seconds)
 Output tapes/demo.gif
 Set FontSize 14
 Set Width 1200
@@ -6,46 +6,30 @@ Set Height 700
 Set Theme "Catppuccin Mocha"
 Set Shell "zsh"
 
+Hide
 Type "export PATH=$HOME/.cargo/bin:$PATH && cd ~/Projects/terrain-gen-rust && cargo run --release"
 Enter
 Sleep 6s
+Show
 
-# Watch the settlement
-Sleep 5s
-
-# Scroll around
-Down
-Down
-Down
-Down
-Sleep 2s
-Right
-Right
-Right
-Right
-Sleep 2s
-
-# Toggle overlay
-Type "o"
-Sleep 2s
-Type "o"
-Sleep 2s
-
-# Speed up
-Type "f"
-Sleep 3s
-Type "f"
+# Settlement view
 Sleep 3s
 
-# Back to normal
-Type "f"
+# Scroll to show terrain
+Down
+Down
+Right
+Right
 Sleep 2s
 
-# Goto settlement
-Type "g"
-Sleep 2s
+# Overlay flash
+Type "o"
+Sleep 1.5s
+Type "o"
+Sleep 1.5s
 
 # Quit
+Hide
 Type "q"
-Sleep 500ms
+Sleep 200ms
 Type "q"

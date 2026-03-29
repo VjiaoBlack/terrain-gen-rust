@@ -1,4 +1,4 @@
-# Demo: building placement and demolition
+# Demo: build and demolish (~10 seconds)
 Output tapes/building.gif
 Set FontSize 14
 Set Width 1200
@@ -6,55 +6,43 @@ Set Height 700
 Set Theme "Catppuccin Mocha"
 Set Shell "zsh"
 
+Hide
 Type "export PATH=$HOME/.cargo/bin:$PATH && cd ~/Projects/terrain-gen-rust && cargo run --release"
 Enter
 Sleep 6s
+Show
 
-# Enter build mode
+# Build mode, place farm
 Type "b"
-Sleep 1s
-
-# Move cursor
-Type "dddd"
 Sleep 500ms
-Type "ss"
-Sleep 500ms
-
-# Cycle to farm
+Type "ddd"
+Sleep 300ms
 Tab
-Sleep 500ms
-
-# Place farm
-Enter
-Sleep 2s
-
-# Cycle to wall
-Tab
-Tab
-Sleep 500ms
-
-# Move and place
-Type "aaa"
 Sleep 500ms
 Enter
-Sleep 2s
+Sleep 1.5s
 
-# Demolish it
+# Place wall nearby
+Tab
+Tab
+Sleep 300ms
+Type "aa"
+Sleep 300ms
+Enter
+Sleep 1.5s
+
+# Demolish the wall
 Type "x"
-Sleep 2s
+Sleep 1.5s
 
-# Exit build mode
+# Exit build, speed up briefly
 Type "b"
-Sleep 2s
-
-# Speed up to watch villagers
-Type "f"
-Type "f"
-Sleep 5s
-
-# Quit
-Type "f"
-Sleep 1s
-Type "q"
 Sleep 500ms
+Type "ff"
+Sleep 3s
+
+Hide
+Type "f"
+Type "q"
+Sleep 200ms
 Type "q"
