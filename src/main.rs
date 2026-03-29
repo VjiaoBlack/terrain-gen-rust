@@ -334,6 +334,106 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.iter().any(|a| a == "--terrain") {
+        // Terrain-only mode: just run water/erosion simulation, no entities
+        // Usage: --terrain [--seed S] [--ticks N] [--png out.png]
+        let seed: u32 = args.iter().position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(42);
+        let erosion_ticks: u32 = args.iter().position(|a| a == "--ticks")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(500);
+        let w: u16 = args.iter().position(|a| a == "--width")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(160);
+        let h: u16 = args.iter().position(|a| a == "--height")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(48);
+
+        use terrain_gen_rust::terrain_gen::{self, TerrainGenConfig};
+        use terrain_gen_rust::simulation::{SimConfig, WaterMap};
+        use terrain_gen_rust::tilemap::Terrain;
+
+        let terrain_config = TerrainGenConfig { seed, scale: 0.015, ..Default::default() };
+        let (mut map, mut heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
+        let mut water = WaterMap::new(256, 256);
+        for y in 0..256 {
+            for x in 0..256 {
+                if let Some(Terrain::Water) = map.get(x, y) {
+                    let depth = (terrain_config.water_level - heights[y * 256 + x]).max(0.01);
+                    water.set(x, y, depth);
+                }
+            }
+        }
+
+        let mut config = SimConfig::default();
+        config.erosion_enabled = true;
+        config.erosion_strength = 0.5;
+
+        eprintln!("Running {} erosion ticks on seed {}...", erosion_ticks, seed);
+        for t in 0..erosion_ticks {
+            water.rain(&config);
+            water.update(&mut heights, &config, None);
+            if t % 100 == 0 {
+                eprintln!("  tick {}/{}", t, erosion_ticks);
+            }
+        }
+
+        // Re-derive terrain from eroded heights
+        for y in 0..256 {
+            for x in 0..256 {
+                let height = heights[y * 256 + x];
+                let terrain = if height < terrain_config.water_level {
+                    Terrain::Water
+                } else if height < terrain_config.sand_level {
+                    Terrain::Sand
+                } else if height < terrain_config.grass_level {
+                    Terrain::Grass
+                } else if height < terrain_config.forest_level {
+                    Terrain::Forest
+                } else if height < terrain_config.mountain_level {
+                    Terrain::Mountain
+                } else {
+                    Terrain::Snow
+                };
+                map.set(x, y, terrain);
+            }
+        }
+
+        // Render terrain to a headless renderer (no entities, no panel)
+        let mut r = headless_renderer::HeadlessRenderer::new(w, h);
+        for sy in 0..h {
+            for sx in 0..w {
+                let wx = sx as usize / 2; // CELL_ASPECT=2
+                let wy = sy as usize;
+                if let Some(terrain) = map.get(wx, wy) {
+                    let fg = terrain.fg();
+                    let bg = terrain.bg().unwrap_or(renderer::Color(0, 0, 0));
+                    let water_depth = water.get(wx, wy);
+                    if water_depth > 0.01 {
+                        r.draw(sx, sy, '~', renderer::Color(60, 110, 220), Some(renderer::Color(20, 40, 100)));
+                    } else {
+                        r.draw(sx, sy, terrain.ch(), fg, Some(bg));
+                    }
+                }
+            }
+        }
+
+        let png_path = args.iter().position(|a| a == "--png")
+            .and_then(|i| args.get(i + 1).cloned());
+        if let Some(path) = png_path {
+            #[cfg(feature = "png")]
+            {
+                r.save_png(&path, 8, 16)?;
+                eprintln!("Saved terrain PNG: {}", path);
+            }
+            #[cfg(not(feature = "png"))]
+            {
+                eprintln!("PNG requires --features png");
+                let _ = path;
+            }
+        } else {
+            print!("{}", r.frame_as_string());
+        }
+        return Ok(());
+    }
+
     let mut renderer = CrosstermRenderer::new()?;
     let mut seed = 42u32;
     loop {

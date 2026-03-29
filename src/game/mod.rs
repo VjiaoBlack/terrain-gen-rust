@@ -301,7 +301,7 @@ impl Game {
     pub fn new_with_size(target_fps: u32, seed: u32, map_width: usize, map_height: usize) -> Self {
         // Reduce terrain noise scale for larger biomes — buildings feel right-sized
         let terrain_config = TerrainGenConfig { seed, scale: 0.015, ..Default::default() };
-        let (mut map, heights) = terrain_gen::generate_terrain(map_width, map_height, &terrain_config);
+        let (mut map, mut heights) = terrain_gen::generate_terrain(map_width, map_height, &terrain_config);
         let mut water = WaterMap::new(map_width, map_height);
         // Seed water at terrain-Water tiles so ocean/lake areas have actual water
         for y in 0..map_height {
@@ -314,6 +314,43 @@ impl Game {
         }
         let moisture = MoistureMap::new(map_width, map_height);
         let vegetation = VegetationMap::new(map_width, map_height);
+
+        // Pre-erosion: run water simulation to carve natural valleys/riverbeds
+        {
+            let mut erosion_config = SimConfig::default();
+            erosion_config.erosion_enabled = true;
+            erosion_config.erosion_strength = 0.5;
+            for _ in 0..200 {
+                water.rain(&erosion_config);
+                water.update(&mut heights, &erosion_config, None);
+            }
+            // Re-derive terrain types from eroded heights
+            for y in 0..map_height {
+                for x in 0..map_width {
+                    let h = heights[y * map_width + x];
+                    let new_terrain = if h < terrain_config.water_level {
+                        Terrain::Water
+                    } else if h < terrain_config.sand_level {
+                        Terrain::Sand
+                    } else if h < terrain_config.grass_level {
+                        Terrain::Grass
+                    } else if h < terrain_config.forest_level {
+                        Terrain::Forest
+                    } else if h < terrain_config.mountain_level {
+                        Terrain::Mountain
+                    } else {
+                        Terrain::Snow
+                    };
+                    map.set(x, y, new_terrain);
+                    // Update water: fill new water tiles, drain dry ones
+                    if new_terrain == Terrain::Water {
+                        let depth = (terrain_config.water_level - h).max(0.01);
+                        water.set(x, y, depth);
+                    }
+                }
+            }
+        }
+
         let camera = Camera::new(100, 100);
         let mut world = World::new();
 
