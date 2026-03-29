@@ -205,6 +205,81 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.iter().any(|a| a == "--play") {
+        // Non-interactive play mode: reads commands from --inputs or runs N ticks
+        // Usage: --play [--width W] [--height H] [--seed S] [--inputs "tick:100,input:ScrollDown,tick:50"]
+        // Or: --play --ticks 500 (just run and dump final frame)
+        let w: u16 = args.iter().position(|a| a == "--width")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(80);
+        let h: u16 = args.iter().position(|a| a == "--height")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(30);
+        let seed: u32 = args.iter().position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(42);
+
+        let mut r = headless_renderer::HeadlessRenderer::new(w, h);
+        let mut game_obj = Game::new(60, seed);
+
+        let inputs_str = args.iter().position(|a| a == "--inputs")
+            .and_then(|i| args.get(i + 1).cloned())
+            .unwrap_or_default();
+
+        if inputs_str.is_empty() {
+            // Just run ticks and dump
+            let ticks: u64 = args.iter().position(|a| a == "--ticks")
+                .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(200);
+            for _ in 0..ticks {
+                game_obj.step(GameInput::None, &mut r)?;
+            }
+            // Dump frame as plain text (no ANSI) for easy reading
+            print!("{}", r.frame_as_string());
+        } else {
+            // Parse commands: tick:N runs N ticks, then named inputs
+            for cmd in inputs_str.split(',') {
+                let cmd = cmd.trim();
+                if let Some(n) = cmd.strip_prefix("tick:") {
+                    let ticks: u64 = n.parse().unwrap_or(1);
+                    for _ in 0..ticks {
+                        game_obj.step(GameInput::None, &mut r)?;
+                    }
+                } else if let Some(input_name) = cmd.strip_prefix("input:") {
+                    let input = match input_name {
+                        "ScrollUp" => GameInput::ScrollUp,
+                        "ScrollDown" => GameInput::ScrollDown,
+                        "ScrollLeft" => GameInput::ScrollLeft,
+                        "ScrollRight" => GameInput::ScrollRight,
+                        "TogglePause" => GameInput::TogglePause,
+                        "ToggleBuildMode" => GameInput::ToggleBuildMode,
+                        "BuildPlace" => GameInput::BuildPlace,
+                        "BuildCycleType" => GameInput::BuildCycleType,
+                        "BuildUp" => GameInput::BuildUp,
+                        "BuildDown" => GameInput::BuildDown,
+                        "BuildLeft" => GameInput::BuildLeft,
+                        "BuildRight" => GameInput::BuildRight,
+                        "Demolish" => GameInput::Demolish,
+                        "CycleOverlay" => GameInput::CycleOverlay,
+                        "CycleSpeed" => GameInput::CycleSpeed,
+                        "GotoSettlement" => GameInput::GotoSettlement,
+                        "ToggleAutoBuild" => GameInput::ToggleAutoBuild,
+                        "ToggleRain" => GameInput::ToggleRain,
+                        "Save" => GameInput::Save,
+                        _ => GameInput::None,
+                    };
+                    game_obj.step(input, &mut r)?;
+                } else if cmd == "frame" {
+                    // Dump current frame
+                    println!("{}", r.frame_as_string());
+                    println!("--- tick {} ---", game_obj.tick);
+                } else if cmd == "ansi" {
+                    print!("{}", r.frame_as_ansi());
+                    println!("--- tick {} ---", game_obj.tick);
+                }
+            }
+            // Always dump final frame
+            println!("{}", r.frame_as_string());
+        }
+        return Ok(());
+    }
+
     let mut renderer = CrosstermRenderer::new()?;
     let mut seed = 42u32;
     loop {

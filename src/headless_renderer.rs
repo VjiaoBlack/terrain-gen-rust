@@ -39,6 +39,25 @@ impl HeadlessRenderer {
         }
         out
     }
+
+    /// Render frame with ANSI true-color escape codes for terminal viewing.
+    pub fn frame_as_ansi(&self) -> String {
+        let mut out = String::with_capacity((self.width as usize * 20 + 1) * self.height as usize);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let cell = &self.front[(y * self.width + x) as usize];
+                let Color(fr, fg, fb) = cell.fg;
+                out.push_str(&format!("\x1b[38;2;{};{};{}m", fr, fg, fb));
+                if let Some(Color(br, bg, bb)) = cell.bg {
+                    out.push_str(&format!("\x1b[48;2;{};{};{}m", br, bg, bb));
+                }
+                out.push(cell.ch);
+            }
+            out.push_str("\x1b[0m\n");
+        }
+        out.push_str("\x1b[0m");
+        out
+    }
 }
 
 impl Renderer for HeadlessRenderer {
