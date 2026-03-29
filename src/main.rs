@@ -193,19 +193,36 @@ fn main() -> Result<()> {
             game.step(GameInput::None, &mut r)?;
         }
 
-        // Emit ANSI-colored output
-        for y in 0..h {
-            for x in 0..w {
-                if let Some(cell) = r.get_cell(x, y) {
-                    let fg = format!("\x1b[38;2;{};{};{}m", cell.fg.0, cell.fg.1, cell.fg.2);
-                    let bg = match cell.bg {
-                        Some(c) => format!("\x1b[48;2;{};{};{}m", c.0, c.1, c.2),
-                        None => String::new(),
-                    };
-                    print!("{}{}{}", fg, bg, cell.ch);
-                }
+        // Output as PNG if --png flag given, otherwise ANSI
+        let png_path = args.iter().position(|a| a == "--png")
+            .and_then(|i| args.get(i + 1).cloned());
+
+        if let Some(path) = png_path {
+            #[cfg(feature = "png")]
+            {
+                r.save_png(&path, 8, 14)?;
+                eprintln!("Saved PNG: {}", path);
             }
-            println!("\x1b[0m");
+            #[cfg(not(feature = "png"))]
+            {
+                eprintln!("PNG support requires --features png. Compile with: cargo run --release --features png");
+                let _ = path;
+            }
+        } else {
+            // Emit ANSI-colored output
+            for y in 0..h {
+                for x in 0..w {
+                    if let Some(cell) = r.get_cell(x, y) {
+                        let fg = format!("\x1b[38;2;{};{};{}m", cell.fg.0, cell.fg.1, cell.fg.2);
+                        let bg = match cell.bg {
+                            Some(c) => format!("\x1b[48;2;{};{};{}m", c.0, c.1, c.2),
+                            None => String::new(),
+                        };
+                        print!("{}{}{}", fg, bg, cell.ch);
+                    }
+                }
+                println!("\x1b[0m");
+            }
         }
         return Ok(());
     }

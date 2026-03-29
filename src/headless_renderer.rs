@@ -58,6 +58,49 @@ impl HeadlessRenderer {
         out.push_str("\x1b[0m");
         out
     }
+
+    /// Render the frame buffer to a PNG file. Each cell becomes a colored rectangle
+    /// with the character drawn on top. Requires the "png" feature.
+    #[cfg(feature = "png")]
+    pub fn save_png(&self, path: &str, cell_w: u32, cell_h: u32) -> anyhow::Result<()> {
+        let img_w = self.width as u32 * cell_w;
+        let img_h = self.height as u32 * cell_h;
+        let mut img = image::RgbImage::new(img_w, img_h);
+
+        for cy in 0..self.height as u32 {
+            for cx in 0..self.width as u32 {
+                let cell = &self.front[(cy * self.width as u32 + cx) as usize];
+                let Color(br, bg, bb) = cell.bg.unwrap_or(Color(0, 0, 0));
+                let Color(fr, fg, fb) = cell.fg;
+
+                // Fill background
+                for py in 0..cell_h {
+                    for px in 0..cell_w {
+                        let ix = cx * cell_w + px;
+                        let iy = cy * cell_h + py;
+                        img.put_pixel(ix, iy, image::Rgb([br, bg, bb]));
+                    }
+                }
+
+                // Draw character as a simple block in the center using fg color
+                // For non-space characters, fill the center area
+                if cell.ch != ' ' {
+                    let margin_x = cell_w / 4;
+                    let margin_y = cell_h / 4;
+                    for py in margin_y..cell_h - margin_y {
+                        for px in margin_x..cell_w - margin_x {
+                            let ix = cx * cell_w + px;
+                            let iy = cy * cell_h + py;
+                            img.put_pixel(ix, iy, image::Rgb([fr, fg, fb]));
+                        }
+                    }
+                }
+            }
+        }
+
+        img.save(path)?;
+        Ok(())
+    }
 }
 
 impl Renderer for HeadlessRenderer {
