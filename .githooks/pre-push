@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-push hook: run full test suite before pushing
+echo "Running tests before push..."
+OUTPUT=$(cargo test 2>&1)
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "$OUTPUT" | tail -20
+    echo "Error: tests failed. Fix before pushing."
+    exit 1
+fi
+echo "All tests passed."
