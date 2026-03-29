@@ -349,6 +349,7 @@ impl super::Game {
             OverlayMode::Threats => "THREATS",
             OverlayMode::Traffic => "TRAFFIC",
             OverlayMode::Territory => "TERRITORY",
+            OverlayMode::Elevation => "ELEVATION",
         };
         draw_line(
             renderer,
@@ -723,6 +724,8 @@ impl super::Game {
             self.draw_threat_overlay(renderer);
         } else if self.overlay == OverlayMode::Traffic {
             self.draw_traffic_overlay(renderer);
+        } else if self.overlay == OverlayMode::Elevation {
+            self.draw_elevation_overlay(renderer);
         }
 
         if self.query_mode {
@@ -1540,6 +1543,42 @@ impl super::Game {
                         Some(Color(0, 0, 0)),
                     );
                 }
+            }
+        }
+    }
+
+    /// Elevation overlay: brightness = height, white = high, black = low.
+    fn draw_elevation_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 {
+                    continue;
+                }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.map.width || uy >= self.map.height {
+                    continue;
+                }
+                if !self.exploration.is_revealed(ux, uy) {
+                    continue;
+                }
+                let i = uy * self.map.width + ux;
+                let hv = self.heights[i];
+                let brightness = (hv * 255.0).clamp(0.0, 255.0) as u8;
+                renderer.draw(
+                    sx,
+                    sy,
+                    ' ',
+                    Color(brightness, brightness, brightness),
+                    Some(Color(brightness, brightness, brightness)),
+                );
             }
         }
     }

@@ -132,6 +132,7 @@ pub enum OverlayMode {
     Threats,   // Show wolf positions and danger zones
     Traffic,   // Show foot traffic heatmap
     Territory, // Show settlement influence/culture borders
+    Elevation, // Height map: white = high, black = low
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,6 +317,8 @@ pub struct Game {
     pub exploration: ExplorationMap,
     pub particles: Vec<Particle>,
     pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
+    pub soil: Vec<crate::terrain_pipeline::SoilType>,
+    pub river_mask: Vec<bool>,
     pub difficulty: DifficultyState,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
@@ -581,6 +584,8 @@ impl Game {
             exploration: ExplorationMap::new(map_width, map_height),
             particles: Vec::new(),
             game_speed: 1,
+            soil: result.soil,
+            river_mask: result.river_mask,
             difficulty: DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,
@@ -784,7 +789,8 @@ impl Game {
                     OverlayMode::Resources => OverlayMode::Threats,
                     OverlayMode::Threats => OverlayMode::Traffic,
                     OverlayMode::Traffic => OverlayMode::Territory,
-                    OverlayMode::Territory => OverlayMode::None,
+                    OverlayMode::Territory => OverlayMode::Elevation,
+                    OverlayMode::Elevation => OverlayMode::None,
                 };
             }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
@@ -1108,9 +1114,24 @@ impl Game {
                     self.notify("All villagers have perished!".to_string());
                 }
 
-                // Farm growth (only advances when villager is present at farm)
-                let farm_mult =
+                // Farm growth: apply skill, events, AND soil fertility
+                let base_farm_mult =
                     (1.0 + self.skills.farming / 100.0) * self.events.farm_yield_multiplier();
+                // Get average soil yield multiplier near farms
+                let avg_soil_mult = {
+                    let mut total = 0.0;
+                    let mut count = 0;
+                    for (pos, _) in self.world.query::<(&Position, &FarmPlot)>().iter() {
+                        let x = pos.x.round() as usize;
+                        let y = pos.y.round() as usize;
+                        if x < self.map.width && y < self.map.height {
+                            total += self.soil[y * self.map.width + x].yield_multiplier();
+                            count += 1;
+                        }
+                    }
+                    if count > 0 { total / count as f64 } else { 1.0 }
+                };
+                let farm_mult = base_farm_mult * avg_soil_mult;
                 ecs::system_farms(&mut self.world, self.day_night.season, farm_mult);
 
                 // Assign idle villagers to farms/workshops, then mark worker presence
@@ -1189,6 +1210,33 @@ impl Game {
 
                 // Resource regrowth
                 ecs::system_regrowth(&mut self.world, &self.map, self.tick);
+
+                // Forest regrowth: grass/scrubland adjacent to forest slowly becomes forest
+                if self.tick.is_multiple_of(500) {
+                    let mut rng = rand::rng();
+                    for _ in 0..10 {
+                        let x =
+                            rng.random_range(1..self.map.width.saturating_sub(1) as u32) as usize;
+                        let y =
+                            rng.random_range(1..self.map.height.saturating_sub(1) as u32) as usize;
+                        if matches!(
+                            self.map.get(x, y),
+                            Some(Terrain::Grass) | Some(Terrain::Scrubland)
+                        ) {
+                            let near_forest =
+                                [(-1i32, 0), (1, 0), (0, -1), (0, 1)]
+                                    .iter()
+                                    .any(|&(dx, dy)| {
+                                        self.map
+                                            .get((x as i32 + dx) as usize, (y as i32 + dy) as usize)
+                                            == Some(&Terrain::Forest)
+                                    });
+                            if near_forest && rng.random_range(0u32..100) < 8 {
+                                self.map.set(x, y, Terrain::Forest);
+                            }
+                        }
+                    }
+                }
 
                 // Check for completed buildings
                 self.check_build_completion();
@@ -1758,6 +1806,9 @@ mod tests {
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::Territory);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Elevation);
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::None);
