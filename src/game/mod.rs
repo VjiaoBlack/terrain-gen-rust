@@ -105,6 +105,7 @@ pub enum GameInput {
     CycleOverlay,
     GotoSettlement,
     Demolish,
+    CycleSpeed,
     /// Mouse click at screen coordinates (x, y)
     MouseClick { x: u16, y: u16 },
     None,
@@ -283,6 +284,7 @@ pub struct Game {
     pub traffic: TrafficMap,
     pub exploration: ExplorationMap,
     pub particles: Vec<Particle>,
+    pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
     pub difficulty: DifficultyState,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
@@ -474,6 +476,7 @@ impl Game {
             traffic: TrafficMap::new(map_width, map_height),
             exploration: ExplorationMap::new(map_width, map_height),
             particles: Vec::new(),
+            game_speed: 1,
             difficulty: DifficultyState::default(),
             #[cfg(feature = "lua")]
             script_engine: None,
@@ -635,6 +638,14 @@ impl Game {
                 self.camera.x = scx - 20;
                 self.camera.y = scy - 10;
             }
+            GameInput::CycleSpeed => {
+                self.game_speed = match self.game_speed {
+                    1 => 2,
+                    2 => 5,
+                    _ => 1,
+                };
+                self.notify(format!("Speed: {}x", self.game_speed));
+            }
             GameInput::Demolish => {
                 if self.build_mode {
                     self.demolish_at(self.build_cursor_x, self.build_cursor_y);
@@ -653,6 +664,7 @@ impl Game {
 
         // update simulation (skip when paused)
         if !self.paused {
+        for _speed_tick in 0..self.game_speed {
             self.tick += 1;
 
             // Clean up old notifications
@@ -982,7 +994,8 @@ impl Game {
                 world_vw as usize,
                 vh as usize,
             );
-        }
+        } // end speed loop
+        } // end if !self.paused
 
         // render
         renderer.clear();

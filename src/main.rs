@@ -66,6 +66,7 @@ fn map_key(code: KeyCode, query_mode: bool, build_mode: bool, game_over: bool) -
             KeyCode::Char('a') => GameInput::ToggleAutoBuild,
             KeyCode::Char('o') => GameInput::CycleOverlay,
             KeyCode::Char('g') => GameInput::GotoSettlement,
+            KeyCode::Char('f') => GameInput::CycleSpeed,
             KeyCode::Char(' ') => GameInput::TogglePause,
             KeyCode::Char('d') => GameInput::Drain,
             KeyCode::Char('s') => GameInput::Save,

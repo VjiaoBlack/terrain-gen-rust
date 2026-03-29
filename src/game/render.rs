@@ -92,7 +92,8 @@ impl super::Game {
             Season::Winter => "Freezing",
         };
         let night_str = if self.day_night.is_night() { " (night)" } else { "" };
-        draw_line(renderer, row, &format!(" {}{}", temp, night_str), dim); row += 1;
+        let speed_str = if self.game_speed > 1 { format!("  [{}x]", self.game_speed) } else { String::new() };
+        draw_line(renderer, row, &format!(" {}{}{}", temp, night_str, speed_str), dim); row += 1;
         row += 1;
 
         // Population

@@ -76,6 +76,26 @@ impl super::Game {
     /// Place a build site: reserve footprint tiles and spawn the entity.
     pub(super) fn place_build_site(&mut self, bx: i32, by: i32, bt: BuildingType) {
         let (sw, sh) = bt.size();
+
+        // Clear terrain features (stones, berry bushes, dens) within footprint
+        let mut to_remove = Vec::new();
+        for (entity, pos) in self.world.query::<(hecs::Entity, &Position)>().iter() {
+            let px = pos.x.round() as i32;
+            let py = pos.y.round() as i32;
+            if px >= bx && px < bx + sw && py >= by && py < by + sh {
+                // Only remove terrain features, not villagers/creatures with Behavior
+                if self.world.get::<&ecs::FoodSource>(entity).is_ok()
+                    || self.world.get::<&ecs::StoneDeposit>(entity).is_ok()
+                    || self.world.get::<&ecs::Den>(entity).is_ok()
+                {
+                    to_remove.push(entity);
+                }
+            }
+        }
+        for entity in to_remove {
+            let _ = self.world.despawn(entity);
+        }
+
         for dy in 0..sh {
             for dx in 0..sw {
                 let tx = bx + dx;
