@@ -712,10 +712,21 @@ pub(super) fn ai_villager(
                 )
             }
         }
-        BehaviorState::Farming { target_x, target_y, lease } => {
+        BehaviorState::Farming {
+            target_x,
+            target_y,
+            lease,
+        } => {
             // Lease expired → go idle, re-evaluate tasks
             if *lease == 0 {
-                return (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None, None);
+                return (
+                    BehaviorState::Idle { timer: 10 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
             }
             if predator_nearby {
                 return (
@@ -781,9 +792,20 @@ pub(super) fn ai_villager(
                 )
             }
         }
-        BehaviorState::Working { target_x, target_y, lease } => {
+        BehaviorState::Working {
+            target_x,
+            target_y,
+            lease,
+        } => {
             if *lease == 0 {
-                return (BehaviorState::Idle { timer: 10 }, 0.0, 0.0, hunger, None, None);
+                return (
+                    BehaviorState::Idle { timer: 10 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
             }
             if predator_nearby {
                 return (

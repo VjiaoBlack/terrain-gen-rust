@@ -136,9 +136,17 @@ pub enum BehaviorState {
         timer: u32,
     },
     /// Villager: tending a farm (standing at farm, advancing growth). Lease expires → idle.
-    Farming { target_x: f64, target_y: f64, lease: u32 },
+    Farming {
+        target_x: f64,
+        target_y: f64,
+        lease: u32,
+    },
     /// Villager: operating a workshop/smithy. Lease expires → idle.
-    Working { target_x: f64, target_y: f64, lease: u32 },
+    Working {
+        target_x: f64,
+        target_y: f64,
+        lease: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

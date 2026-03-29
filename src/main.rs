@@ -873,7 +873,11 @@ mod tests {
                     }
                 }
             }
-            if count == 0 { 0 } else { (total / count) as u32 }
+            if count == 0 {
+                0
+            } else {
+                (total / count) as u32
+            }
         };
         let noon_brightness = sample_brightness(&noon_snap);
         let midnight_brightness = sample_brightness(&midnight_snap);

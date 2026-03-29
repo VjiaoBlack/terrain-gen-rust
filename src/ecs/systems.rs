@@ -521,7 +521,9 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
 
     for behavior in world.query::<&Behavior>().iter() {
         match behavior.state {
-            BehaviorState::Farming { target_x, target_y, .. } => {
+            BehaviorState::Farming {
+                target_x, target_y, ..
+            } => {
                 for (i, &(fx, fy, _, _)) in farms.iter().enumerate() {
                     if (fx - target_x).abs() < 1.0 && (fy - target_y).abs() < 1.0 {
                         farm_workers[i] += 1;
@@ -529,7 +531,9 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
                     }
                 }
             }
-            BehaviorState::Working { target_x, target_y, .. } => {
+            BehaviorState::Working {
+                target_x, target_y, ..
+            } => {
                 for (i, &(wx, wy, _)) in workshops.iter().enumerate() {
                     if (wx - target_x).abs() < 1.0 && (wy - target_y).abs() < 1.0 {
                         workshop_workers[i] += 1;
