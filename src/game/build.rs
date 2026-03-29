@@ -280,6 +280,51 @@ impl super::Game {
             }
             self.world.despawn(e).ok();
         }
+
+        // Push any creatures stuck in walls to nearest walkable tile
+        if !completed.is_empty() {
+            let mut to_move: Vec<(hecs::Entity, f64, f64)> = Vec::new();
+            for (entity, (pos, _creature)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &Creature))>()
+                .iter()
+            {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                if !self.map.get(ix, iy).map_or(false, |t| t.is_walkable()) {
+                    // Find nearest walkable tile
+                    for r in 1..10i32 {
+                        let mut found = false;
+                        for dy in -r..=r {
+                            for dx in -r..=r {
+                                if dx.abs() != r && dy.abs() != r {
+                                    continue;
+                                }
+                                let nx = pos.x + dx as f64;
+                                let ny = pos.y + dy as f64;
+                                if self.map.is_walkable(nx, ny) {
+                                    to_move.push((entity, nx, ny));
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if found {
+                                break;
+                            }
+                        }
+                        if found {
+                            break;
+                        }
+                    }
+                }
+            }
+            for (entity, nx, ny) in to_move {
+                if let Ok(mut pos) = self.world.get::<&mut Position>(entity) {
+                    pos.x = nx;
+                    pos.y = ny;
+                }
+            }
+        }
         for &(_, _, site) in &completed {
             self.notify(format!("Building complete: {}", site.building_type.name()));
         }
