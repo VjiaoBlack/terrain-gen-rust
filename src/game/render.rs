@@ -772,10 +772,7 @@ impl super::Game {
                 // Don't render weather in unexplored fog
                 let wx = self.camera.x + (sx - panel) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
-                if wx >= 0
-                    && wy >= 0
-                    && !self.exploration.is_revealed(wx as usize, wy as usize)
-                {
+                if wx >= 0 && wy >= 0 && !self.exploration.is_revealed(wx as usize, wy as usize) {
                     continue;
                 }
 
@@ -1548,21 +1545,23 @@ impl super::Game {
             for sx in 0..w {
                 let wx = self.camera.x + sx as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
-                if wx >= 0 && wy >= 0
-                    && let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        let (ch, bg) = match terrain {
-                            Terrain::Water => ('W', Color(30, 60, 180)),
-                            Terrain::Sand => ('S', Color(200, 180, 100)),
-                            Terrain::Grass => ('G', Color(50, 160, 50)),
-                            Terrain::Forest => ('F', Color(20, 100, 30)),
-                            Terrain::Mountain => ('M', Color(140, 130, 120)),
-                            Terrain::Snow => ('N', Color(220, 220, 230)),
-                            Terrain::BuildingFloor => ('B', Color(140, 120, 90)),
-                            Terrain::BuildingWall => ('X', Color(160, 140, 110)),
-                            Terrain::Road => ('R', Color(160, 130, 80)),
-                        };
-                        renderer.draw(sx, sy, ch, black, Some(bg));
-                    }
+                if wx >= 0
+                    && wy >= 0
+                    && let Some(terrain) = self.map.get(wx as usize, wy as usize)
+                {
+                    let (ch, bg) = match terrain {
+                        Terrain::Water => ('W', Color(30, 60, 180)),
+                        Terrain::Sand => ('S', Color(200, 180, 100)),
+                        Terrain::Grass => ('G', Color(50, 160, 50)),
+                        Terrain::Forest => ('F', Color(20, 100, 30)),
+                        Terrain::Mountain => ('M', Color(140, 130, 120)),
+                        Terrain::Snow => ('N', Color(220, 220, 230)),
+                        Terrain::BuildingFloor => ('B', Color(140, 120, 90)),
+                        Terrain::BuildingWall => ('X', Color(160, 140, 110)),
+                        Terrain::Road => ('R', Color(160, 130, 80)),
+                    };
+                    renderer.draw(sx, sy, ch, black, Some(bg));
+                }
             }
         }
 
@@ -1593,9 +1592,10 @@ impl super::Game {
             .iter()
         {
             if let Ok(behavior) = self.world.get::<&Behavior>(e)
-                && matches!(behavior.state, BehaviorState::AtHome { .. }) {
-                    continue;
-                }
+                && matches!(behavior.state, BehaviorState::AtHome { .. })
+            {
+                continue;
+            }
             let sx = (pos.x.round() as i32 - self.camera.x) * aspect;
             let sy = pos.y.round() as i32 - self.camera.y;
             if sx >= 0 && sy >= 0 && (sx as u16) < w && (sy as u16) < h.saturating_sub(status_h) {

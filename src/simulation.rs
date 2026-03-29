@@ -1031,13 +1031,13 @@ impl TrafficMap {
             for x in 0..self.width {
                 if self.traffic[y * self.width + x] >= threshold
                     && let Some(terrain) = map.get(x, y)
-                        && terrain.is_walkable()
-                            && *terrain != crate::tilemap::Terrain::Road
-                            && *terrain != crate::tilemap::Terrain::BuildingFloor
-                            && *terrain != crate::tilemap::Terrain::BuildingWall
-                        {
-                            result.push((x, y));
-                        }
+                    && terrain.is_walkable()
+                    && *terrain != crate::tilemap::Terrain::Road
+                    && *terrain != crate::tilemap::Terrain::BuildingFloor
+                    && *terrain != crate::tilemap::Terrain::BuildingWall
+                {
+                    result.push((x, y));
+                }
             }
         }
         result

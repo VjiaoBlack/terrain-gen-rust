@@ -278,18 +278,19 @@ pub fn system_ai(
                 }
                 // If villager claims a build site, mark it assigned
                 if let Some(site_entity) = claim_site
-                    && let Ok(mut site) = world.get::<&mut BuildSite>(site_entity) {
-                        site.assigned = true;
-                    }
+                    && let Ok(mut site) = world.get::<&mut BuildSite>(site_entity)
+                {
+                    site.assigned = true;
+                }
                 // Track harvest completions for resource depletion
                 if matches!(
                     behavior_state,
                     BehaviorState::Gathering { timer: 1, .. }
                         | BehaviorState::Gathering { timer: 0, .. }
-                )
-                    && let BehaviorState::Hauling { resource_type, .. } = s {
-                        harvest_positions.push((pos.x, pos.y, resource_type));
-                    }
+                ) && let BehaviorState::Hauling { resource_type, .. } = s
+                {
+                    harvest_positions.push((pos.x, pos.y, resource_type));
+                }
                 (s, vx, vy, h, None, dep)
             }
         };
@@ -401,12 +402,13 @@ pub fn system_ai(
                     }
                 }
                 if let Some((e, _)) = best
-                    && let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
-                        ry.remaining = ry.remaining.saturating_sub(1);
-                        if ry.remaining == 0 {
-                            to_deplete_despawn.push(e);
-                        }
+                    && let Ok(mut ry) = world.get::<&mut ResourceYield>(e)
+                {
+                    ry.remaining = ry.remaining.saturating_sub(1);
+                    if ry.remaining == 0 {
+                        to_deplete_despawn.push(e);
                     }
+                }
             }
             ResourceType::Stone => {
                 let mut best: Option<(Entity, f64)> = None;
@@ -420,12 +422,13 @@ pub fn system_ai(
                     }
                 }
                 if let Some((e, _)) = best
-                    && let Ok(mut ry) = world.get::<&mut ResourceYield>(e) {
-                        ry.remaining = ry.remaining.saturating_sub(1);
-                        if ry.remaining == 0 {
-                            to_deplete_despawn.push(e);
-                        }
+                    && let Ok(mut ry) = world.get::<&mut ResourceYield>(e)
+                {
+                    ry.remaining = ry.remaining.saturating_sub(1);
+                    if ry.remaining == 0 {
+                        to_deplete_despawn.push(e);
                     }
+                }
             }
             _ => {} // Wood comes from terrain, not entities
         }

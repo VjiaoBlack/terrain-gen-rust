@@ -208,10 +208,12 @@ impl super::Game {
             for dx in -20i32..=20 {
                 let tx = cx + dx;
                 let ty = cy + dy;
-                if tx >= 0 && ty >= 0
-                    && let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize) {
-                        wall_tiles += 1;
-                    }
+                if tx >= 0
+                    && ty >= 0
+                    && let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize)
+                {
+                    wall_tiles += 1;
+                }
             }
         }
 
@@ -386,11 +388,12 @@ impl super::Game {
             .collect();
 
         if let Some(&(vx, vy)) = villager_pos.first()
-            && let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5) {
-                ecs::spawn_villager(&mut self.world, nx, ny);
-                self.last_birth_tick = self.tick;
-                self.notify("New villager born!".to_string());
-            }
+            && let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5)
+        {
+            ecs::spawn_villager(&mut self.world, nx, ny);
+            self.last_birth_tick = self.tick;
+            self.notify("New villager born!".to_string());
+        }
     }
 
     /// Find a walkable tile within `radius` of (cx, cy).
@@ -451,12 +454,13 @@ impl super::Game {
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
-                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm) {
-                    self.resources.deduct(&cost);
-                    self.place_build_site(bx, by, BuildingType::Farm);
-                    self.notify("Auto-build: Farm queued".to_string());
-                    return;
-                }
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Farm);
+                self.notify("Auto-build: Farm queued".to_string());
+                return;
+            }
         }
 
         // Priority 2: Hut when population is growing and needs housing
@@ -472,12 +476,13 @@ impl super::Game {
         if hut_count < huts_needed && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
-                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut) {
-                    self.resources.deduct(&cost);
-                    self.place_build_site(bx, by, BuildingType::Hut);
-                    self.notify("Auto-build: Hut queued".to_string());
-                    return;
-                }
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Hut);
+                self.notify("Auto-build: Hut queued".to_string());
+                return;
+            }
         }
 
         // Priority 3: Walls when wolves are nearby settlement
@@ -672,9 +677,10 @@ impl super::Game {
                         let tux = tx as usize;
                         let tuy = ty as usize;
                         if let Some(t) = self.map.get(tux, tuy)
-                            && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall) {
-                                self.map.set(tux, tuy, Terrain::Grass);
-                            }
+                            && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall)
+                        {
+                            self.map.set(tux, tuy, Terrain::Grass);
+                        }
                     }
                 }
             }

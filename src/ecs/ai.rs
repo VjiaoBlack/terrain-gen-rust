@@ -185,29 +185,31 @@ pub(super) fn find_nearest_terrain(
         for dx in -r..=r {
             let tx = cx + dx;
             let ty = cy + dy;
-            if tx >= 0 && ty >= 0
+            if tx >= 0
+                && ty >= 0
                 && let Some(t) = map.get(tx as usize, ty as usize)
-                    && *t == terrain {
-                        if terrain_walkable {
-                            // Walkable terrain (e.g. Forest): stand on the tile directly
-                            let d = dist(pos.x, pos.y, tx as f64, ty as f64);
+                && *t == terrain
+            {
+                if terrain_walkable {
+                    // Walkable terrain (e.g. Forest): stand on the tile directly
+                    let d = dist(pos.x, pos.y, tx as f64, ty as f64);
+                    if best.is_none() || d < best.unwrap().2 {
+                        best = Some((tx as f64, ty as f64, d));
+                    }
+                } else {
+                    // Non-walkable terrain (e.g. Mountain): find adjacent walkable tile
+                    for &(ax, ay) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+                        let wx = tx + ax;
+                        let wy = ty + ay;
+                        if map.is_walkable(wx as f64, wy as f64) {
+                            let d = dist(pos.x, pos.y, wx as f64, wy as f64);
                             if best.is_none() || d < best.unwrap().2 {
-                                best = Some((tx as f64, ty as f64, d));
-                            }
-                        } else {
-                            // Non-walkable terrain (e.g. Mountain): find adjacent walkable tile
-                            for &(ax, ay) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
-                                let wx = tx + ax;
-                                let wy = ty + ay;
-                                if map.is_walkable(wx as f64, wy as f64) {
-                                    let d = dist(pos.x, pos.y, wx as f64, wy as f64);
-                                    if best.is_none() || d < best.unwrap().2 {
-                                        best = Some((wx as f64, wy as f64, d));
-                                    }
-                                }
+                                best = Some((wx as f64, wy as f64, d));
                             }
                         }
                     }
+                }
+            }
         }
     }
     best.map(|(x, y, _)| (x, y))
