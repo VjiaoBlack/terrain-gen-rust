@@ -189,6 +189,9 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game = Game::new(60, seed);
+        if args.iter().any(|a| a == "--auto-build") {
+            game.auto_build = true;
+        }
         // Reveal entire map for screenshots (no fog of war)
         for y in 0..256 {
             for x in 0..256 {
@@ -208,6 +211,23 @@ fn main() -> Result<()> {
         // Output as PNG if --png flag given, otherwise ANSI
         let png_path = args.iter().position(|a| a == "--png")
             .and_then(|i| args.get(i + 1).cloned());
+
+        // Print game state summary
+        eprintln!("=== State: tick={} season={} day={} hour={:.1} year={} ===",
+            game.tick, game.day_night.season.name(), game.day_night.day + 1,
+            game.day_night.hour, game.day_night.year + 1);
+        eprintln!("  resources: food={} wood={} stone={} planks={} masonry={}",
+            game.resources.food, game.resources.wood, game.resources.stone,
+            game.resources.planks, game.resources.masonry);
+        {
+            use terrain_gen_rust::ecs::{Creature, Species};
+            let vc = game.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Villager).count();
+            let wc = game.world.query::<&Creature>().iter()
+                .filter(|c| c.species == Species::Predator).count();
+            eprintln!("  pop: {} villagers, {} wolves, auto_build={}", vc, wc, game.auto_build);
+        }
+        eprintln!("  camera: ({}, {})", game.camera.x, game.camera.y);
 
         if let Some(path) = png_path {
             #[cfg(feature = "png")]
