@@ -124,7 +124,7 @@ pub(super) fn do_wander_tick(
         BehaviorState::Seek {
             target_x, target_y, ..
         } => {
-            let d = move_toward(pos, *target_x, *target_y, behavior.speed, vel);
+            let d = move_toward_astar(pos, *target_x, *target_y, behavior.speed, vel, map);
             if d < 1.5 {
                 vel.dx = 0.0;
                 vel.dy = 0.0;
@@ -158,7 +158,7 @@ pub(super) fn do_wander_tick(
                     timer: rng.random_range(20..60),
                 };
             } else {
-                let d = move_toward(pos, *target_x, *target_y, behavior.speed, vel);
+                let d = move_toward_astar(pos, *target_x, *target_y, behavior.speed, vel, map);
                 if d < 2.0 {
                     // Arrived at frontier — idle and let AI re-evaluate
                     behavior.state = BehaviorState::Idle {
