@@ -291,7 +291,7 @@ pub struct Game {
 }
 
 /// Traffic above this threshold converts walkable terrain to road.
-const ROAD_TRAFFIC_THRESHOLD: f64 = 150.0;
+const ROAD_TRAFFIC_THRESHOLD: f64 = 300.0;
 
 impl Game {
     pub fn new(target_fps: u32, seed: u32) -> Self {
@@ -1582,8 +1582,8 @@ mod tests {
         // Ensure the tile is grass
         game.map.set(tx, ty, Terrain::Grass);
 
-        // Simulate heavy foot traffic
-        for _ in 0..200 {
+        // Simulate heavy foot traffic (above threshold of 300)
+        for _ in 0..400 {
             game.traffic.step_on(tx, ty);
         }
 
