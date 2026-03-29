@@ -881,10 +881,23 @@ pub(super) fn ai_villager(
             }
         }
         _ => {
-            // If villager is stuck inside a building (on BuildingFloor), try to leave
+            // If villager is stuck inside an ENCLOSED building (surrounded by walls), try to leave.
+            // Don't trigger on farms/workshops (open BuildingFloor is fine to stand on).
             let on_building = map.get(pos.x.round() as usize, pos.y.round() as usize)
                 == Some(&Terrain::BuildingFloor);
-            if on_building {
+            let surrounded_by_walls = on_building && {
+                let cx = pos.x.round() as i32;
+                let cy = pos.y.round() as i32;
+                let wall_count = [(1i32, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .filter(|&&(dx, dy)| {
+                        map.get((cx + dx) as usize, (cy + dy) as usize)
+                            == Some(&Terrain::BuildingWall)
+                    })
+                    .count();
+                wall_count >= 2 // enclosed = at least 2 adjacent walls
+            };
+            if surrounded_by_walls {
                 // Find nearest outdoor (non-building) walkable tile
                 for r in 1..=5i32 {
                     for dy in -r..=r {

@@ -807,17 +807,18 @@ mod tests {
         let midnight_snap = game.step_headless(GameInput::None, &mut r).unwrap();
 
         // Compare brightness of terrain cells in the map area (past the panel)
-        // Average brightness of terrain cells (green-ish bg = terrain, not panel)
+        // Average brightness of terrain cells (non-panel bg)
+        let panel_bg = renderer::Color(25, 25, 40);
         let sample_brightness = |snap: &game::FrameSnapshot| -> u32 {
             let mut total = 0u64;
             let mut count = 0u64;
-            for y in 3..15 {
-                for x in 30..55 {
-                    if y < snap.cells.len() && x < snap.cells[y].len() {
+            for y in 0..snap.cells.len() {
+                for x in 24..snap.cells.first().map_or(0, |r| r.len()) {
+                    if x < snap.cells[y].len() {
                         let c = &snap.cells[y][x];
                         if let Some(bg) = c.bg {
-                            // Only count cells with green-ish bg (terrain)
-                            if bg.1 > 20 {
+                            // Skip panel cells and fog (very dark)
+                            if bg != panel_bg && (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) > 30 {
                                 total += c.fg.0 as u64 + c.fg.1 as u64 + c.fg.2 as u64;
                                 count += 1;
                             }
