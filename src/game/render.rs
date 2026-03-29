@@ -1499,6 +1499,11 @@ impl super::Game {
                         Color(140, 120, 80)
                     }
                     Some(Terrain::Road) => Color(100, 90, 70),
+                    Some(Terrain::Cliff) => Color(80, 75, 65),
+                    Some(Terrain::Marsh) => Color(30, 70, 50),
+                    Some(Terrain::Desert) => Color(190, 170, 110),
+                    Some(Terrain::Tundra) => Color(150, 160, 170),
+                    Some(Terrain::Scrubland) => Color(120, 110, 55),
                     _ => Color(60, 60, 60),
                 };
 
@@ -1567,6 +1572,11 @@ impl super::Game {
                         Terrain::BuildingFloor => ('B', Color(140, 120, 90)),
                         Terrain::BuildingWall => ('X', Color(160, 140, 110)),
                         Terrain::Road => ('R', Color(160, 130, 80)),
+                        Terrain::Cliff => ('C', Color(100, 90, 80)),
+                        Terrain::Marsh => ('H', Color(40, 90, 60)),
+                        Terrain::Desert => ('D', Color(200, 180, 120)),
+                        Terrain::Tundra => ('T', Color(160, 170, 180)),
+                        Terrain::Scrubland => ('U', Color(130, 120, 60)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }

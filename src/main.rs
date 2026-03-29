@@ -399,12 +399,6 @@ fn main() -> Result<()> {
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse().ok())
             .unwrap_or(42);
-        let erosion_ticks: u32 = args
-            .iter()
-            .position(|a| a == "--ticks")
-            .and_then(|i| args.get(i + 1))
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(500);
         let w: u16 = args
             .iter()
             .position(|a| a == "--width")
@@ -418,62 +412,31 @@ fn main() -> Result<()> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(48);
 
-        use terrain_gen_rust::simulation::{SimConfig, WaterMap};
-        use terrain_gen_rust::terrain_gen::{self, TerrainGenConfig};
-        use terrain_gen_rust::tilemap::Terrain;
+        use terrain_gen_rust::terrain_gen::TerrainGenConfig;
+        use terrain_gen_rust::terrain_pipeline::{PipelineConfig, run_pipeline};
 
-        let terrain_config = TerrainGenConfig {
-            seed,
-            scale: 0.015,
-            ..Default::default()
+        eprintln!("Running terrain pipeline on seed {}...", seed);
+        let pipeline_config = PipelineConfig {
+            terrain: TerrainGenConfig {
+                seed,
+                scale: 0.015,
+                ..Default::default()
+            },
+            ..PipelineConfig::default()
         };
-        let (mut map, mut heights) = terrain_gen::generate_terrain(256, 256, &terrain_config);
-        let mut water = WaterMap::new(256, 256);
+        let result = run_pipeline(256, 256, &pipeline_config);
+        let map = result.map;
+        let river_count = result.river_mask.iter().filter(|r| **r).count();
+        eprintln!("  rivers: {} cells", river_count);
+        let mut biome_counts = std::collections::HashMap::new();
         for y in 0..256 {
             for x in 0..256 {
-                if let Some(Terrain::Water) = map.get(x, y) {
-                    let depth = (terrain_config.water_level - heights[y * 256 + x]).max(0.01);
-                    water.set(x, y, depth);
+                if let Some(t) = map.get(x, y) {
+                    *biome_counts.entry(format!("{:?}", t)).or_insert(0u32) += 1;
                 }
             }
         }
-
-        let mut config = SimConfig::default();
-        config.erosion_enabled = true;
-        config.erosion_strength = 0.5;
-
-        eprintln!(
-            "Running {} erosion ticks on seed {}...",
-            erosion_ticks, seed
-        );
-        for t in 0..erosion_ticks {
-            water.rain(&config);
-            water.update(&mut heights, &config, None);
-            if t % 100 == 0 {
-                eprintln!("  tick {}/{}", t, erosion_ticks);
-            }
-        }
-
-        // Re-derive terrain from eroded heights
-        for y in 0..256 {
-            for x in 0..256 {
-                let height = heights[y * 256 + x];
-                let terrain = if height < terrain_config.water_level {
-                    Terrain::Water
-                } else if height < terrain_config.sand_level {
-                    Terrain::Sand
-                } else if height < terrain_config.grass_level {
-                    Terrain::Grass
-                } else if height < terrain_config.forest_level {
-                    Terrain::Forest
-                } else if height < terrain_config.mountain_level {
-                    Terrain::Mountain
-                } else {
-                    Terrain::Snow
-                };
-                map.set(x, y, terrain);
-            }
-        }
+        eprintln!("  biomes: {:?}", biome_counts);
 
         // Render terrain to a headless renderer (no entities, no panel)
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
@@ -484,18 +447,7 @@ fn main() -> Result<()> {
                 if let Some(terrain) = map.get(wx, wy) {
                     let fg = terrain.fg();
                     let bg = terrain.bg().unwrap_or(renderer::Color(0, 0, 0));
-                    let water_depth = water.get(wx, wy);
-                    if water_depth > 0.01 {
-                        r.draw(
-                            sx,
-                            sy,
-                            '~',
-                            renderer::Color(60, 110, 220),
-                            Some(renderer::Color(20, 40, 100)),
-                        );
-                    } else {
-                        r.draw(sx, sy, terrain.ch(), fg, Some(bg));
-                    }
+                    r.draw(sx, sy, terrain.ch(), fg, Some(bg));
                 }
             }
         }

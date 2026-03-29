@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::tilemap::{Terrain, TileMap};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerrainGenConfig {
     pub seed: u32,
     pub scale: f64,
@@ -36,7 +36,7 @@ impl Default for TerrainGenConfig {
     }
 }
 
-fn fbm(perlin: &Perlin, x: f64, y: f64, config: &TerrainGenConfig) -> f64 {
+pub fn fbm(perlin: &Perlin, x: f64, y: f64, config: &TerrainGenConfig) -> f64 {
     let mut value = 0.0;
     let mut amplitude = 1.0;
     let mut frequency = 1.0;

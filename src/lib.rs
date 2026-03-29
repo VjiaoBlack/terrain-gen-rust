@@ -6,4 +6,5 @@ pub mod renderer;
 pub mod scripting;
 pub mod simulation;
 pub mod terrain_gen;
+pub mod terrain_pipeline;
 pub mod tilemap;

@@ -10,6 +10,11 @@ pub enum Terrain {
     Forest,
     Mountain,
     Snow,
+    Cliff,
+    Marsh,
+    Desert,
+    Tundra,
+    Scrubland,
     BuildingFloor,
     BuildingWall,
     Road,
@@ -18,7 +23,7 @@ pub enum Terrain {
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
-            Terrain::Water | Terrain::BuildingWall => false,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => false,
             _ => true,
         }
     }
@@ -27,11 +32,16 @@ impl Terrain {
     pub fn ch(&self) -> char {
         match self {
             Terrain::Water => '~',
-            Terrain::Sand => '·', // middle dot: lighter than '.' but visible
+            Terrain::Sand => '·',
             Terrain::Grass => '\'',
             Terrain::Forest => ':',
             Terrain::Mountain => '^',
             Terrain::Snow => '·',
+            Terrain::Cliff => '#',
+            Terrain::Marsh => ',',
+            Terrain::Desert => '.',
+            Terrain::Tundra => '-',
+            Terrain::Scrubland => ';',
             Terrain::BuildingFloor => '░',
             Terrain::BuildingWall => '█',
             Terrain::Road => '=',
@@ -47,6 +57,11 @@ impl Terrain {
             Terrain::Forest => Color(15, 80, 20),
             Terrain::Mountain => Color(120, 110, 100),
             Terrain::Snow => Color(220, 220, 240),
+            Terrain::Cliff => Color(100, 90, 80),
+            Terrain::Marsh => Color(40, 90, 60),
+            Terrain::Desert => Color(200, 180, 120),
+            Terrain::Tundra => Color(160, 170, 180),
+            Terrain::Scrubland => Color(130, 120, 60),
             Terrain::BuildingFloor => Color(140, 120, 90),
             Terrain::BuildingWall => Color(160, 140, 110),
             Terrain::Road => Color(160, 130, 80),
@@ -62,6 +77,11 @@ impl Terrain {
             Terrain::Forest => Some(Color(10, 60, 15)),
             Terrain::Mountain => Some(Color(95, 85, 75)),
             Terrain::Snow => Some(Color(200, 200, 215)),
+            Terrain::Cliff => Some(Color(70, 65, 55)),
+            Terrain::Marsh => Some(Color(25, 60, 40)),
+            Terrain::Desert => Some(Color(180, 160, 100)),
+            Terrain::Tundra => Some(Color(140, 150, 160)),
+            Terrain::Scrubland => Some(Color(110, 100, 50)),
             Terrain::BuildingFloor => Some(Color(100, 80, 60)),
             Terrain::BuildingWall => Some(Color(120, 100, 80)),
             Terrain::Road => Some(Color(130, 105, 65)),
@@ -72,12 +92,14 @@ impl Terrain {
     pub fn speed_multiplier(&self) -> f64 {
         match self {
             Terrain::Road => 1.5,
-            Terrain::Grass | Terrain::BuildingFloor => 1.0,
+            Terrain::Grass | Terrain::BuildingFloor | Terrain::Scrubland => 1.0,
+            Terrain::Desert | Terrain::Tundra => 0.8,
             Terrain::Sand => 0.8,
             Terrain::Forest => 0.6,
             Terrain::Snow => 0.4,
+            Terrain::Marsh => 0.3,
             Terrain::Mountain => 0.25,
-            Terrain::Water | Terrain::BuildingWall => 0.0, // impassable
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => 0.0,
         }
     }
 
@@ -85,12 +107,13 @@ impl Terrain {
     pub fn move_cost(&self) -> f64 {
         match self {
             Terrain::Road => 0.7,
-            Terrain::Grass | Terrain::BuildingFloor => 1.0,
-            Terrain::Sand => 1.3,
+            Terrain::Grass | Terrain::BuildingFloor | Terrain::Scrubland => 1.0,
+            Terrain::Sand | Terrain::Desert | Terrain::Tundra => 1.3,
             Terrain::Forest => 1.7,
             Terrain::Snow => 2.5,
+            Terrain::Marsh => 3.0,
             Terrain::Mountain => 4.0,
-            Terrain::Water | Terrain::BuildingWall => f64::INFINITY,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => f64::INFINITY,
         }
     }
 }
