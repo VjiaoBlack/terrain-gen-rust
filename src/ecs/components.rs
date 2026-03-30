@@ -27,6 +27,7 @@ pub struct AiResult {
     pub deposited: Vec<ResourceType>,
     pub food_consumed: u32,
     pub grain_consumed: u32,
+    pub bread_consumed: u32,
     pub farming_ticks: u32,
     pub mining_ticks: u32,
     pub woodcutting_ticks: u32,

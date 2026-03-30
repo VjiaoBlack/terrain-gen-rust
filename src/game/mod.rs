@@ -921,6 +921,7 @@ impl Game {
                     self.resources.wood,
                     self.resources.stone,
                     self.resources.grain,
+                    self.resources.bread,
                     &skill_mults,
                     settlement_defended,
                     self.day_night.is_night(),
@@ -954,15 +955,17 @@ impl Game {
                 if deposited_stone > 0 {
                     self.notify(format!("Resource deposited: +{} stone", deposited_stone));
                 }
+                if ai_result.bread_consumed > 0 {
+                    self.resources.bread = self
+                        .resources
+                        .bread
+                        .saturating_sub(ai_result.bread_consumed);
+                }
                 if ai_result.grain_consumed > 0 {
                     self.resources.grain = self
                         .resources
                         .grain
                         .saturating_sub(ai_result.grain_consumed);
-                    self.notify(format!(
-                        "Villager ate grain (-{})",
-                        ai_result.grain_consumed
-                    ));
                 }
                 if ai_result.food_consumed > 0 {
                     self.resources.food =
@@ -1393,15 +1396,8 @@ impl Game {
                     }
                 }
 
-                // Winter food decay: percentage-based spoilage, grain is preserved
-                if self.day_night.season == Season::Winter
-                    && self.tick.is_multiple_of(30)
-                    && self.resources.food > 0
-                {
-                    let decay = std::cmp::max(1, self.resources.food * 2 / 100); // 2% per 30 ticks, min 1
-                    self.resources.food = self.resources.food.saturating_sub(decay);
-                    self.notify(format!("Food spoiled in winter (-{})", decay));
-                }
+                // Winter food decay: disabled for now (TODO: revisit with food types)
+                // if self.day_night.season == Season::Winter { ... }
 
                 // Resource regrowth
                 ecs::system_regrowth(&mut self.world, &self.map, self.tick);
@@ -1847,26 +1843,26 @@ mod tests {
     }
 
     #[test]
-    fn winter_food_decay() {
+    fn winter_no_food_spoilage() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
-        game.resources.food = 20;
-        game.resources.grain = 10;
+        game.resources.food = 100;
 
-        // Set season to winter
         game.day_night.season = Season::Winter;
+        let initial_food = game.resources.food;
 
-        // Run for 200 ticks — should lose some food but not grain
-        let initial_grain = game.resources.grain;
+        // Run 200 ticks — food should NOT spoil (spoilage disabled)
+        // Villagers may eat some, but spoilage shouldn't drain it
         for _ in 0..200 {
             game.step(GameInput::None, &mut renderer).unwrap();
         }
 
-        // Food should have decayed (at least some lost to spoilage, though villagers also eat)
-        // Grain should NOT have decayed from winter spoilage (villagers may eat some)
-        // The key test: grain is preserved relative to food
-        assert!(game.resources.food < 20, "food should decay in winter");
-        // Note: grain may decrease from villager eating, but won't decrease from spoilage
+        // Food decreases from eating, not spoilage — should still have plenty
+        assert!(
+            game.resources.food > 50,
+            "food should not spoil in winter anymore, got {}",
+            game.resources.food
+        );
     }
 
     #[test]
@@ -2024,6 +2020,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             true,
@@ -2401,27 +2398,19 @@ mod tests {
     }
 
     #[test]
-    fn winter_food_decay_is_percentage_based() {
+    fn winter_food_no_spoilage_with_surplus() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
-
-        // Give lots of food so percentage decay is visible
         game.resources.food = 200;
         game.day_night.season = Season::Winter;
 
-        // Tick to a multiple of 30 so decay fires
         game.tick = 29;
         game.step(GameInput::None, &mut renderer).unwrap();
-        // At tick 30: 2% of 200 = 4 decay (before villagers eat)
-        // Food should be noticeably less than 200
+        // Spoilage disabled — food should stay near 200 (minus any eating)
         assert!(
-            game.resources.food < 200,
-            "percentage decay should reduce food"
-        );
-        // With 200 food, decay should be at least 4 (2%), not just 1
-        assert!(
-            game.resources.food <= 197,
-            "decay should be percentage-based, not flat -1"
+            game.resources.food >= 195,
+            "food should not spoil, got {}",
+            game.resources.food
         );
     }
 

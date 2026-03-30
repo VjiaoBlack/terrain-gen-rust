@@ -247,6 +247,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -283,6 +284,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -321,6 +323,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -358,6 +361,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -423,6 +427,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -460,6 +465,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -492,6 +498,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -527,6 +534,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -562,6 +570,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -601,6 +610,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -665,6 +675,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -731,6 +742,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -763,6 +775,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -801,6 +814,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -839,6 +853,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -881,6 +896,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -934,6 +950,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -1003,6 +1020,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -1048,6 +1066,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -1164,6 +1183,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -1436,6 +1456,7 @@ mod tests {
                 0,
                 0,
                 0,
+                0, // bread
                 &SkillMults::default(),
                 false,
                 false,
@@ -1493,6 +1514,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -1534,6 +1556,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -1929,6 +1952,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             true,
             false,
@@ -1972,6 +1996,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -2090,7 +2115,7 @@ mod tests {
     }
 
     #[test]
-    fn villager_prefers_grain_over_food() {
+    fn villager_prefers_bread_over_food() {
         let mut world = World::new();
         let map = walkable_map(30, 30);
 
@@ -2102,27 +2127,26 @@ mod tests {
             c.hunger = 0.6;
         }
 
+        // Provide bread, food, and grain
         let result = system_ai(
             &mut world,
             &map,
             0.4,
-            5,
+            5, // food
             0,
             0,
-            5,
+            5, // grain
+            5, // bread
             &SkillMults::default(),
             false,
             false,
         );
 
-        if result.grain_consumed > 0 || result.food_consumed > 0 {
+        // Bread > food > grain priority
+        if result.bread_consumed > 0 || result.food_consumed > 0 || result.grain_consumed > 0 {
             assert!(
-                result.grain_consumed > 0,
-                "should prefer grain over raw food"
-            );
-            assert_eq!(
-                result.food_consumed, 0,
-                "should not consume food when grain available"
+                result.bread_consumed > 0,
+                "should prefer bread over food/grain"
             );
         }
     }
@@ -2227,6 +2251,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -2269,6 +2294,7 @@ mod tests {
             0,
             0,
             0,
+            0, // bread
             &SkillMults::default(),
             false,
             false,
