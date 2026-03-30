@@ -111,16 +111,22 @@ mod tests {
     }
 
     #[test]
-    fn water_blocks_movement() {
+    fn water_slows_movement() {
         let mut world = World::new();
         let mut map = walkable_map(10, 10);
         map.set(5, 5, Terrain::Water);
-        let e = spawn_entity(&mut world, 4.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
+        // Entity starting ON water tile
+        let e = spawn_entity(&mut world, 5.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
 
         system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
-        assert_eq!(pos.x, 4.0, "water should block movement");
+        // Water speed is 0.15x, so movement is very slow
+        assert!(
+            pos.x > 5.0 && pos.x < 5.5,
+            "water should slow movement, got {}",
+            pos.x
+        );
     }
 
     #[test]

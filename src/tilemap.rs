@@ -23,7 +23,7 @@ pub enum Terrain {
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
-            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => false,
+            Terrain::BuildingWall | Terrain::Cliff => false,
             _ => true,
         }
     }
@@ -99,7 +99,8 @@ impl Terrain {
             Terrain::Snow => 0.4,
             Terrain::Marsh => 0.3,
             Terrain::Mountain => 0.25,
-            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => 0.0,
+            Terrain::Water => 0.15, // swimming, very slow
+            Terrain::BuildingWall | Terrain::Cliff => 0.0,
         }
     }
 
@@ -113,7 +114,8 @@ impl Terrain {
             Terrain::Snow => 2.5,
             Terrain::Marsh => 3.0,
             Terrain::Mountain => 4.0,
-            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => f64::INFINITY,
+            Terrain::Water => 8.0, // swimmable but heavily penalized by A*
+            Terrain::BuildingWall | Terrain::Cliff => f64::INFINITY,
         }
     }
 }
@@ -467,7 +469,8 @@ mod tests {
         assert_eq!(Terrain::Forest.speed_multiplier(), 0.6);
         assert_eq!(Terrain::Mountain.speed_multiplier(), 0.25);
         assert_eq!(Terrain::Road.speed_multiplier(), 1.5);
-        assert!(!Terrain::Water.is_walkable());
+        assert!(Terrain::Water.is_walkable()); // swimmable
+        assert_eq!(Terrain::Water.speed_multiplier(), 0.15);
         assert!(Terrain::Mountain.is_walkable());
     }
 
@@ -504,10 +507,10 @@ mod tests {
     #[test]
     fn astar_returns_none_for_unreachable() {
         let mut map = TileMap::new(10, 10, Terrain::Grass);
-        // Surround target with water
+        // Surround target with BuildingWall (truly impassable)
         for dx in -1i32..=1 {
             for dy in -1i32..=1 {
-                map.set((5 + dx) as usize, (5 + dy) as usize, Terrain::Water);
+                map.set((5 + dx) as usize, (5 + dy) as usize, Terrain::BuildingWall);
             }
         }
         let next = map.astar_next(0.0, 0.0, 5.0, 5.0, 500);

@@ -1035,6 +1035,7 @@ impl TrafficMap {
                     && *terrain != crate::tilemap::Terrain::Road
                     && *terrain != crate::tilemap::Terrain::BuildingFloor
                     && *terrain != crate::tilemap::Terrain::BuildingWall
+                    && *terrain != crate::tilemap::Terrain::Water
                 {
                     result.push((x, y));
                 }
