@@ -10,6 +10,7 @@ use crate::tilemap::Terrain;
 impl super::Game {
     pub fn can_place_building(&self, bx: i32, by: i32, building_type: BuildingType) -> bool {
         let (w, h) = building_type.size();
+        // Check footprint tiles are buildable terrain
         for dy in 0..h {
             for dx in 0..w {
                 let tx = bx + dx;
@@ -33,6 +34,29 @@ impl super::Game {
                     }
                 } else {
                     return false;
+                }
+            }
+        }
+        // Ensure 1-tile gap: expanded footprint must not overlap existing buildings
+        for dy in -1..=h {
+            for dx in -1..=w {
+                let tx = bx + dx;
+                let ty = by + dy;
+                if tx < 0
+                    || ty < 0
+                    || tx as usize >= self.map.width
+                    || ty as usize >= self.map.height
+                {
+                    continue; // edge of map is ok
+                }
+                // Skip the actual footprint (already checked above)
+                if dx >= 0 && dx < w && dy >= 0 && dy < h {
+                    continue;
+                }
+                if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
+                    if matches!(terrain, Terrain::BuildingFloor | Terrain::BuildingWall) {
+                        return false; // too close to existing building
+                    }
                 }
             }
         }
