@@ -995,11 +995,29 @@ impl Game {
                 self.skills.building = self.skills.building.clamp(0.0, 100.0);
                 self.skills.military = self.skills.military.clamp(0.0, 100.0);
 
-                // Redirect idle/wandering villagers to explore when resources are scarce
-                let needs_wood = self.resources.wood < 10;
-                let needs_stone = self.resources.stone < 10;
-                let needs_explore = needs_wood || needs_stone;
-                if needs_explore && self.tick.is_multiple_of(30) {
+                // Redirect idle/wandering villagers to explore
+                // Always explore (at least 1 explorer), more when resources are scarce
+                let needs_wood = self.resources.wood < 15;
+                let needs_stone = self.resources.stone < 15;
+                let villager_count = self
+                    .world
+                    .query::<&Creature>()
+                    .iter()
+                    .filter(|c| c.species == Species::Villager)
+                    .count();
+                let already_exploring = self
+                    .world
+                    .query::<&Behavior>()
+                    .iter()
+                    .filter(|b| matches!(b.state, BehaviorState::Exploring { .. }))
+                    .count();
+                // At least 1 explorer always, more when scarce
+                let max_explorers = if needs_wood || needs_stone {
+                    (villager_count / 3).max(2)
+                } else {
+                    (villager_count / 5).max(1)
+                };
+                if already_exploring < max_explorers && self.tick.is_multiple_of(30) {
                     let (scx, scy) = self.settlement_center();
                     // Collect redirect targets
                     let mut redirects: Vec<(hecs::Entity, f64, f64, SeekReason)> = Vec::new();
@@ -1062,12 +1080,12 @@ impl Game {
                             }
                         }
 
-                        // No known resources — explore frontier
-                        if let Some(&(fx, fy)) =
-                            self.knowledge.frontier.iter().min_by_key(|&&(fx, fy)| {
-                                ((fx as f64 - pos.x).powi(2) + (fy as f64 - pos.y).powi(2)) as u64
-                            })
-                        {
+                        // Explore frontier — pick a random frontier tile (spread explorers out)
+                        if !self.knowledge.frontier.is_empty() {
+                            let mut rng = rand::rng();
+                            let idx =
+                                rng.random_range(0..self.knowledge.frontier.len() as u32) as usize;
+                            let (fx, fy) = self.knowledge.frontier[idx];
                             redirects.push((entity, fx as f64, fy as f64, SeekReason::Unknown));
                         }
                     }
