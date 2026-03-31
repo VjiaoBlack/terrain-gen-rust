@@ -172,6 +172,29 @@ impl Game {
                     self.notify("Wolf surge! Pack activity increases.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
+
+                    // Spawn 3-5 wolves in a ring 20-35 tiles from settlement center
+                    let (scx, scy) = self.settlement_center();
+                    let wolf_count = rng.random_range(3u32..=5);
+                    let mut spawned = 0u32;
+                    for _ in 0..60 {
+                        if spawned >= wolf_count {
+                            break;
+                        }
+                        let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                        let dist = rng.random_range(20.0f64..35.0);
+                        let wx = scx as f64 + angle.cos() * dist;
+                        let wy = scy as f64 + angle.sin() * dist;
+                        if self.map.is_walkable(wx, wy) {
+                            ecs::spawn_predator(&mut self.world, wx, wy);
+                            spawned += 1;
+                        }
+                    }
+                    if spawned > 0 {
+                        self.events
+                            .event_log
+                            .push(format!("{} wolves approach!", spawned));
+                    }
                 }
                 // Blizzard: winter-only, halves movement speed
                 if !self.events.has_event_type("blizzard") && rng.random_range(0u32..100) < 10 {

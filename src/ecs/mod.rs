@@ -2191,8 +2191,8 @@ mod tests {
         let mut world = World::new();
         let stone = spawn_stone_deposit(&mut world, 5.0, 5.0);
         let ry = world.get::<&ResourceYield>(stone).unwrap();
-        assert_eq!(ry.remaining, 5);
-        assert_eq!(ry.max, 5);
+        assert_eq!(ry.remaining, 12);
+        assert_eq!(ry.max, 12);
     }
 
     #[test]
@@ -2312,7 +2312,7 @@ mod tests {
             .iter()
             .map(|(_, ry)| ry.remaining)
             .collect();
-        assert_eq!(stone_yield, vec![5], "stone yield should round-trip");
+        assert_eq!(stone_yield, vec![12], "stone yield should round-trip");
     }
 
     #[test]

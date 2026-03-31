@@ -551,6 +551,31 @@ impl Game {
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
+        // Spawn 3 prey dens 8-25 tiles from settlement center (forest/grass tiles preferred).
+        // Prey provide early food variety and establish the predator/prey ecosystem.
+        // Without initial prey, dens never get populated and rabbits remain at 0 forever.
+        {
+            let mut rng = rand::rng();
+            let scx_f = scx as f64;
+            let scy_f = scy as f64;
+            let mut dens_placed = 0u32;
+            for _ in 0..80 {
+                if dens_placed >= 3 {
+                    break;
+                }
+                let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                let dist = rng.random_range(8.0f64..25.0);
+                let px = scx_f + angle.cos() * dist;
+                let py = scy_f + angle.sin() * dist;
+                if px >= 0.0 && py >= 0.0 && map.is_walkable(px, py) {
+                    ecs::spawn_den(&mut world, px, py);
+                    ecs::spawn_prey(&mut world, px + 1.0, py, px, py);
+                    ecs::spawn_prey(&mut world, px - 1.0, py, px, py);
+                    dens_placed += 1;
+                }
+            }
+        }
+
         // Spawn 3 villagers near the stockpile
         for i in 0..3 {
             let (vx, vy) = find_walkable(&map, scx + i * 2, scy + 1);
