@@ -201,3 +201,109 @@ The core loop (place buildings → villagers self-organize → population grows)
 9. "Waiting for resource X" auto-build status indicator
 
 Comparing both playtest runs: seed 42 is reliable (83→138 pop, stable food, significant building spread) and demonstrates the game loop works on good terrain. Seeds 137 and 999 consistently fail due to stone depletion. The game is currently bimodal: great on grassland seeds, unwinnable on desert/sandy seeds. Fixing stone supply would dramatically improve the median experience.
+
+## 2026-03-31 (Run 3) — Automated Playtest Report
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild at tick 100)  
+**Display size:** 70×25
+
+### Per-Game Summary
+
+| | Game 1 (seed 42) | Game 2 (seed 137) | Game 3 (seed 999) |
+|---|---|---|---|
+| **Terrain biome** | Grassland/forest | Desert/sandy + grassland | Sandy/desert flatlands |
+| **Ticks run** | 36,000 | 36,000 | 40,000 |
+| **Final season** | Winter Y1 D1 | Winter Y1 D1 | Winter Y1 D4 |
+| **Final pop** | 191 | 160 | 136 |
+| **Food** | 2,551 | 579 | 492 |
+| **Wood** | 698 | 21,010 | 26,235 |
+| **Stone** | 548 | 0 | 3 |
+| **Planks/Masonry/Grain/Bread** | — | — | — |
+| **Buildings visible** | Many huts + farms + stockpile | 3+ hut clusters + stockpile | 2 hut clusters + stockpile |
+| **Wolves** | 0 | 0 | 0 |
+| **Rabbits** | 0 | 0 | 0 |
+| **Events** | Blizzard, New villager born | Bountiful harvest | None notable |
+| **Survived** | Yes — thriving | Yes | Yes |
+
+**Population progression:**
+- Game 1 (seed 42): 71 → 131 → 191 (strong sustained growth)
+- Game 2 (seed 137): 70 → 130 → 160 (steady — best showing yet for this seed)
+- Game 3 (seed 999): 109 → 136 (growth despite near-zero stone)
+
+**Skill levels observed:**
+- Game 1 (tick 36k): Farm **100.0** (capped!), Mine 68.6, Wood 77.1
+- Game 3 (tick 20k): Farm 59.3, Mine 23.1, Wood 95.4, Build 41.7
+
+---
+
+### What Seems Fun
+
+- **Farm skill reaching 100.0 is a satisfying milestone:** Game 1 showed `Farm 100.0` in the skills panel — the first confirmed skill cap across all playtests. Seeing villagers achieve maximum competence in a field creates a sense of progression. It also meaningfully changes the economy: at Farm 100, harvest yields are presumably maximized, which explains the exceptional food surplus (2551) in Game 1.
+
+- **Game 1 shows the ideal state:** Pop 191 with 2551 food, 548 stone, and wood held at a balanced 698 (consumed as fast as it's gathered because stone enabled active building). The map at tick 36k shows farms (##), multiple hut clusters (██░░██), a `V`-symbol entity (possibly a skilled worker mid-task), and a settlement filling out its terrain. This is what the game *should* feel like, and it's genuinely compelling even in ASCII.
+
+- **Bountiful harvest event in Game 2:** The event banner `Bountiful harvest! Farm yields doubled.` appeared at tick 24k in Game 2, right when stone ran out — a bittersweet moment where food is booming but construction has completely stalled. The juxtaposition of agricultural abundance against resource poverty feels narratively interesting.
+
+- **Game 3 recovered vs. Run 2 crash:** In Run 2, seed 999 crashed from 95 to 57 pop. This run, the same seed reached 136 — a 51-villager swing in the same direction. This cross-run variance is striking and discussed below.
+
+---
+
+### What Seems Broken
+
+1. **Same-seed non-determinism is a critical bug:** Seed 999 produced pop 116 (Run 1), pop 57 (Run 2), and pop 136 (Run 3) — a 79-villager spread across identical seeds. Seeds are supposed to make runs reproducible, but the AI's random decisions or event RNG is not seeded consistently. This makes bug reproduction difficult and undermines any attempt to balance around specific seeds.
+
+2. **Stone stays at 0–3 on sandy/desert seeds (confirmed across 9 game-runs):** Games 2 and 3 again end with stone 0 and 3 respectively. However, **the wood-stone balance reveals the root cause more clearly this run**: Game 1 (stone 548) consumed wood steadily (698 total), while Games 2 and 3 with stone-0 let wood run to 21k–26k. When stone is available, auto-build consumes wood. When stone is gone, wood accumulates indefinitely. The stone shortage is the single root cause of both the wood problem and the building stagnation.
+
+3. **Farm skill cap at 100.0 may lock out other skills:** Game 1's `Farm 100.0 / Mine 68.6 / Wood 77.1` at tick 36k is all from the same population of 191 villagers. If skill points are shared or if high farming skill biases AI toward farm tasks, villagers with Farm 100 may be permanently assigned to farm duty and never mine — which would explain why stone acquisition is slower than wood even on stone-rich maps.
+
+4. **Zero rabbits and zero wolves — 9/9 runs confirmed:** Every game run in all three playtest sessions shows `Rabbits: 0` and `Wolves: 0` in all frames. This is 100% reproducible and cannot be coincidence. Both prey and predator spawning appear completely non-functional. Likely causes: spawn code is guarded by a condition never met (terrain type? time of day? resource threshold?), or animal entities are immediately dying on spawn.
+
+5. **Secondary production chains never activate — 9/9 runs confirmed:** Planks, masonry, grain, and bread remain at zero across every single run. The Workshop/Smithy/Granary/Bakery chain has never been observed. With stone=0 on most seeds, Workshop (needs 8w+3s) and Smithy (5w+8s) cannot be built. Even Game 1 with stone 548 showed no planks or masonry — auto-build either doesn't prioritize processing buildings or they require conditions not met.
+
+6. **`.` symbols appear in Game 1 Winter map:** At tick 36k, the map shows `.` characters at several positions that were empty in Autumn (e.g., `''''''''''.'''`, `''''''''''::.:`). These are new this run and weren't seen in Runs 1–2. Not documented in CLAUDE.md. May be snow particles, frost/ice overlay, or dead villager markers from the Blizzard event. Combined with the previously noted `*` symbols, there are now two undocumented map characters.
+
+7. **`V` symbol appears briefly in Game 1 Autumn map:** At tick 24k, a `V` character appears at position `""V♣` (near forest/berry tiles). Gone by Winter. This may be a villager shown mid-action (movement vector?) or an undocumented entity/building state. Not listed in CLAUDE.md terrain/entity symbols.
+
+8. **Frame duplication persists — Run 3 confirms it on all 3 games:** The final frame is printed twice with identical tick numbers, populations, and resource values in every game. Three separate playtest runs, nine games, all affected. This is a systematic bug in the `--play` output mode.
+
+---
+
+### What Could Be Improved
+
+1. **Auto-build should attempt to build processing buildings:** Workshop costs 8w+3s — with 698 wood and 548 stone in Game 1, there was clearly enough to build Workshops. Instead, only huts and farms appear on the map. Auto-build's building priority queue apparently never reaches Workshop, or the trigger condition (enough planks/masonry?) creates a deadlock.
+
+2. **Stone-poor seeds need a floor:** A minimum of 2–3 stone deposits guaranteed within foraging distance of the start point would transform Game 2 and 3 from "survives but stagnates" into "can eventually build processing buildings." The terrain already varies by biome — stone deposits should be biome-weighted, not purely random.
+
+3. **Seeding audit for gameplay RNG:** The 79-villager swing across three runs of seed 999 suggests the game's AI event RNG (wolf events, random wandering decisions, birth/death rolls) is not seeded from the map seed. All randomness that affects gameplay replayability should be deterministic from the map seed when running `--play`.
+
+4. **`--play` mode needs a resource-over-time log:** Currently the only data visible is the snapshot at each `frame` call. A summary line showing `tick:20000 pop:109 food:642 wood:3231 stone:3 events:[]` for every 1000 ticks would enable much richer analysis without lengthening terminal output significantly.
+
+5. **Skill specialization needs a rebalancing cap:** Farm 100.0 while Mine is 68.6 and Wood 77.1 suggests villagers over-invest in farming once they start. A "diminishing returns above 80" system or a hard cap on time spent per task type would ensure all skills see use, preventing mono-skill populations.
+
+6. **Confirm and document undocumented map symbols:** `.` and `V` need to be either documented in CLAUDE.md or removed. If `.` is a snow/blizzard effect it should be mentioned. If `V` is a villager state icon it should be listed alongside the terrain legend.
+
+---
+
+### Priority Recommendation
+
+**Blocking — same issues as Runs 1 and 2, still unfixed:**
+1. Stone regeneration (mountain mining / extra deposits) — confirmed broken across **9/9** runs
+2. Rabbit and wolf spawning — **0 occurrences across 9 game-runs**; clearly non-functional
+3. Gameplay non-determinism — same-seed runs diverge by 79 pop; breaks reproducibility
+
+**High — directly blocks progression:**
+4. Auto-build processing buildings (Workshop/Smithy) — Farm skill maxed, production chains never start
+5. Wood accumulation sink — still hits 20k–26k on stone-poor seeds with no remedy
+
+**Medium — balance/feel:**
+6. Farm skill overcap and mono-specialization (Farm 100.0 while Mine lags)
+7. Minimum stone deposit guarantee near settlement spawn
+8. Document `.` snow overlay and `V` entity symbols in CLAUDE.md
+
+**Low — polish:**
+9. Fix last-frame-duplicate output in `--play` mode (9/9 games affected)
+10. Add resource-over-time telemetry to `--play` mode output
+
+**Cross-run comparison summary:** Seed 42 (grassland) has produced the best result in all three runs: pop growing 70→191 with food surplus and balanced resources when stone is available. Seed 137 (desert) consistently hits stone=0 by tick 24k and wood runaway by Winter. Seed 999 (sandy) is non-deterministic — either crashing hard (Run 2: pop 57) or surviving (Runs 1/3: pop 116–136) based on what appears to be uncontrolled variance. The game is strongest when stone is plentiful. Fixing stone supply would make the median experience match the best-case experience.
+
