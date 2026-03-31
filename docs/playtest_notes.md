@@ -2114,3 +2114,179 @@ Town Hall is designed for Y2 grassland maps (seed 42) where masonry hits 400+.
 5. **Seed 42 non-determinism root cause** — Two wildly different paths on same seed in same
    session; investigate whether AI task decision RNG can be seeded from map seed
 
+---
+
+## 2026-03-31 (Session 17) — Regression Triage & Critical Bug Fixes
+
+**Build:** release
+**Auto-build:** enabled (ToggleAutoBuild at tick 100)
+**Display size:** 70×25
+**Commits:** `87d30bb`, `d371b14`
+
+---
+
+### Phase 1: Pre-Fix Playtest Results (Seeds 42 / 137 / 999)
+
+| | Seed 42 | Seed 137 | Seed 999 |
+|---|---|---|---|
+| **Terrain** | Grassland/forest | Desert/shrubland | Sandy flatlands |
+| **Ticks run** | 45,000 | 45,000 | 45,000 |
+| **Peak pop** | 12 | 13 | 12 |
+| **Outcome** | DIED (T=14,193) | Frozen 13 for 20k+ ticks | Frozen 12 for 20k+ ticks |
+| **Food at peak** | ~1 | ~8 | ~5 |
+| **Stone** | 2 (permanent) | 2 (permanent) | 2 (permanent) |
+| **Survived** | NO | barely (stalled) | barely (stalled) |
+
+**Catastrophic regression confirmed.** Seed 42 peak population was 12 (vs. 189 in Run 16). All
+seeds stalled at tiny populations with food stuck near zero. Stone locked at 2 permanently on all
+seeds. Behavior matched the pre-fix state from Run 9 — confirming the Run 9–16 fixes were never
+committed to the current branch.
+
+---
+
+### Root Cause Analysis
+
+Four bugs found, all previously fixed in Runs 9–14 but missing from this branch:
+
+**Bug 1 — Missing `sight_range` filter on hungry berry-bush search** (`src/ecs/ai.rs`):
+When villager hunger > 0.4, code searched ALL `food_positions` on the entire map with no distance
+limit. If any berry bush existed anywhere (even 50+ tiles away or behind water), villagers entered
+`Seeking` state toward it instead of eating from the nearby stockpile. Settlement entered a
+perpetual seek-walk cycle with no food consumption from stockpile, causing mass starvation.
+
+**Bug 2 — `pending_builds >= 3` guard fired before Farm and Hut priorities** (`src/game/build.rs`):
+When 3 optional buildings (Workshop + Smithy + Granary) were simultaneously queued, the early-return
+guard blocked Farm (Priority 1) and Hut (Priority 2) from ever being placed. Settlements could not
+build the housing and food production needed to break out of the initial stall.
+
+**Bug 3 — Farming break-off used `||` instead of `&&`** (`src/ecs/ai.rs`):
+`if stockpile_wood < 5 || stockpile_stone < 5` fired when EITHER resource was low. After building
+the first Hut (cost 10w), wood dropped to ~2–3 < 5, causing ALL farmers to immediately break off
+every tick. Settlement thrashed between `Farming → Idle → Farming` with no net food production.
+
+**Bug 4 — Stone deposit discovery system absent** (`src/game/build.rs`, `src/game/mod.rs`):
+Run 7 documented adding periodic stone deposit discovery, but the commit was never present. Without
+it, any desert/mountain seed ran out of stone permanently (stone=2 forever). Huts, Garrisons, and
+Smithies all require stone — zero stone = zero construction past the first few buildings.
+
+---
+
+### Changes Made
+
+**Commit `87d30bb`: Fix three AI/build regressions causing early-game starvation and build deadlock**
+
+1. **`src/ecs/ai.rs` ~L928** — Added `.filter(|(_, _, d)| *d < creature.sight_range)` before
+   `.min_by()` on the hungry villager berry-bush search. Villagers now only seek food within sight
+   range (22 tiles); if no food is in range, they wait or eat from stockpile.
+
+2. **`src/game/build.rs`** — Moved Farm (Priority 1) and Hut (Priority 2) logic above the
+   `pending_builds >= 3` guard. Farm and Hut can now always be queued regardless of how many
+   optional buildings are pending. The cap only blocks Workshop, Smithy, Garrison, etc.
+
+3. **`src/ecs/ai.rs` ~L727** — Changed `stockpile_wood < 5 || stockpile_stone < 5` to
+   `stockpile_wood < 5 && stockpile_stone < 5`. Farmers only break off when BOTH resources are
+   critically low simultaneously, preventing the early-game thrash loop.
+
+**Commit `d371b14`: Add stone deposit discovery: spawn new deposits when stone critically low**
+
+4. **`src/game/build.rs`** — Added `discover_stone_deposits()` method: every 2000 ticks when
+   `stone < 50`, computes villager centroid and spawns up to 2 new `StoneDeposit` entities
+   (5 stone each) within 15–50 tiles of the centroid on walkable tiles. Shows notification:
+   "New stone deposit discovered! (+N deposits)".
+
+5. **`src/game/mod.rs`** — Wired `discover_stone_deposits()` into the game step loop, called
+   after `auto_build_tick()` at the appropriate interval.
+
+---
+
+### Phase 4: Post-Fix Results (Seeds 42 / 137)
+
+| | Seed 42 | Seed 137 |
+|---|---|---|
+| **Pop @ T=12k** | 28 | 24 |
+| **Pop @ T=24k** | 30 | 24 |
+| **Pop @ T=36k** | 25 | 20 |
+| **Season @ T=36k** | Y1 Winter | Y1 Winter |
+| **Stone discovery** | Confirmed (● visible, notifications) | Confirmed |
+| **Survived** | YES ✓ | borderline (pop declining) |
+
+Seed 42 broke out of the stall and grew to peak 30. Stone deposit discovery confirmed working —
+`●` symbols visible on map, "New stone deposit discovered!" events firing at T≈2000, T≈4000, etc.
+
+Note: Seed 137 showed population declining in Y1 Winter, still fragile on desert terrain. A second
+run of seed 137 died at T=32,010 in Y1 Autumn (food crisis). Desert biomes remain hostile even
+with stone discovery — food production bottleneck persists on sparse-resource maps.
+
+---
+
+### Phase 6: Verification Playtest (Seed 777)
+
+Seed 777 terrain: almost entirely mountain (`░░░░`) with tiny grassland patches — extremely hostile.
+
+| Tick | Pop | Food | Wood | Stone | Season |
+|------|-----|------|------|-------|--------|
+| 15,101 | ~8 | ~200 | ~30 | ~15 | Y1 Summer |
+| 30,101 | 8 | 339 | 7 | 9 | Y1 Autumn D6 |
+| 45,101 | 1 | 0 | 2 | 8 | Y1 Winter D9 |
+
+Stone deposit discovery was active (notifications firing), but the map's near-total mountain
+coverage meant few walkable tiles near the centroid — deposits spawned but food production on
+mountain terrain (0.25x speed, 2.5 A* cost) was too slow. Settlement collapsed in Y1 Winter.
+
+Seed 777 confirms: stone discovery alone cannot save an extremely hostile map. The food production
+path on mountain terrain needs attention — either terrain bonuses or initial food injection.
+
+---
+
+### Design Notes
+
+- **The regression gap is real and large.** Runs 6–16 document many fixes (initial prey/den
+  spawning, wolf surge entity spawning, food-gated births, hut count fix, frame deduplication,
+  Bakery planks recipe, second Workshop auto-build, Garrison auto-build threshold). None of these
+  commits exist in the current branch. Each session of fixes is lost when branches diverge.
+
+- **Four bugs together cause total collapse.** No single bug alone would kill the settlement — it
+  was the combination. Bug 1 (seek loop) + Bug 3 (farmer thrash) = zero food. Bug 2 (build block)
+  = no huts = no housing growth. Bug 4 (no stone) = no construction past early game. All four
+  interacted to pin population at 12–13 indefinitely.
+
+- **Desert/mountain biomes still need survivability work.** Even with all four fixes, seeds 137
+  and 777 struggle in Y1 Winter. The root issue is food: mountain terrain halves farming speed,
+  and sparse maps have few berry bushes. Initial prey/den spawning (rabbits as early food source)
+  would directly address this — documented in Runs 6–9 but still absent.
+
+- **Stone discovery works but deposits are thin (5 stone each).** Two deposits = 10 stone. A
+  Smithy costs 5 stone, a Hut costs 4 stone. Discovery fires every 2000 ticks maximum. On a
+  desert map with 5 buildings under construction simultaneously, 10 stone is exhausted instantly.
+  Consider increasing deposit yield to 10–15, or spawning 3–4 deposits instead of 2.
+
+- **Non-determinism between runs still significant.** Seed 137 survived in one run and died in
+  another. No code change between the two runs — pure RNG variation in villager AI state choices.
+  The outcome space is wide enough that single playtests are not reliable evidence.
+
+---
+
+### Next Session Priorities
+
+1. **Initial prey/den spawning at game start** — 0 rabbits still spawn at start on any seed.
+   Runs 6–9 document a fix (spawn 3–5 prey + 2 dens near center at map generation). Rabbits
+   provide critical early food source for hostile terrain. Implement and test.
+
+2. **Wolf surge entity spawning** — The wolf surge event fires ("Wolf Surge!") but 0 wolves
+   appear. Event code creates the event but doesn't spawn wolf entities. Fix the spawning call.
+
+3. **Increase stone deposit yield** — Change `ResourceYield { remaining: 5, max: 5 }` in
+   `discover_stone_deposits()` deposits to `remaining: 12, max: 12` (matching berry bushes).
+   Two deposits at 12 = 24 stone, enough for 2–3 buildings instead of just 1.
+
+4. **Food-gated births** — Current birth gate is only `food < 5`. Should be proportional to
+   population: `food < villager_count * 3` or similar. Prevents births during food crises on
+   large populations.
+
+5. **Hut count fix** — `auto_build_tick()` may be counting pending `BuildSite` entities as huts
+   rather than completed `HutBuilding` entities. Verify and fix so housing needs are calculated
+   correctly from actual capacity.
+
+6. **Frame duplication in `--play` mode** — Both final frames of every run are identical. The
+   Run 11 fix in `src/main.rs` is still missing. Investigate and apply.
+
