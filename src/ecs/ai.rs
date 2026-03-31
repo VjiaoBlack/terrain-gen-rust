@@ -723,8 +723,9 @@ pub(super) fn ai_villager(
                     None,
                 );
             }
-            // Stop farming to gather resources if stockpile is critically low
-            if stockpile_wood < 5 || stockpile_stone < 5 {
+            // Stop farming to gather resources only when BOTH are critically low
+            // (using || was too aggressive in early-game when wood is low but stone is fine)
+            if stockpile_wood < 5 && stockpile_stone < 5 {
                 return (
                     BehaviorState::Idle { timer: 5 },
                     0.0,
@@ -928,6 +929,7 @@ pub(super) fn ai_villager(
                 let nearest_food = food
                     .iter()
                     .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
+                    .filter(|(_, _, d)| *d < creature.sight_range)
                     .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
                 if let Some((fx, fy, d)) = nearest_food {
                     if d < 1.5 {

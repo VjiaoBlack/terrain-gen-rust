@@ -455,14 +455,8 @@ impl super::Game {
                 .filter(|s| s.building_type == BuildingType::Farm)
                 .count();
 
-        // Count existing build sites being worked on
-        let pending_builds = self.world.query::<&BuildSite>().iter().count();
-        // Don't queue too many builds at once
-        if pending_builds >= 3 {
-            return;
-        }
-
         // Priority 1: Farm when food is low and we don't have many farms
+        // (runs unconditionally — food and housing must never be blocked by pending_builds cap)
         let villager_count = villager_pos.len() as u32;
         if self.resources.food < 8 + villager_count * 2
             && farm_count < (villager_count as usize).div_ceil(2)
@@ -479,6 +473,7 @@ impl super::Game {
         }
 
         // Priority 2: Hut when population is growing and needs housing
+        // (runs unconditionally — housing must never be blocked by pending_builds cap)
         let hut_count = self
             .world
             .query::<&BuildSite>()
@@ -498,6 +493,13 @@ impl super::Game {
                 self.notify("Auto-build: Hut queued".to_string());
                 return;
             }
+        }
+
+        // Count existing build sites being worked on
+        let pending_builds = self.world.query::<&BuildSite>().iter().count();
+        // Don't queue too many optional/processing builds at once
+        if pending_builds >= 3 {
+            return;
         }
 
         let has_workshop = self
