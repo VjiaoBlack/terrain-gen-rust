@@ -549,6 +549,18 @@ impl super::Game {
             }
         }
 
+        // Pre-compute has_granary / pending_granary_any for use in P4 below.
+        let has_granary = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::FoodToGrain);
+        let pending_granary_any = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Granary);
+
         // Priority 2: Hut when population is growing and needs housing
         // (runs unconditionally — housing must never be blocked by pending_builds cap)
         let huts_pending = self
@@ -585,11 +597,6 @@ impl super::Game {
             .query::<&ProcessingBuilding>()
             .iter()
             .any(|pb| pb.recipe == Recipe::WoodToPlanks);
-        let has_granary = self
-            .world
-            .query::<&ProcessingBuilding>()
-            .iter()
-            .any(|pb| pb.recipe == Recipe::FoodToGrain);
 
         // Priority 3: First Workshop — build as soon as we can afford it with modest stone margin.
         // Lower threshold (stone > 5) lets small settlements build workshops once resource flow
@@ -612,12 +619,7 @@ impl super::Game {
         }
 
         // Priority 4: First Granary when population is established and food is adequate.
-        // Lower threshold (pop >= 12, food > 80) enables grain/bread chain at smaller settlements.
-        let pending_granary_any = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .any(|s| s.building_type == BuildingType::Granary);
+        // (pending_granary_any and has_granary defined in P1.5 block above)
         if !has_granary && !pending_granary_any && villager_count >= 12 && self.resources.food > 80
         {
             let cost = BuildingType::Granary.cost();

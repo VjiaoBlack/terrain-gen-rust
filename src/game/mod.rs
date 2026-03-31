@@ -1245,7 +1245,9 @@ impl Game {
                     && self.tick.is_multiple_of(30)
                     && self.resources.food > 0
                 {
-                    let decay = std::cmp::max(1, self.resources.food * 2 / 100); // 2% per 30 ticks, min 1
+                    // Cap decay at 2 per event so large stockpiles don't evaporate over a winter.
+                    // Granary (converts food→grain) prevents spoilage entirely.
+                    let decay = std::cmp::min(2, std::cmp::max(1, self.resources.food * 2 / 100));
                     self.resources.food = self.resources.food.saturating_sub(decay);
                     self.notify(format!("Food spoiled in winter (-{})", decay));
                 }
@@ -2227,27 +2229,27 @@ mod tests {
     }
 
     #[test]
-    fn winter_food_decay_is_percentage_based() {
+    fn winter_food_decay_is_capped() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
-        // Give lots of food so percentage decay is visible
+        // Give lots of food so decay behavior is visible
         game.resources.food = 200;
         game.day_night.season = Season::Winter;
 
         // Tick to a multiple of 30 so decay fires
         game.tick = 29;
         game.step(GameInput::None, &mut renderer).unwrap();
-        // At tick 30: 2% of 200 = 4 decay (before villagers eat)
-        // Food should be noticeably less than 200
+        // At tick 30: decay capped at 2 per event (not full 2% = 4)
+        // Food should decrease by at most 2 from spoilage alone
         assert!(
             game.resources.food < 200,
-            "percentage decay should reduce food"
+            "decay should reduce food in winter"
         );
-        // With 200 food, decay should be at least 4 (2%), not just 1
+        // Cap at 2 per event prevents large stockpile wipeout
         assert!(
-            game.resources.food <= 197,
-            "decay should be percentage-based, not flat -1"
+            game.resources.food >= 196,
+            "decay should be capped at 2, not full percentage"
         );
     }
 
