@@ -1227,6 +1227,12 @@ impl Game {
                     self.auto_build_tick();
                 }
 
+                // Stone deposit discovery: when stone is critically low, discover new deposits.
+                // Simulates settlement expanding its territory to find new stone sources.
+                if self.tick.is_multiple_of(2000) && self.resources.stone < 50 {
+                    self.discover_stone_deposits();
+                }
+
                 // Seasonal config for rain/water
                 let mut tick_config = self.sim_config.clone();
                 tick_config.rain_rate *= mods.rain_mult;

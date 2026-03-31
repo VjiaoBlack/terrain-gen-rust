@@ -1,3 +1,5 @@
+use rand::RngExt;
+
 use super::{CELL_ASPECT, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
 #[allow(unused_imports)] // some used only in demolish_at
 use crate::ecs::{
@@ -344,6 +346,46 @@ impl super::Game {
             for (x, y) in candidates {
                 self.map.set(x, y, Terrain::Road);
             }
+        }
+    }
+
+    /// Spawn new stone deposits near the settlement center when stone stockpile is critically low.
+    /// Called every 2000 ticks when stone < 50; simulates "expanding settlement discovers new
+    /// deposits". Spawns 2 deposits (5 yield each) at random walkable tiles 15–50 tiles away.
+    pub(super) fn discover_stone_deposits(&mut self) {
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if villager_pos.is_empty() {
+            return;
+        }
+        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
+        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
+
+        let mut rng = rand::rng();
+        let mut spawned = 0u32;
+        for _ in 0..80 {
+            if spawned >= 2 {
+                break;
+            }
+            let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+            let d = rng.random_range(15.0f64..50.0);
+            let tx = cx + angle.cos() * d;
+            let ty = cy + angle.sin() * d;
+            if tx >= 0.0 && ty >= 0.0 && self.map.is_walkable(tx, ty) {
+                ecs::spawn_stone_deposit(&mut self.world, tx, ty);
+                spawned += 1;
+            }
+        }
+        if spawned > 0 {
+            self.notify(format!(
+                "New stone deposit discovered! (+{} deposits)",
+                spawned
+            ));
         }
     }
 
