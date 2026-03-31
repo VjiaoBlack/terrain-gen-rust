@@ -441,6 +441,11 @@ impl super::Game {
             return;
         }
 
+        // Food security gate: prevent breeding into starvation at larger populations
+        if villager_count > 10 && self.resources.food < villager_count * 3 {
+            return;
+        }
+
         self.resources.food -= 5;
 
         // Collect villager positions to find a spawn point nearby
@@ -496,6 +501,28 @@ impl super::Game {
         let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
         let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
 
+        // Stone deposit discovery: every 2000 ticks, spawn 2 new deposits if stockpile
+        // stone is low or all existing deposits are depleted. This prevents stone starvation
+        // when the initial 2 deposits run out (~10 stone each).
+        if self.tick % 2000 == 0 {
+            let stone_deposit_count = self.world.query::<(&ecs::StoneDeposit,)>().iter().count();
+            if stone_deposit_count == 0 || self.resources.stone < 20 {
+                // Place new deposits at alternating angles around settlement center
+                let cycle = (self.tick / 2000) as f64;
+                let base_angle = cycle * std::f64::consts::PI * 0.618; // golden-ratio rotation
+                let dist = 18.0 + (cycle % 4.0) * 8.0; // 18, 26, 34, 42 tiles
+                for i in 0..2 {
+                    let angle = base_angle + (i as f64) * std::f64::consts::PI;
+                    let tx = cx + angle.cos() * dist;
+                    let ty = cy + angle.sin() * dist;
+                    if let Some((nx, ny)) = self.find_nearby_walkable(tx, ty, 6) {
+                        ecs::spawn_stone_deposit(&mut self.world, nx, ny);
+                    }
+                }
+                self.notify("Stone deposit discovered nearby!".to_string());
+            }
+        }
+
         // Count existing farms (completed + in-progress)
         let farm_count = self.world.query::<&FarmPlot>().iter().count()
             + self
@@ -508,7 +535,7 @@ impl super::Game {
         // Priority 1: Farm when food is low and we don't have many farms
         // (runs unconditionally — food and housing must never be blocked by pending_builds cap)
         let villager_count = villager_pos.len() as u32;
-        if self.resources.food < 8 + villager_count * 2
+        if self.resources.food < villager_count * 4
             && farm_count < (villager_count as usize).div_ceil(2)
         {
             let cost = BuildingType::Farm.cost();
