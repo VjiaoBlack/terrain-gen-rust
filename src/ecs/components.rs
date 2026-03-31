@@ -242,8 +242,8 @@ impl BuildingType {
             BuildingType::Workshop => BuildingDef {
                 name: "Workshop",
                 cost: Resources {
-                    wood: 15,
-                    stone: 8,
+                    wood: 8,
+                    stone: 3,
                     ..DEF_RES
                 },
                 build_time: 220,
@@ -285,9 +285,8 @@ impl BuildingType {
             BuildingType::Granary => BuildingDef {
                 name: "Granary",
                 cost: Resources {
-                    wood: 12,
-                    stone: 8,
-                    planks: 4,
+                    wood: 6,
+                    stone: 4,
                     ..DEF_RES
                 },
                 build_time: 240,

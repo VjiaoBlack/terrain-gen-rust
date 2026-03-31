@@ -1644,8 +1644,8 @@ mod tests {
         assert_eq!(
             BuildingType::Workshop.cost(),
             Resources {
-                wood: 15,
-                stone: 8,
+                wood: 8,
+                stone: 3,
                 ..Default::default()
             }
         );
@@ -1797,7 +1797,7 @@ mod tests {
         assert_eq!(BuildingType::Bakery.size(), (3, 3));
         assert_eq!(BuildingType::Granary.name(), "Granary");
         assert_eq!(BuildingType::Bakery.name(), "Bakery");
-        assert!(BuildingType::Granary.cost().planks > 0);
+        assert!(BuildingType::Granary.cost().wood > 0);
         assert!(BuildingType::Bakery.cost().planks > 0);
     }
 
