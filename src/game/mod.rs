@@ -536,6 +536,24 @@ impl Game {
         }
         ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
+        // Pre-built Granary — converts food to grain which is preserved through Winter.
+        // Without this, winter food decay (2%/30 ticks) kills all settlements before Year 2.
+        let (gsw, gsh) = BuildingType::Granary.size();
+        let (gx, gy) = find_building_spot(&map, scx + 5, scy + 4, gsw as usize, gsh as usize);
+        for (dx, dy, terrain) in BuildingType::Granary.tiles() {
+            map.set(
+                gx as usize + dx as usize,
+                gy as usize + dy as usize,
+                terrain,
+            );
+        }
+        ecs::spawn_processing_building(
+            &mut world,
+            gx + gsw as f64 / 2.0,
+            gy + gsh as f64 / 2.0,
+            Recipe::FoodToGrain,
+        );
+
         // Berry bushes near settlement so villagers have food access
         for &(bsx, bsy) in &[
             (scx.wrapping_sub(1), scy.wrapping_sub(1)),

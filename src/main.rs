@@ -322,6 +322,9 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
+        if args.iter().any(|a| a == "--auto-build") {
+            game_obj.auto_build = true;
+        }
 
         let inputs_str = args
             .iter()
