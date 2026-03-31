@@ -66,6 +66,11 @@ pub enum SerializedEntity {
         sprite: Sprite,
         garrison: GarrisonBuilding,
     },
+    TownHallEntity {
+        pos: Position,
+        sprite: Sprite,
+        town_hall: TownHallBuilding,
+    },
     HutEntity {
         pos: Position,
         sprite: Sprite,
@@ -172,6 +177,16 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
             garrison: *garrison,
         });
     }
+    for (pos, sprite, town_hall) in world
+        .query::<(&Position, &Sprite, &TownHallBuilding)>()
+        .iter()
+    {
+        entities.push(SerializedEntity::TownHallEntity {
+            pos: *pos,
+            sprite: *sprite,
+            town_hall: *town_hall,
+        });
+    }
     for (pos, sprite, hut) in world.query::<(&Position, &Sprite, &HutBuilding)>().iter() {
         entities.push(SerializedEntity::HutEntity {
             pos: *pos,
@@ -261,6 +276,13 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
                 garrison,
             } => {
                 world.spawn((*pos, *sprite, *garrison));
+            }
+            SerializedEntity::TownHallEntity {
+                pos,
+                sprite,
+                town_hall,
+            } => {
+                world.spawn((*pos, *sprite, *town_hall));
             }
             SerializedEntity::HutEntity { pos, sprite, hut } => {
                 world.spawn((*pos, *sprite, *hut));

@@ -2,7 +2,7 @@ use super::{CELL_ASPECT, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
 #[allow(unused_imports)] // some used only in demolish_at
 use crate::ecs::{
     self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position,
-    ProcessingBuilding, Recipe, Species, Stockpile,
+    ProcessingBuilding, Recipe, Species, Stockpile, TownHallBuilding,
 };
 use crate::renderer::Renderer;
 use crate::tilemap::Terrain;
@@ -208,10 +208,12 @@ impl super::Game {
             for dx in -20i32..=20 {
                 let tx = cx + dx;
                 let ty = cy + dy;
-                if tx >= 0 && ty >= 0
-                    && let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize) {
-                        wall_tiles += 1;
-                    }
+                if tx >= 0
+                    && ty >= 0
+                    && let Some(Terrain::BuildingWall) = self.map.get(tx as usize, ty as usize)
+                {
+                    wall_tiles += 1;
+                }
             }
         }
 
@@ -265,6 +267,9 @@ impl super::Game {
             if site.building_type == BuildingType::Garrison {
                 ecs::spawn_garrison(&mut self.world, pos.x, pos.y);
             }
+            if site.building_type == BuildingType::TownHall {
+                ecs::spawn_town_hall(&mut self.world, pos.x, pos.y);
+            }
             if site.building_type == BuildingType::Granary {
                 ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::FoodToGrain);
             }
@@ -297,6 +302,11 @@ impl super::Game {
         // Garrisons project stronger influence (outpost expansion)
         for (pos, _) in self.world.query::<(&Position, &GarrisonBuilding)>().iter() {
             sources.push((pos.x, pos.y, 3.0));
+        }
+
+        // Town Hall projects the widest influence — the civic heart of the settlement
+        for (pos, _) in self.world.query::<(&Position, &TownHallBuilding)>().iter() {
+            sources.push((pos.x, pos.y, 5.0));
         }
 
         // Huts and stockpiles emit moderate influence
@@ -348,13 +358,20 @@ impl super::Game {
             .filter(|c| c.species == Species::Villager)
             .count() as u32;
 
-        // Count total hut capacity
-        let total_capacity: u32 = self
+        // Count total housing capacity: huts + any Town Hall bonus
+        let hut_capacity: u32 = self
             .world
             .query::<&HutBuilding>()
             .iter()
             .map(|h| h.capacity)
             .sum();
+        let town_hall_bonus: u32 = self
+            .world
+            .query::<&TownHallBuilding>()
+            .iter()
+            .map(|t| t.housing_bonus)
+            .sum();
+        let total_capacity = hut_capacity + town_hall_bonus;
 
         // Housing surplus determines birth rate
         let housing_surplus = total_capacity.saturating_sub(villager_count);
@@ -386,11 +403,12 @@ impl super::Game {
             .collect();
 
         if let Some(&(vx, vy)) = villager_pos.first()
-            && let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5) {
-                ecs::spawn_villager(&mut self.world, nx, ny);
-                self.last_birth_tick = self.tick;
-                self.notify("New villager born!".to_string());
-            }
+            && let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5)
+        {
+            ecs::spawn_villager(&mut self.world, nx, ny);
+            self.last_birth_tick = self.tick;
+            self.notify("New villager born!".to_string());
+        }
     }
 
     /// Find a walkable tile within `radius` of (cx, cy).
@@ -451,12 +469,13 @@ impl super::Game {
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
-                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm) {
-                    self.resources.deduct(&cost);
-                    self.place_build_site(bx, by, BuildingType::Farm);
-                    self.notify("Auto-build: Farm queued".to_string());
-                    return;
-                }
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Farm)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Farm);
+                self.notify("Auto-build: Farm queued".to_string());
+                return;
+            }
         }
 
         // Priority 2: Hut when population is growing and needs housing
@@ -472,15 +491,298 @@ impl super::Game {
         if hut_count < huts_needed && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
-                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut) {
-                    self.resources.deduct(&cost);
-                    self.place_build_site(bx, by, BuildingType::Hut);
-                    self.notify("Auto-build: Hut queued".to_string());
-                    return;
-                }
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Hut);
+                self.notify("Auto-build: Hut queued".to_string());
+                return;
+            }
         }
 
-        // Priority 3: Walls when wolves are nearby settlement
+        let has_workshop = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::WoodToPlanks);
+        let has_granary = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::FoodToGrain);
+
+        // Priority 3.5: Second Workshop when wood is accumulating faster than one can process
+        let workshop_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::WoodToPlanks)
+            .count();
+        let pending_workshop_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Workshop)
+            .count();
+        if has_workshop
+            && workshop_count + pending_workshop_count < 2
+            && self.resources.wood > 1000
+            && self.resources.stone > 20
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 3.7: Third Workshop when wood is still piling up despite two workshops
+        let pending_workshop_count_all = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Workshop)
+            .count();
+        if workshop_count >= 2
+            && workshop_count + pending_workshop_count_all < 3
+            && self.resources.wood > 4000
+            && self.resources.stone > 10
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5: Smithy when we have a Workshop and a stone surplus
+        let has_smithy = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::StoneToMasonry);
+        let pending_smithy = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Smithy);
+        if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 60 {
+            let cost = BuildingType::Smithy.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Smithy)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Smithy);
+                self.notify("Auto-build: Smithy queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.1: Second Smithy when stone is over-abundant (e.g. grassland maps mining mountains)
+        // One Smithy can't absorb 3000+ stone; a second doubles masonry output and sinks stone.
+        let smithy_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::StoneToMasonry)
+            .count();
+        let pending_smithy_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Smithy)
+            .count();
+        if has_smithy && smithy_count + pending_smithy_count < 2 && self.resources.stone > 300 {
+            let cost = BuildingType::Smithy.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Smithy)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Smithy);
+                self.notify("Auto-build: Smithy queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.2: Garrison when masonry is available and wolves have appeared (or pop is large)
+        let has_garrison = self.world.query::<&GarrisonBuilding>().iter().count() > 0;
+        let pending_garrison = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Garrison);
+        let wolves_present = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .any(|(_, c)| c.species == Species::Predator);
+        if !has_garrison
+            && !pending_garrison
+            && self.resources.masonry >= 2
+            && (wolves_present || villager_count >= 40)
+        {
+            let cost = BuildingType::Garrison.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Garrison);
+                self.notify("Auto-build: Garrison queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.3: Second Garrison when masonry is abundant and Year 2+ threats grow.
+        // Two garrisons provide doubled defense and expand settlement influence.
+        let garrison_count = self.world.query::<&GarrisonBuilding>().iter().count();
+        let pending_garrison_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Garrison)
+            .count();
+        if has_garrison
+            && garrison_count + pending_garrison_count < 2
+            && self.resources.masonry >= 150
+            && (wolves_present || villager_count >= 80)
+        {
+            let cost = BuildingType::Garrison.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Garrison);
+                self.notify("Auto-build: Garrison queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.45: Town Hall when masonry is abundant and settlement is well-established.
+        // Town Hall (20w+30s+80m) is the largest masonry sink — provides 20 housing slots and
+        // expands settlement influence (5.0 strength, highest of any building). Only 1 allowed.
+        let has_town_hall = self.world.query::<&TownHallBuilding>().iter().count() > 0;
+        let pending_town_hall = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::TownHall);
+        if !has_town_hall
+            && !pending_town_hall
+            && self.resources.masonry >= 80
+            && self.resources.stone >= 30
+            && villager_count >= 80
+        {
+            let cost = BuildingType::TownHall.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::TownHall)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::TownHall);
+                self.notify("Auto-build: Town Hall queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.5: Bakery when we have a Granary (grain available) and planks
+        let has_bakery = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::GrainToBread);
+        let pending_bakery = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Bakery);
+        if !has_bakery
+            && !pending_bakery
+            && has_granary
+            && self.resources.planks > 20
+            && self.resources.grain > 50
+        {
+            let cost = BuildingType::Bakery.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Bakery)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Bakery);
+                self.notify("Auto-build: Bakery queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.6: Second Granary when planks are available and grain supply is low.
+        // With Bakery now using planks instead of wood, planks flow: Workshop->Bakery.
+        // A second Granary (food->grain) ensures grain supply keeps up with two bakeries.
+        let granary_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::FoodToGrain)
+            .count();
+        let pending_granary_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Granary)
+            .count();
+        if has_granary
+            && has_bakery
+            && granary_count + pending_granary_count < 2
+            && self.resources.planks > 100
+            && self.resources.food > villager_count * 3
+        {
+            let cost = BuildingType::Granary.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Granary)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Granary);
+                self.notify("Auto-build: Granary queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.7: Second Bakery when planks are abundant and grain supply can support it.
+        // Two bakeries double bread output, feeding larger populations, and drain planks faster.
+        let bakery_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::GrainToBread)
+            .count();
+        let pending_bakery_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Bakery)
+            .count();
+        if has_bakery
+            && granary_count >= 2
+            && bakery_count + pending_bakery_count < 2
+            && self.resources.planks > 200
+            && self.resources.grain > 80
+        {
+            let cost = BuildingType::Bakery.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Bakery)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Bakery);
+                self.notify("Auto-build: Bakery queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 6: Walls when wolves are nearby settlement
         let wolf_near = self
             .world
             .query::<(&Position, &Creature)>()
@@ -625,6 +927,24 @@ impl super::Game {
             }
         }
 
+        // Check for town hall
+        if to_demolish.is_none() {
+            for (entity, (pos, _)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &TownHallBuilding))>()
+                .iter()
+            {
+                let (w, h) = BuildingType::TownHall.size();
+                let ex = pos.x as i32 - w / 2;
+                let ey = pos.y as i32 - h / 2;
+                if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                    to_demolish = Some(entity);
+                    building_size = (w, h);
+                    break;
+                }
+            }
+        }
+
         // Check for processing buildings (workshop, smithy, bakery)
         if to_demolish.is_none() {
             for (entity, (pos, _)) in self
@@ -672,9 +992,10 @@ impl super::Game {
                         let tux = tx as usize;
                         let tuy = ty as usize;
                         if let Some(t) = self.map.get(tux, tuy)
-                            && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall) {
-                                self.map.set(tux, tuy, Terrain::Grass);
-                            }
+                            && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall)
+                        {
+                            self.map.set(tux, tuy, Terrain::Grass);
+                        }
                     }
                 }
             }

@@ -190,6 +190,17 @@ pub fn spawn_garrison(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
+pub fn spawn_town_hall(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite {
+            ch: 'H',
+            fg: Color(255, 220, 60),
+        },
+        TownHallBuilding { housing_bonus: 20 },
+    ))
+}
+
 pub fn spawn_hut(world: &mut World, x: f64, y: f64) -> Entity {
     world.spawn((
         Position { x, y },

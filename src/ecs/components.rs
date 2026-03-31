@@ -168,6 +168,7 @@ pub enum BuildingType {
     Road,
     Granary,
     Bakery,
+    TownHall,
 }
 
 /// Tile layout pattern for a building footprint.
@@ -305,6 +306,18 @@ impl BuildingType {
                 size: (3, 3),
                 layout: TileLayout::WallsDoorNorth,
             },
+            BuildingType::TownHall => BuildingDef {
+                name: "Town Hall",
+                cost: Resources {
+                    wood: 20,
+                    stone: 30,
+                    masonry: 80,
+                    ..DEF_RES
+                },
+                build_time: 400,
+                size: (3, 3),
+                layout: TileLayout::WallsNoDoor,
+            },
         }
     }
 
@@ -385,6 +398,7 @@ impl BuildingType {
             BuildingType::Road,
             BuildingType::Granary,
             BuildingType::Bakery,
+            BuildingType::TownHall,
         ]
     }
 }
@@ -428,6 +442,14 @@ pub struct FoodSource;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GarrisonBuilding {
     pub defense_bonus: f64,
+}
+
+/// Marker component for Town Hall — provides housing bonus and extends settlement influence.
+/// The Town Hall is a late-game prestige building that sinks accumulated masonry/stone and
+/// allows the settlement to house more villagers without building more huts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TownHallBuilding {
+    pub housing_bonus: u32,
 }
 
 /// Marker component for completed huts — provides shelter for villagers at night.
