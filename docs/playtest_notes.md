@@ -2290,3 +2290,204 @@ path on mountain terrain needs attention — either terrain bonuses or initial f
 6. **Frame duplication in `--play` mode** — Both final frames of every run are identical. The
    Run 11 fix in `src/main.rs` is still missing. Investigate and apply.
 
+
+---
+# Session 2026-03-31 (Run 18) — Production Chains + Wolves + Rabbits
+
+**Build:** release
+**Auto-build:** enabled (ToggleAutoBuild at tick 100)
+**Display size:** 70×25
+**Commit:** af5cee3
+
+---
+
+## Playtest Results (Phase 1 — Pre-Fix Baseline)
+
+| Seed | Pop | Food | Wood | Stone | Season | Survived? |
+|------|-----|------|------|-------|--------|----------|
+| 42   | 20→17→0 | 238→106→0 | 3/3/3 | 5/5/5 | Y1 Winter D1 | **NO** (died T=35990, peak 20) |
+| 137  | 16→16→16 | 149→411→357 | 9/9/9 | 9/9/9 | Y1 Winter D1 | YES (stable at 16) |
+| 999  | 26→40→40 | 255→391→391 | 9/11/11 | 6/3/3 | Y1 Autumn D6 | YES (pop 40) |
+
+Key observations: Rabbits 0, Wolves 0, Planks/Masonry/Grain/Bread all 0 on all seeds.
+Stone deposit discovery firing (notifications visible) but deposits yield only 5 stone each.
+Seed 42 died in Y1 Winter from food crisis + Wolf surge event (no actual wolves spawned).
+
+---
+
+## Changes Made (commit af5cee3)
+
+**1. First Workshop auto-build (Priority 3)** (`src/game/build.rs`)
+
+Added first Workshop to `auto_build_tick()` between Hut (P2) and Second Workshop (P3.5).
+Condition: `!has_workshop && !pending_workshop && stone > 5` (can afford 8w+3s with modest stone reserve).
+Previously the code had Second and Third Workshop but never the FIRST — so no production chain
+could ever activate. Workshop cost (8w+3s) is lower than Hut (10w+4s) so it builds alongside huts.
+
+**2. First Granary auto-build (Priority 4)** (`src/game/build.rs`)
+
+Added first Granary between Workshop (P3) and Second Workshop (P3.5). Condition:
+`!has_granary && !pending_granary && pop >= 12 && food > 80`. Previously only the
+second Granary was in the queue (requiring first Granary to already exist) — circular deadlock.
+
+**3. Fixed hut count to include completed HutBuilding entities** (`src/game/build.rs`)
+
+Old code counted only pending `BuildSite` entities with type Hut. After a hut completed
+(BuildSite removed), count dropped to 0, triggering endless re-queuing. New code counts
+`(huts_completed + huts_pending) * 4` capacity and only queues when capacity < pop + 4.
+This prevents draining all stone into unnecessary huts.
+
+**4. Increased stone deposit yield from 5 to 12** (`src/ecs/spawn.rs`)
+
+`spawn_stone_deposit()` now creates deposits with `remaining: 12, max: 12` (matching berry
+bushes). Two deposits at 5 = 10 stone (barely one building). At 12 each, discovery events
+provide 24 stone — enough for 2-3 buildings. Updated two failing tests.
+
+**5. Wolf surge now spawns 3-5 predator entities** (`src/game/events.rs`)
+
+When WolfSurge fires, loop up to 60 attempts to spawn 3-5 wolves at random walkable positions
+20-35 tiles from settlement center. Previously the event pushed a log message and countdown
+but created zero wolf entities — confirmed broken across all prior playtest sessions.
+Wolves now appear on map as 'W' entities and attack/get killed by garrison defense.
+
+**6. Initial prey/den spawning at game start** (`src/game/mod.rs`)
+
+After stone deposits and before villager spawn: search 8-25 tiles from center for walkable
+tiles and place 3 dens with 2 prey each. The breeding system requires existing prey to
+produce offspring; without any prey at start, dens were permanently empty (0 rabbits
+across all prior sessions). Now rabbits appear from tick 1.
+
+**7. Food-gated births: 2× pop threshold** (`src/game/build.rs`)
+
+Changed `food < 5` to `food < pop * 2` when `pop > 10`. Prevents births when food per capita
+is critically low. 2× is less aggressive than 3× (used in earlier session notes) — keeps the
+gate loose enough for small settlements recovering from drought while blocking runaway birth
+into famine at large populations.
+
+---
+
+## Post-Fix Results (Phase 4 — Seeds 42 / 137)
+
+**Seed 42:**
+
+| | T+12k | T+24k | T+36k (Y1 Winter) |
+|---|---|---|---|
+| **Pop** | 12 | 15 | 13 |
+| **Food** | 34 | 426 | 193 |
+| **Wood** | 7 | 8 | 4 |
+| **Stone** | 9 | 12 | 8 |
+| **Rabbits** | 3 | 3 | 0 (hunted by wolves) |
+| **Wolves** | 0 | 0 | **6** ✓ |
+| **Events** | Drought, Stone deposit | Stone deposit | Wolf surge, A wolf died!, A rabbit was killed!, New villager born! |
+
+vs Phase 1: Seed 42 **SURVIVED** (was dying at T=35990). Wolves 6 visible on map (`W` entity).
+"New villager born!" during wolf siege. "A rabbit was killed!" — ecology active. Survived Y1 Winter.
+
+**Seed 137:**
+
+| | T+12k | T+24k | T+36k (Y1 Winter) |
+|---|---|---|---|
+| **Pop** | 12 | 12 | 12 |
+| **Food** | 200 | 566 | 533 |
+| **Wood** | 9 | 9 | 5 |
+| **Stone** | 13 | 13 | 9 |
+| **Rabbits** | 9 | 9 | 3 (some hunted) |
+| **Wolves** | 0 | 0 | **8** ✓ |
+| **Events** | Stone deposit | Stone deposit | Wolf surge, A rabbit killed, Food spoiled ×3 |
+
+Wolves 8 visible (highest wolf count across all sessions). Rabbits 9 at Summer — well populated.
+Pop flat at 12 (housing bottleneck: wood stays at 9, just below 10 needed for hut).
+
+---
+
+## Post-Fix Results (Phase 6 — Seed 777, T+45k)
+
+| | T+15k | T+30k | T+45k (Y1 Winter) |
+|---|---|---|---|
+| **Pop** | 8 | 7 | 4 |
+| **Food** | 180 | 228 | 0 |
+| **Wood** | 5 | 5 | 1 |
+| **Stone** | 11 | 11 | 7 |
+| **Rabbits** | 7 | 7 | 0 (wolf-hunted) |
+| **Wolves** | 0 | 0 | 4 ✓ |
+| **Events** | — | Villager died, Bountiful harvest, Stone deposit | Wolf surge, **Wolf pack repelled by defenses!**, **A wolf died!**, Wolf pack raiding |
+
+Mountain map (seed 777) is extremely hostile (≈80% mountain terrain). Food exhausted.
+**NOTABLE**: "Wolf pack repelled by defenses!" + "A wolf died!" — garrison defense actively kills wolves.
+Settlement collapsed due to food/wood scarcity inherent to mountain terrain, not a code bug.
+
+---
+
+## What Seems Fun (Post-Fix)
+
+- **Wolves are real**: 'W' entity visible on map, 6-8 wolves at Y1 Winter, garrison kills them.
+  "A wolf died!" and "Wolf pack repelled by defenses!" firing creates exactly the winter threat the
+  game was designed around. Compared to 0 wolves across 17 prior sessions — huge improvement.
+
+- **Predator/prey ecology working**: Seed 777 shows Rabbits 7 → 7 → 0 as 4 wolves hunt them
+  to extinction. The food web dynamics (rabbits provide early food, wolves hunt rabbits and threaten
+  villagers) now run without intervention.
+
+- **Seed 42 now survives Y1 Winter**: Previously died consistently. With wolves, rabbits, and the
+  hut/stone fixes, the settlement reaches Y1 Winter D1 with pop 13 and food 193 — alive and fighting.
+
+---
+
+## What Still Seems Broken / To Investigate
+
+1. **Production chains not activating in Phase 4**: Wood stays at 3-9 across all frames.
+   With Workshop requiring 8w+3s and wood barely at 8-9, the settlement is perpetually at the
+   edge of affordability. Workshop conditions were lowered (stone > 5 + can_afford) but wood
+   gathering is too slow at pop 12-15 to build up surplus. Root cause: AI farming over-specialization
+   (Farm skill 24-66, Wood skill 2-12) leaves very few wood gatherers. A deeper AI balance fix
+   is needed.
+
+2. **Pop plateau at 12-15**: Housing bottleneck (hut needs 10w, wood stays at 9 → cycle).
+   Pop grows very slowly — from 3 start to 12-15 at Y1 Winter. Later sessions (8-16) reached 70-180+
+   at Y1 Winter, suggesting the current run is missing something. Possible causes: fewer starting
+   resources, different RNG path, or food gate being too tight during recovery.
+
+3. **Mountain terrain (seed 777) still collapses**: Pop 8 → 4 with food 0 at T+45k. No fix
+   addresses this — mountain terrain has few forests (wood scarce) and few grasslands (food scarce).
+   Consider guaranteed 3+ berry bushes and 3+ forest tiles within 10 tiles of settlement center
+   for any terrain type.
+
+4. **Frame duplication still present**: Both final output frames are identical (same tick number,
+   same data). The Run 11 fix (`last_cmd_was_frame` bool in `src/main.rs`) has not been applied.
+
+5. **Non-determinism**: Different RNG paths on same seed produce pop 0-40 variance. Documented
+   across all sessions, no fix implemented.
+
+---
+
+## Design Notes
+
+- **Wolves change the game**: The contrast between pre-fix (0 wolves, 0 drama) and post-fix
+  (6-8 wolves hunting rabbits, garrison killing attackers) is the single most impactful change.
+  The winter threat loop — wolf surge → wolves arrive → garrison repels/kills some → settlement
+  survives — is now functional end-to-end for the first time.
+
+- **Small settlements are fragile but functional**: Pop 12-15 at Y1 Winter is much smaller than
+  sessions 8-16 (60-180+). The difference may be RNG paths. Hostile terrain (mountain) is
+  genuinely hostile. Grassland settlements grow better.
+
+- **Wood scarcity is the real production bottleneck**: Even with Workshop at `stone > 5 + can_afford`,
+  wood is consistently 3-9 at pop 12-15. The AI gathers wood too infrequently. Once wood hits
+  10, it gets consumed by a hut build. The Workshop can't be built if wood never stays above 8.
+  Next session: investigate `gather_wood_first` logic in `src/ecs/ai.rs`.
+
+---
+
+## Next Session Priorities
+
+1. **AI gathering balance** — investigate why wood stays at 3-9 with 12-15 villagers; `gather_wood_first`
+   in `src/ecs/ai.rs` may be over-favoring farming; a minimum 2-3 dedicated woodcutters regardless of
+   farm skill would unlock Workshop construction
+2. **Verify production chains at longer runs** — run 45k-60k tick tests to see if Workshop/Granary
+   eventually activate; the conditions (stone > 5, pop >= 12) should eventually be met as settlement grows
+3. **Mountain terrain food floor** — guarantee 3+ berry bushes and 3+ forest tiles within 10 tiles
+   of settlement center for all terrain types to prevent hostile-terrain instant collapse
+4. **Frame duplication bug** — apply Run 11 fix (last_cmd_was_frame bool) from `src/main.rs`;
+   confirmed unfixed across all sessions since Run 11
+5. **Farm threshold re-check** — current `food < 8 + pop*2` may still be stopping farm-build too early;
+   the Run 12 change to `food < pop*4` was documented but may not be in this branch
