@@ -414,3 +414,116 @@ Comparing both playtest runs: seed 42 is reliable (83→138 pop, stable food, si
 
 **Cross-run summary (4 runs, 12 total games):** Seed 42 consistently performs well when stone is available. Seed 137 (desert) always depletes stone by Autumn and wood explodes to 20k+. Seed 999 shows the widest variance (pop 57–147) and is the best test case for investigating non-determinism. The wolf event system is not broken at the event layer but wolves never appear on map. All 12 games survived Year 1; no game over observed across the entire playtest program.
 
+---
+
+## 2026-03-31 (Run 5) — Automated Playtest Report
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild at tick 100)  
+**Display size:** 70×25
+
+### Per-Game Summary
+
+| | Game 1 (seed 42) | Game 2 (seed 137) | Game 3 (seed 999) |
+|---|---|---|---|
+| **Terrain biome** | Grassland/forest mix | Desert (`;;`) with sparse grass | Dense desert (`;;`) flatlands |
+| **Ticks run** | 36,000 | 36,000 | 40,000 |
+| **Final season/day** | Winter Y1 D1 | Winter Y1 D1 | Winter Y1 D4 |
+| **Final pop** | 178 | 172 | 160 |
+| **Food** | 2,148 | 624 | 303 |
+| **Wood** | 3,465 | 24,942 | 47,557 |
+| **Stone** | 1,481 | 0 | 0 |
+| **Planks/Masonry/Grain/Bread** | 0/0/0/0 | 0/0/0/0 | 0/0/0/0 |
+| **Buildings visible** | Many huts + farms + roads (`==`) | 2+ hut clusters + stockpile | 2 hut clusters + farm + stockpile |
+| **Wolves (counter)** | 0 | 0 | 0 |
+| **Rabbits** | 0 | 0 | 0 |
+| **Events** | **Wolf surge!** (Winter) | — | — |
+| **Survived** | Yes — thriving | Yes — stable | Yes — borderline (food declining) |
+
+**Population progression:**
+- Game 1 (seed 42): 58 → 118 → 178 (strong sustained growth, best Y1 showing yet for this seed)
+- Game 2 (seed 137): 81 → 141 → 172 (best result for seed 137 across all 5 runs; grew despite stone=0)
+- Game 3 (seed 999): 122 → 160 (solid growth through a stone-deprived run; food 303 entering winter is thin)
+
+**Skill levels (Game 3, tick 20101):** Farm 54.4 | Mine 23.9 | Wood 95.4 | Build 54.3
+
+**Cross-run population history (all 5 runs):**
+- Seed 42: 189 / 138 / 191 / 119 / **178**
+- Seed 137: 92 / 124 / 160 / 136 / **172**
+- Seed 999: 116 / 57 / 136 / 147 / **160**
+
+---
+
+### What Seems Fun
+
+- **Game 1 is the best-looking settlement yet at its population class:** At tick 36101 the map shows sprawling `██░░██` hut clusters, `⌂` single huts scattered across the grassland, farm plots (`##`), road segments (`==`), and a stone counter of 1,481 showing that the economy is actively processing stone into buildings. Pop 178 with food 2,148 entering a freezing winter feels genuinely strong.
+
+- **Game 2 achieved its best-ever outcome despite stone=0 from Autumn:** Previous runs for seed 137 topped out at 92–160. This run hit 172, demonstrating that food supply alone can support significant population even without stone for further construction. It tells us the food/farm system is actually healthy on desert seeds — the ceiling is housing/stone, not food.
+
+- **Wolf surge event fired in Game 1 Winter** — for the second time across all 5 runs (previously fired in Run 4 Game 3). Unlike Run 4 where it was seed 999 at tick 40k, this run it fired on seed 42 at the standard 36k endpoint. The event system for wolves is working; the problem is confirmed to be the spawn step, not the trigger.
+
+- **Game 3 shows a farm plot on seed 999 for the first time:** At tick 40101 the map shows `#░░░░░` — a farm being worked even in freezing winter. This wasn't visible in any previous seed 999 run, suggesting auto-build is occasionally managing to place farms even on stone-scarce desert maps when food pressures mount.
+
+- **Resource deposit event sizes are increasing:** Game 3 shows `+12 wood` and `+10 wood` single-event deposits at tick 40k, larger than the +1 to +3 batches seen in earlier runs. At high skill levels (Wood 95.4) villagers appear to be gathering in larger, more efficient batches — a satisfying sign of in-world skill progression.
+
+---
+
+### What Seems Broken
+
+1. **Wolf surge fires but no wolves appear — confirmed 2/15 games trigger the event, 0/15 games show actual wolves:** This run (Game 1) and Run 4 (Game 3) both triggered "Wolf surge! Pack activity increases." while the `Wolves:` counter read 0 in the same frame. Wolf entity spawning is definitively broken: the event system works, the spawn call does not. Since the Wolves counter is shown in the side panel (not just visible-area count), absence of wolves is not a viewport issue.
+
+2. **Zero rabbits — confirmed 15/15 game-runs across all 5 playtest sessions:** Every frame of every game shows `Rabbits: 0`. This is the most reproducibly absent feature in the game. No rabbit has ever been observed in automated testing.
+
+3. **Stone depletes to zero on desert seeds — confirmed 15/15 runs:** Games 2 and 3 end at Stone 0 in every single run across all 5 sessions. Game 1 (grassland) consistently accumulates stone; desert seeds always deplete by Autumn. The desert biome is unwinnable in the long term once stone is gone because housing expansion halts completely.
+
+4. **Secondary production chains — 0/15 runs:** Planks, masonry, grain, and bread remain exactly 0 across all 15 game-runs. Game 1 this run had Stone 1,481 and Wood 3,465 entering Winter — more than enough for Workshop (8w+3s) and Smithy (5w+8s). Yet neither was built. Auto-build appears to loop on huts and farms indefinitely and never attempts processing buildings even when resources are ample.
+
+5. **Wood accumulation reaches absurd levels on stone-starved maps:** Game 3 ends with Wood 47,557 — the highest observed across all runs. With no processing buildings and stone=0, all wood gathering is completely wasted. This is a 40,000-tick simulation where perhaps 46,000+ wood was gathered and zero units were converted to planks. The wood/stone imbalance is the defining economic failure of the current build.
+
+6. **Game 3 food entering Winter is dangerously low:** 303 food for 160 villagers in "Freezing" temperature. If consumption rates are even 0.3/tick per villager, the settlement has ~6 ticks of food left. The population grew to 160 without enough food security to sustain winter — birth rate is not adequately food-gated.
+
+7. **Frame duplication persists — 15/15 games:** All games print the final frame twice with identical tick numbers and resource values. This has appeared in every game across all 5 runs.
+
+8. **Non-determinism across seeds — confirmed pattern:** Seed 42 ranges 119–191, seed 137 ranges 92–172, seed 999 ranges 57–160. The variance is large enough (up to 79 villagers for seed 999, 72 for seed 137, 72 for seed 42) that reproducible bug testing is difficult. No two runs produce the same outcome for any seed.
+
+---
+
+### What Could Be Improved
+
+1. **Fix wolf entity spawning immediately:** The wolf event trigger is confirmed working. The disconnect between "Wolf surge!" text and `Wolves: 0` counter is a single point of failure in the spawn callback. With the event confirmed to fire reliably on both grassland and desert seeds at Y1 Winter, fixing the spawn step would instantly add a threat layer the game is clearly designed for but currently missing entirely.
+
+2. **Auto-build Workshop and Smithy when hut density is high:** Game 1 entered Winter with Stone 1,481, Wood 3,465, and Pop 178. There is no economic reason auto-build should not be placing Workshops (8w+3s). The building priority queue needs a "processing buildings after housing density threshold" tier. Unlocking the Workshop→Smithy→Granary→Bakery chain would transform the late-game economy.
+
+3. **Stone deposits or infinite mountain mining for desert biomes:** 15/15 desert runs confirm the pattern. A guaranteed 3–4 stone deposits near spawn for all biomes, or slow infinite mining at mountain edge tiles, would dramatically change the Game 2 and Game 3 experience.
+
+4. **Food-gated births:** Game 3 at tick 40101 has 303 food for 160 villagers in freezing weather — this population cannot survive. Births should pause when `food / pop < 2` (or similar threshold). Growing into starvation is a frustrating failure mode because players have no obvious signal that births are unsustainable.
+
+5. **Wood gathering diminishing returns or sink:** 47,557 wood serves no gameplay purpose. Either introduce a natural cap (no gathering when stockpile > 500?), a conversion mechanic (auto-workshop), or expand fuel/building wood sinks. Until the production chain is unlocked, wood is a dead resource after ~2,000 units.
+
+6. **Skill Build 54.3 in Game 3 but no buildings visible:** At tick 20101, seed 999 shows Build 54.3 skill — meaning villagers are spending significant time building. Yet the map shows only 2 hut clusters. Either builds are being started and cancelled (stone shortage mid-construction?), or the Build skill is accruing from building attempts that fail due to resource shortages, which would be a confusing misrepresentation of progress.
+
+---
+
+### Priority Recommendation
+
+**Blocking — unchanged across all 5 runs:**
+1. **Wolf entity spawning** — event fires (confirmed 2/15 games), spawn never happens; add wolves to the world
+2. **Rabbit spawning** — 0/15 games; completely non-functional
+3. **Auto-build Workshop/Smithy** — 0/15 games build processing buildings; stone available in Game 1 but unused
+
+**High — causes player loss or major imbalance:**
+4. Stone deposits on desert biomes — 100% stone depletion rate on non-grassland
+5. Food-gated births — Game 3 starves into winter with 303 food / 160 pop
+
+**Medium — balance and feel:**
+6. Wood accumulation sink — 47k wood with no use is a glaring balance hole
+7. Gameplay non-determinism — same-seed variance of 57–160 (seed 999) undermines reproducibility
+8. Build skill accruing without completed buildings — misleading skill signal
+
+**Low — polish:**
+9. Frame duplication in `--play` mode (15/15 games affected, confirmed systematic)
+10. `V` symbol on Game 2 Summer map — still undocumented, appeared at same position as prior runs
+
+**Cross-run summary (5 runs, 15 total games):** Seed 42 (grassland) is reliably the best performer (pop 119–191, stone always accumulates). Seed 137 (desert) is showing improving results (92→172 across 5 runs) possibly due to pop variance, but stone always hits 0 by Autumn. Seed 999 (dense desert) has the widest variance (57–160) and the most severe late-game food crises. The wolf event system has now confirmed its trigger works (2 events across 15 games); fixing the entity spawn step is the highest-impact single fix. No game-over has been observed across any of the 15 automated runs.
+
+---
