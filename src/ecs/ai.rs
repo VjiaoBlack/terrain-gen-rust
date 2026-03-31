@@ -723,9 +723,10 @@ pub(super) fn ai_villager(
                     None,
                 );
             }
-            // Stop farming to gather resources only when BOTH are critically low
-            // (using || was too aggressive in early-game when wood is low but stone is fine)
-            if stockpile_wood < 5 && stockpile_stone < 5 {
+            // Stop farming to gather wood when it's critically low and food is safe.
+            // Stone is handled separately via stone deposit discovery; wood is consumed
+            // by every building and must be gathered continuously.
+            if stockpile_wood < 5 && stockpile_food >= 20 {
                 return (
                     BehaviorState::Idle { timer: 5 },
                     0.0,

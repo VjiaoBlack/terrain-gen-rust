@@ -173,9 +173,17 @@ impl Game {
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
 
-                    // Spawn 3-5 wolves in a ring 20-35 tiles from settlement center
+                    // Spawn wolves scaled to settlement size: small settlements get 1-2 wolves,
+                    // large settlements get up to 4. 4 wolves vs pop=8 was an instant wipe.
                     let (scx, scy) = self.settlement_center();
-                    let wolf_count = rng.random_range(3u32..=5);
+                    let villager_count = self
+                        .world
+                        .query::<&ecs::Creature>()
+                        .iter()
+                        .filter(|c| c.species == ecs::Species::Villager)
+                        .count() as u32;
+                    let max_wolves = (villager_count / 5 + 1).clamp(1, 4);
+                    let wolf_count = rng.random_range(1u32..=max_wolves);
                     let mut spawned = 0u32;
                     for _ in 0..60 {
                         if spawned >= wolf_count {
