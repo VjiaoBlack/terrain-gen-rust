@@ -455,41 +455,70 @@ impl Game {
         let scx = start_cx;
         let scy = start_cy;
 
-        // Helper: find a spot where an NxM building fits on natural terrain (no buildings)
-        let find_building_spot =
-            |map: &TileMap, cx: usize, cy: usize, bw: usize, bh: usize| -> (f64, f64) {
-                for r in 0..30usize {
-                    for dy in -(r as i32)..=(r as i32) {
-                        for dx in -(r as i32)..=(r as i32) {
-                            if (dx.unsigned_abs() as usize != r)
-                                && (dy.unsigned_abs() as usize != r)
-                            {
-                                continue;
-                            }
-                            let x = cx as i32 + dx;
-                            let y = cy as i32 + dy;
-                            if x < 0 || y < 0 {
-                                continue;
-                            }
-                            // Check all tiles in footprint are natural terrain
-                            let fits = (0..bh as i32).all(|fy| {
-                                (0..bw as i32).all(|fx| {
-                                    let tx = (x + fx) as usize;
-                                    let ty = (y + fy) as usize;
-                                    matches!(
-                                        map.get(tx, ty),
-                                        Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
-                                    )
-                                })
-                            });
-                            if fits {
-                                return (x as f64, y as f64);
-                            }
+        // Helper: find a spot where an NxM building fits on natural terrain (no buildings).
+        // Prefers Grass/Sand positions to avoid consuming Forest tiles that villagers need for
+        // wood gathering. Falls back to allowing Forest only if no Grass/Sand spot exists.
+        let find_building_spot = |map: &TileMap,
+                                  cx: usize,
+                                  cy: usize,
+                                  bw: usize,
+                                  bh: usize|
+         -> (f64, f64) {
+            // First pass: only Grass/Sand (preserve nearby forest for wood gathering)
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 {
+                            continue;
+                        }
+                        let fits = (0..bh as i32).all(|fy| {
+                            (0..bw as i32).all(|fx| {
+                                let tx = (x + fx) as usize;
+                                let ty = (y + fy) as usize;
+                                matches!(map.get(tx, ty), Some(Terrain::Grass | Terrain::Sand))
+                            })
+                        });
+                        if fits {
+                            return (x as f64, y as f64);
                         }
                     }
                 }
-                (cx as f64, cy as f64)
-            };
+            }
+            // Second pass: allow Forest as fallback (better than placing on impassable terrain)
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 {
+                            continue;
+                        }
+                        let fits = (0..bh as i32).all(|fy| {
+                            (0..bw as i32).all(|fx| {
+                                let tx = (x + fx) as usize;
+                                let ty = (y + fy) as usize;
+                                matches!(
+                                    map.get(tx, ty),
+                                    Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
+                                )
+                            })
+                        });
+                        if fits {
+                            return (x as f64, y as f64);
+                        }
+                    }
+                }
+            }
+            (cx as f64, cy as f64)
+        };
 
         // Place stockpile (2x2)
         let (sx, sy) = find_building_spot(&map, scx, scy, 2, 2);
@@ -623,8 +652,8 @@ impl Game {
             display_fps: None,
             resources: Resources {
                 food: 20,
-                wood: 20,
-                stone: 10,
+                wood: 60,
+                stone: 20,
                 ..Default::default()
             },
             build_mode: false,

@@ -1080,8 +1080,8 @@ mod tests {
         assert_eq!(
             BuildingType::Hut.cost(),
             Resources {
-                wood: 10,
-                stone: 4,
+                wood: 6,
+                stone: 3,
                 ..Default::default()
             }
         );
@@ -1750,7 +1750,10 @@ mod tests {
             system_processing(&mut world, &mut resources, 1.0);
         }
 
-        assert_eq!(resources.food, 16, "should have consumed 3 food (one conversion at 19→16)");
+        assert_eq!(
+            resources.food, 16,
+            "should have consumed 3 food (one conversion at 19→16)"
+        );
         assert_eq!(resources.grain, 2, "should have produced 2 grain");
     }
 
@@ -1801,7 +1804,7 @@ mod tests {
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::GrainToBread);
         let mut resources = Resources {
             grain: 4,
-            wood: 2,
+            planks: 2,
             ..Default::default()
         };
 
@@ -1814,6 +1817,7 @@ mod tests {
 
         assert!(resources.bread > 0, "bakery should produce bread");
         assert!(resources.grain < 4, "bakery should consume grain");
+        assert!(resources.planks < 2, "bakery should consume planks");
     }
 
     #[test]

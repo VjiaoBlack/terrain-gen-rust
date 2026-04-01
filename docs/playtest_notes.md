@@ -2953,3 +2953,100 @@ buffer, and grain counting allowed births even when raw food was depleted.
 | `src/game/build.rs` | `try_population_growth` uses `effective_food = food + grain/2 + bread`; birth cost draws from grain on underflow |
 | `src/ecs/systems.rs` | `FoodToGrain` threshold: `food >= 3` → `food > 15` in both worker-assignment and processing |
 | `src/ecs/mod.rs` | Updated `system_processing_converts_food_to_grain` test for new threshold |
+
+---
+
+## Session 22 — 2026-04-01
+
+### Objective
+
+Fix the persistent pop=8 ceiling on seeds 42, 137, 999. Session 21 identified wood scarcity
+and workshop pop threshold as root causes but left residual issues. This session targeted those
+directly with 5 incremental fixes verified through iterative playtesting.
+
+### Phase 1 Playtest Results (pre-fix)
+
+| Seed | Pop | Wood | Stone | Planks | Grain | Notes |
+|------|-----|------|-------|--------|-------|-------|
+| 42   | 8   | 0    | 1     | 0      | 2     | wood=0 by T+2000, pop stuck |
+| 137  | 4   | 0    | 2     | 0      | 4     | regression: pop crashed from prior session |
+| 999  | 8   | 0    | 2     | 0      | 4     | same pattern as 42 |
+
+### Root Cause Analysis
+
+Five root causes identified through diagnostic short-run playtests:
+
+1. **Pre-built buildings destroying forest tiles**: `find_building_spot` allowed Forest tiles,
+   so the first hut/farm/granary could land on the only forest within 22-tile sight range.
+   With no forest visible, `wood_target = None` and villagers gather stone instead of wood.
+   Found by observing wood_skill=0, mine_skill=3.3 at T+1100 in a diagnostic run.
+
+2. **Workshop pop threshold too high (≥12, then ≥8)**: Workshop was never queued because
+   wood depletes to 0 before pop reaches 8 (huts consume all wood first). Even after lowering
+   to ≥8, the timing was still wrong. With pop=4 at T+500 and wood=20, Workshop needed to
+   queue then, not at pop=8.
+
+3. **GrainToBread recipe used wood instead of planks**: Three locations in `systems.rs` still
+   used `resources.wood >= 1` / `resources.wood -= 1` for the Bakery assignment and processing
+   checks. This was a port bug from a prior session fix that wasn't fully applied.
+
+4. **Workshop drains wood faster than gathered**: Day/night cycle reduces gathering uptime to
+   ~50%. At pop=8, only 3 free gatherers supply ~1.15 wood/100 ticks while Workshop consumes
+   ~1.67 wood/100 ticks. Wood never accumulates to 10 for hut construction.
+
+5. **Stone bottleneck**: Starting stone=10, with Workshop(3s)+Hut(4s)×2 = 11s, stone hits 0
+   by T+1000 blocking further hut construction until deposits spawn at T=2000.
+
+### Fixes Applied
+
+| Fix | File | Change |
+|-----|------|--------|
+| Preserve forest tiles | `src/game/mod.rs` | Two-pass `find_building_spot`: first pass Grass/Sand only, second pass allows Forest fallback |
+| Workshop threshold | `src/game/build.rs` | `villager_count >= 4` (was 12, lowered to 8 in mid-session, now 4) — Workshop queues at T~300 before wood runs out |
+| GrainToBread uses planks | `src/ecs/systems.rs` | Both worker-assignment check and processing use `planks >= 1` / `planks -= 1` instead of wood |
+| Hut cost reduction | `src/ecs/components.rs` | Hut cost: `10w+4s` → `6w+3s` — allows more huts from depleted wood stockpile |
+| Starting resources | `src/game/mod.rs` | `wood: 20 → 60`, `stone: 10 → 20` — buffer for early construction before gathering stabilizes |
+
+### Phase 4 Verification Results
+
+All seeds tested to T=36000 (4 × 9000 tick frames):
+
+| Seed | Pop T9k | Pop T18k | Pop T27k | Pop T36k | Grain T36k | Notes |
+|------|---------|----------|----------|----------|------------|-------|
+| 42   | 16      | 16       | 16       | 16       | 520        | Stable, grain stockpiling |
+| 137  | 16      | 16       | 16       | 16       | 538        | Stable, grain stockpiling |
+| 999  | 16      | 16       | 16       | 16       | 542        | Stable, grain stockpiling |
+
+All seeds doubled from pop=8 to pop=16. Grain accumulation confirms Granary working correctly.
+
+### Phase 6 Seed 777 Results (T=0 to T=45000)
+
+| Frame | Pop | Wood skill | Planks | Grain | Notes |
+|-------|-----|------------|--------|-------|-------|
+| T+9k  | 16  | 11.8       | 5      | 78    | Workshop productive |
+| T+18k | 19  | 18.2       | 5      | 122   | Pop grew beyond session 21 level |
+| T+27k | 20  | 7.4        | 5      | 122   | Peak population |
+| T+36k | 20  | —          | 5      | 266   | Wolves present, defended |
+| T+45k | 19  | 1.2        | 5      | 216   | Minor wolf kill, grain stockpile |
+
+Seed 777 reached pop=20 (up from 19 in session 21). Stable through winter/wolf attacks.
+
+### Residual Issues
+
+1. **Pop ceiling at 16 on forest-sparse seeds (42, 137, 999)**: Once pop=16 is reached (4 huts
+   × 4 capacity), wood=0 prevents building a 5th hut (needs 6w). Workshop converts all gathered
+   wood to planks before stockpile reaches 6. Population can't grow further without a way to
+   redirect planks into hut construction or a renewable wood source. Planks accumulate slowly
+   (2 at T=36k on seed 42) but Bakery isn't built (needs planks≥8 AND grain>30 threshold not
+   yet met with grain still growing toward 30 at T=36k on some seeds — actually grain=520 by
+   T=36k so that condition IS met; the block is planks<8).
+
+2. **Workshop starves hut construction permanently**: At pop=16, with 6 free gatherers, wood
+   gathering rate matches Workshop consumption rate. Wood perpetually stays at 0-2, preventing
+   any wood-requiring building. The proper fix would be to allow huts to substitute planks for
+   wood once a Workshop exists, creating the chain: Forest→Workshop→Planks→Huts.
+
+### Tests
+
+All 194 lib tests pass. No regressions introduced.
+

@@ -445,8 +445,7 @@ impl super::Game {
         // Count grain as food equivalent (1 grain = 0.5 food, since it takes ~2 food to make 1
         // grain via granary). Bread counts as food directly. This prevents the deadlock where
         // food=0 but grain=400+ blocks births — grain is food, just stored in a different form.
-        let effective_food =
-            self.resources.food + self.resources.grain / 2 + self.resources.bread;
+        let effective_food = self.resources.food + self.resources.grain / 2 + self.resources.bread;
 
         // Require minimum food proportional to population to prevent growing into starvation.
         // 2× pop threshold (vs just food >= 5) prevents births during food crises on large
@@ -624,17 +623,15 @@ impl super::Game {
             .iter()
             .any(|pb| pb.recipe == Recipe::WoodToPlanks);
 
-        // Priority 3: First Workshop — wait until population ≥ 12 so there are enough
-        // free gatherers to sustain Workshop wood consumption without starving Hut builds.
+        // Priority 3: First Workshop — queue once a hut exists and population ≥ 4.
+        // Requires pop ≥ 4 (not 8) because wood drains to 0 by the time pop reaches 8
+        // as huts consume all available wood first.
         let pending_workshop_any = self
             .world
             .query::<&BuildSite>()
             .iter()
             .any(|s| s.building_type == BuildingType::Workshop);
-        if !has_workshop
-            && !pending_workshop_any
-            && villager_count >= 12
-            && self.resources.stone > 5
+        if !has_workshop && !pending_workshop_any && villager_count >= 4 && self.resources.stone > 5
         {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)
