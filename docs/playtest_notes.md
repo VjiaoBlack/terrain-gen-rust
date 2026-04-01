@@ -3675,3 +3675,117 @@ Stone=18 and wood=44 should be sufficient for 4+ huts. The auto-build system app
 ## Tests
 
 All lib tests pass. Commits `2ab4d0a` and `92c6608` introduced no regressions.
+
+---
+
+## 2026-04-01 — Session 19: Stone Deposit Placement Fix
+
+**Build:** release  
+**Auto-build:** enabled (`--auto-build` flag)  
+**Seeds tested:** 42, 137, 999, 777 (Phase 1), then 42, 137, 999 (verification), 777 (Phase 6)  
+**Ticks per run:** 5,000 – 20,000
+
+---
+
+### Phase 1 Baseline (with `--auto-build`, stone deposit fix applied)
+
+| | Seed 42 | Seed 137 | Seed 999 |
+|---|---|---|---|
+| **Pop @ tick 10k** | 28–30 | 15–20 | 8 |
+| **Stone @ tick 10k** | 8 | 4–5 | 2 |
+| **Mine skill @ tick 10k** | 15.6 | 8.7 | 1.4 |
+| **Grain** | 120 | 52 | 86 |
+| **Status** | Thriving | Growing | Stuck |
+
+Seed 777 @ tick 10k: Pop=8, Stone=2, Mine=1.4 — same pattern as seed 999.
+
+---
+
+### Root Cause Found: Stone Deposits Outside Villager Sight Range
+
+Two separate stone deposit discovery systems were placing deposits 15–50 tiles from the settlement centre — beyond the villager AI's `sight_range` of 22 tiles. Villagers filter stone deposits by `*d < creature.sight_range`, so any deposit placed beyond 22 tiles is effectively invisible and never mined.
+
+**`discover_stone_deposits` (game/build.rs ~line 397):**
+- Before: `rng.random_range(15.0f64..50.0)` → 15–50 tiles, mostly outside sight range
+- After: `rng.random_range(5.0f64..18.0)` → 5–18 tiles, always within sight range
+
+**`auto_build_tick` deposit section (game/build.rs ~line 613):**
+- Before: `let dist = 18.0 + (cycle % 4.0) * 8.0;` → 18, 26, 34, 42 tiles
+- After: `let dist = 8.0 + (cycle % 4.0) * 3.0;` → 8, 11, 14, 17 tiles
+
+Both changes keep deposits within the 22-tile sight radius so villagers can find and mine them.
+
+---
+
+### Phase 4 Verification Results
+
+Seeds 42 and 137 showed dramatic improvement:
+- Seed 42: Pop grew from ~8 (Phase 1 pre-fix) to **28–30 at tick 10k** (Mine skill=15.6)
+- Seed 137: Pop grew from ~4 to **15–20 at tick 10k** (Mine skill=8.7)
+
+Seeds 999 and 777 showed minimal improvement despite the fix. Investigation revealed a secondary problem:
+
+---
+
+### Secondary Issue: Farming/Mining Deadlock on Grass/Forest Seeds
+
+Seeds 999 and 777 spawn on grass/forest terrain with no Mountain tiles within 22 tiles. This is significant because the AI fallback for stone gathering is `find_nearest_terrain(Mountain, sight_range)` — mining Mountain tiles for stone. On these seeds, the Mountain fallback never fires. Stone MUST come from spawned `StoneDeposit` entities.
+
+The deadlock mechanism:
+1. Initial deposits (placed at scx±3 at game start) are mined to depletion by tick ~2000. Stone accumulates to ~20, buildings get placed, stone drops to 2–3.
+2. New deposits are placed at tick 2000 (the fixed 8–11 tile range). They exist.
+3. But with 5/8 villagers farming (system_assign_workers `2/3` cap) and remaining 3 going to build sites (`should_build = true` always), nobody mines the new deposits.
+4. The farming break-off condition (`stockpile_wood < 5 && stockpile_stone < 5` AND condition) never fires because wood is always 22+.
+5. Stone stays at 2. No huts can be queued (need 3s). Population stuck at 8 (2-hut cap).
+
+**Why seeds 42/137 don't have this problem:** They have Mountain terrain within sight range, providing an infinite fallback stone source. Mine skill on seed 42 reached 15.6 vs 1.4 for seed 999 — 10× difference.
+
+---
+
+### Fix Attempts for the Deadlock (All Reverted)
+
+Three approaches were tried for the farming/mining deadlock, all reverted:
+
+1. **`|| stockpile_stone < 2` farming break-off**: Too conservative (stone=2 is the equilibrium value, condition rarely fires).
+
+2. **`|| stockpile_stone < 5` farming break-off**: Caused food crisis on seed 999 (Grain crashed from 86 to 2, pop dropped 8→5). Root cause: when farmers break off (go Idle for 5 ticks), the `should_build=true` priority redirects them to build sites instead of mining. Farming collapses without improvement to stone.
+
+3. **`stone_critical` block on `should_build`**: Added `stone_critical = stockpile_stone < 3 && deposit_nearby` to suppress building when stone is low. This regressed seed 42 (pop dropped from 30 to 12) because the same block that prevents new building also prevents villagers from working on ALREADY-PLACED build sites, causing the workshop to sit unbuilt indefinitely.
+
+The farming/mining deadlock requires a more fundamental redesign — either limiting how many villagers can pile onto build sites (dedicated stone-mining slots), or making stone urgency override build priority correctly. Left for the next session.
+
+---
+
+### Commits This Session
+
+| Commit | Description |
+|--------|-------------|
+| `d160eac` | Fix stone deposits spawning outside villager sight range |
+| `267f5df` | Fix farming deadlock when stone is depleted (later reverted) |
+| `403fffd` | Revert farming break-off change — caused food crisis |
+
+Net change: only `d160eac` is a permanent improvement.
+
+---
+
+### Known Issues (Carry Forward)
+
+1. **Farming/mining deadlock on grass-only seeds**: When no Mountain terrain is within 22 tiles, villagers can only get stone from `StoneDeposit` entities. But the `should_build=true` priority and the AND farming break-off condition prevent mining when wood is plentiful. Affects seeds 999, 777, and likely other grass-dominant maps. Seeds with Mountain terrain (42, 137) are unaffected.
+
+2. **Fix needed**: Either (a) add a dedicated stone-mining worker slot in `system_assign_workers` (similar to how workshops get reserved slots), or (b) suppress `should_build` when stone is critically low AND a new build site hasn't been claimed yet.
+
+3. **Non-determinism**: AI RNG is unseeded, so same seed can produce different outcomes between runs. Population variance of ±2-5 is normal.
+
+---
+
+### Next Session Priorities
+
+1. **Stone-mining worker reservation**: In `system_assign_workers`, reserve 1 villager for stone gathering when `stone < 5` and deposits are within sight range. Similar to the existing `workshops_needing_worker` mechanism.
+
+2. **Verify seed 777 behavior**: Run seed 777 for 20k+ ticks with a stone-mining reservation to confirm the fix eliminates the deadlock.
+
+3. **Year-2 stress test**: Run seed 42 to 40k ticks to verify Bakery/Workshop chains work at scale.
+
+## Tests
+
+All 194 lib tests pass. Commit `d160eac` introduced no regressions.
