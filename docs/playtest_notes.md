@@ -3320,3 +3320,62 @@ Fast-growing seeds (777, 999) hit a new bottleneck: wood=2 equilibrium where rap
 3. **Settlement spawn terrain guarantee** — Seed 137 narrow mountain corridor still limits growth past pop=8.
 4. **Auto-build input correctness** — Document that `--play --seed N --inputs "auto-build,..."` is the correct invocation; `seed:N` in inputs string is not sufficient.
 
+
+---
+
+## Session 3 — Workshop Deadlock Root Cause Fixed
+
+**Date**: 2026-04-01  
+**Commit**: afe7716
+
+### Root Causes Identified and Fixed
+
+Five distinct causes of the Workshop/Planks deadlock were found and patched:
+
+#### Fix 1: WoodToPlanks threshold 7→5 (`src/ecs/systems.rs`)
+The threshold in both `system_assign_workers` and `system_processing` was `wood >= 7`, which is ABOVE the hut construction cost (6w). Hut builds always depleted wood before Workshop could process. Lowered to `>= 5`.
+
+#### Fix 2: Workshop worker starvation (`src/ecs/systems.rs`)
+`system_assign_workers` only assigns Idle/Wander villagers up to `max_assigned` (villagers × 2/3). With many farms (Farm skill = 100.0 observed), all assignment slots fill with farm workers and Workshop (Priority 3) never receives a worker. Two sub-fixes:
+- **Reserved slots**: When a workshop has input but no worker, add 1 to `max_assigned` per such workshop. This guarantees workshop slots can't be "stolen" by farms.
+- **Priority promotion**: Workshop moved from Priority 3 to Priority 2 (before farm tending), so reserved slots actually go to Workshop rather than being immediately consumed by the next farm-tending assignment.
+
+#### Fix 3: food_secure fallback for Workshop placement (`src/game/build.rs`)
+The P0.5 Workshop placement condition required `grain >= pop*4`. With many farms filling all max_assigned worker slots, Granary workers were also starved → grain stayed near zero. Added fallback: `food > 60 + pop*6` also satisfies `food_secure`. This lets Workshop be placed when there's a large raw food surplus even without accumulated grain.
+
+#### Fix 4: Timber grove range 15–45 → 10–28 (`src/game/build.rs`)
+Extended villager sight range for wood is 22 × 1.5 = 33 tiles. Old upper bound of 45 placed groves outside sight range → wood skill = 0 and wood never accumulated. New range (10–28) guarantees groves land within reach.
+
+#### Fix 5: `saving_for_workshop` guard extended (`src/game/build.rs`)
+Previously the guard only deferred hut builds when Workshop existed but planks=0. Extended to also defer when Workshop *conditions are met* but Workshop isn't built/queued yet, preventing wood from being consumed by huts before Workshop fires.
+
+### Verification Results (T=40000)
+
+| Seed | Pop | Wood | Planks | Workshop | Notes |
+|------|-----|------|--------|----------|-------|
+| 42 | 22 | ~18 | 4 | ✓ active | Deadlock broken, pop thriving |
+| 137 | 8 | 18 | 0 | 🔨 building | Build sites `#` visible in map |
+| 999 | 5 | 4 | 7 | ✓ active | Planks flowing despite wolves |
+
+### Seed 777 Final Verification
+
+**Result: GAME OVER at T=50682 (Y2 Spring D3)**  
+Peak pop: 14, resources at death: 0 food / 2 wood / 4 stone / 0 planks.
+
+Cause: Workshop was never placed because `stone` never reached the placement threshold (`stone > 5`). Stone stayed at 4 for 40,000+ ticks. The cascade:
+1. Drought at T=20000 halved farm yields
+2. Food crisis → villagers locked in hunger loop, not mining
+3. Stone stuck at 4 (< 6 needed for Workshop auto-build)
+4. No Workshop → no Planks → no Bakery → grain=190 trapped during winter
+5. Winter starvation (food=0) → pop crash
+
+### Known Remaining Issues
+
+1. **Stone accumulation too slow pre-Workshop** — Seed 777 shows stone=4 persisting 40k ticks because villagers prioritize food when hunger is high. Workshop placement threshold (`stone > 5`) cannot be met. Consider lowering to `stone >= 3` (Workshop costs 3s) or adding a stone-gathering boost when stone is critically low and pop >= 6.
+
+2. **Winter starvation with trapped grain** — Seeds 137 and 999 also had food=0 in Y1 Winter with grain sitting unused. Without a Bakery (requires Planks), grain cannot be consumed. The Workshop fix helps for Year 2 but Y1 Winter remains dangerous for non-drought seeds too.
+
+3. **Seed 137 narrow corridor** — Mountain terrain limits pop growth (stuck at 8). The Workshop builds but arrives too late to prevent Y1 Winter crisis.
+
+### All Tests Pass
+194 lib tests pass (`cargo test --lib`).
