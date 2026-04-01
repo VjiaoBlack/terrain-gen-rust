@@ -885,11 +885,7 @@ impl super::Game {
             .query::<(&Position, &Creature)>()
             .iter()
             .any(|(_, c)| c.species == Species::Predator);
-        if !has_garrison
-            && !pending_garrison
-            && villager_count >= 4
-            && self.resources.stone >= 12
-        {
+        if !has_garrison && !pending_garrison && villager_count >= 4 && self.resources.stone >= 12 {
             let cost = BuildingType::Garrison.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
