@@ -512,9 +512,10 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .map(|(p, b)| {
             let has_input = match b.recipe {
-                // Keep threshold below the hut cost (6w) so Workshop processes wood
-                // in the gap when hut construction is unaffordable.
-                Recipe::WoodToPlanks => resources.wood >= 7,
+                // Threshold above hut cost (6w) and garrison cost (6w) so wood
+                // accumulates enough for construction before Workshop consumes it.
+                // At 7, wood oscillated 5↔7 and nothing could ever be built.
+                Recipe::WoodToPlanks => resources.wood >= 12,
                 Recipe::StoneToMasonry => resources.stone >= 2,
                 // Don't assign granary workers when food is near survival minimum
                 Recipe::FoodToGrain => resources.food > 15,
