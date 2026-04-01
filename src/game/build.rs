@@ -535,8 +535,8 @@ impl super::Game {
         // Priority 1: Farm when food is low and we don't have many farms
         // (runs unconditionally — food and housing must never be blocked by pending_builds cap)
         let villager_count = villager_pos.len() as u32;
-        if self.resources.food < villager_count * 4
-            && farm_count < (villager_count as usize).div_ceil(2)
+        if self.resources.food < 8 + villager_count * 4
+            && farm_count < ((villager_count as usize) * 2).div_ceil(3)
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
@@ -827,8 +827,8 @@ impl super::Game {
         if !has_bakery
             && !pending_bakery
             && has_granary
-            && self.resources.planks > 20
-            && self.resources.grain > 50
+            && self.resources.planks >= 8
+            && self.resources.grain > 30
         {
             let cost = BuildingType::Bakery.cost();
             if self.resources.can_afford(&cost)
