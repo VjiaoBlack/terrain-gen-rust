@@ -364,7 +364,8 @@ impl super::Game {
 
     /// Spawn new stone deposits near the settlement center when stone stockpile is critically low.
     /// Called every 2000 ticks when stone < 50; simulates "expanding settlement discovers new
-    /// deposits". Spawns 2 deposits (5 yield each) at random walkable tiles 15–50 tiles away.
+    /// deposits". Spawns 2 deposits at random walkable tiles 6–18 tiles away (within villager
+    /// sight_range=22 so they are actually visible and minable).
     pub(super) fn discover_stone_deposits(&mut self) {
         let villager_pos: Vec<(f64, f64)> = self
             .world
@@ -691,6 +692,29 @@ impl super::Game {
             }
         }
 
+        // Priority 0.9: Garrison — checked BEFORE P1 Farm so farm/hut stone spend doesn't
+        // prevent garrison from ever being placed.  P1 deducts 1s and P2 deducts 3s per cycle;
+        // if garrison fired at P1.5 it always saw a stone budget 1 below the garrison threshold.
+        // Moving it here ensures the full stone budget is visible to the garrison check.
+        // Cost is 6w+8s — achievable with 1-2 nearby deposits from the stone-range fix.
+        let has_garrison = self.world.query::<&GarrisonBuilding>().iter().count() > 0;
+        let pending_garrison = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Garrison);
+        if !has_garrison && !pending_garrison && villager_count >= 3 && self.resources.stone >= 8 {
+            let cost = BuildingType::Garrison.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Garrison);
+                self.notify("Auto-build: Garrison queued".to_string());
+                queued_critical = true;
+            }
+        }
+
         // Priority 1: Farm when food is low and we don't have enough farms.
         // Threshold: 1 farm per 3 villagers (div_ceil), minimum 2. The old "2/3 of pop"
         // threshold (e.g. 6 farms for pop=8) was far too high — one farm already produces
@@ -910,22 +934,15 @@ impl super::Game {
             }
         }
 
-        // Priority 5.2: Garrison — build proactively once stone is sufficient.
-        // Garrison costs 6w+12s (no masonry) so it can be built at pop=4 before the first wolf
-        // surge in winter. The masonry→garrison chain caused a deadlock: masonry requires
-        // Workshop (pop≥8), but wolves prevent pop from reaching 8 without garrison.
-        let has_garrison = self.world.query::<&GarrisonBuilding>().iter().count() > 0;
-        let pending_garrison = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .any(|s| s.building_type == BuildingType::Garrison);
+        // Priority 5.2: Garrison fallback — in case P1.5 never triggered (stone stayed below 8
+        // due to heavy farm/hut demand during the opening phase).  Same logic as P1.5 but fires
+        // here as a safety net.  Garrison costs 6w+8s.
         let wolves_present = self
             .world
             .query::<(&Position, &Creature)>()
             .iter()
             .any(|(_, c)| c.species == Species::Predator);
-        if !has_garrison && !pending_garrison && villager_count >= 4 && self.resources.stone >= 12 {
+        if !has_garrison && !pending_garrison && villager_count >= 3 && self.resources.stone >= 8 {
             let cost = BuildingType::Garrison.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)

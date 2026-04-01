@@ -1877,10 +1877,10 @@ mod tests {
             garrison.cost(),
             Resources {
                 wood: 6,
-                stone: 12,
+                stone: 8,
                 ..Default::default()
             },
-            "garrison cost should be 6 wood, 12 stone"
+            "garrison cost should be 6 wood, 8 stone"
         );
         assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
         assert_eq!(
@@ -2042,13 +2042,13 @@ mod tests {
     fn garrison_cost_is_wood_and_stone_only() {
         let cost = BuildingType::Garrison.cost();
         assert_eq!(cost.wood, 6, "garrison should require 6 wood");
-        assert_eq!(cost.stone, 12, "garrison should require 12 stone");
+        assert_eq!(cost.stone, 8, "garrison should require 8 stone");
         assert_eq!(cost.masonry, 0, "garrison should not require masonry");
         assert_eq!(cost.planks, 0, "garrison should not require planks");
 
         let sufficient = Resources {
             wood: 6,
-            stone: 12,
+            stone: 8,
             ..Default::default()
         };
         assert!(
@@ -2058,7 +2058,7 @@ mod tests {
 
         let insufficient = Resources {
             wood: 5,
-            stone: 12,
+            stone: 8,
             ..Default::default()
         };
         assert!(

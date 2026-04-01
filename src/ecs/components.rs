@@ -266,7 +266,7 @@ impl BuildingType {
                 name: "Garrison",
                 cost: Resources {
                     wood: 6,
-                    stone: 12,
+                    stone: 8,
                     ..DEF_RES
                 },
                 build_time: 180,
