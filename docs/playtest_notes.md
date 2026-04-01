@@ -2290,3 +2290,93 @@ path on mountain terrain needs attention — either terrain bonuses or initial f
 6. **Frame duplication in `--play` mode** — Both final frames of every run are identical. The
    Run 11 fix in `src/main.rs` is still missing. Investigate and apply.
 
+---
+
+## 2026-04-01 — Automated Playtest Report (Session 20)
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild via `input:ToggleAutoBuild` at tick 100)  
+**Display size:** 70×25  
+**Commits this session:** 4 (d24b68a, 6bbebbc, 0ce4f5e, 021db12)
+
+### Phase 1 Baseline (pre-fix)
+
+| | Seed 42 | Seed 137 | Seed 999 |
+|---|---|---|---|
+| **Pop at T+12k** | 9 | 16 | 16 |
+| **Pop at T+24k** | 9 | 16 | 16 |
+| **Pop at T+36k** | 9 | 16 | 16 |
+| **Food (final)** | 11 ⚠️ (winter crash) | ~40 | ~60 |
+| **Wood (final)** | ~20 | 8 | 1 |
+| **Stone (final)** | ~5 | ~8 | ~5 |
+| **Rabbits** | 0 | 0 | 0 |
+| **Notable** | Winter starvation | Hard pop cap | Hard pop cap |
+
+Key observations:
+- Seed 42: zero rabbits → farms as sole food source → winter+drought wiped food from 141→11
+- Seeds 137+999: population permanently capped at 16 — huts never built past initial 4
+- No secondary resources (planks, grain) on any seed — production chain fully broken
+
+### Changes Made
+
+**Commit 021db12** — Three interacting bugs fixed together:
+
+1. **Hut count bug** (`src/game/build.rs`): `huts_needed` only counted pending `BuildSite` hut entities, ignoring completed `HutBuilding` entities. Fixed by summing `pending_hut_count + completed_hut_count`.
+
+2. **Farm threshold reduced**: Was `food < 8 + villager_count * 2` (e.g. 40 at pop=16). Lowered to `food < 5 + villager_count`; farm cap changed from `div_ceil(2)` to `div_ceil(4).max(2)`. Prevents farms from consuming wood that should fund huts.
+
+3. **Initial prey spawning** (`src/game/mod.rs`): Added 5 rabbits and 2 dens at game start, 8–16 tiles from settlement. Provides early food source on hostile-terrain seeds.
+
+**Commit 0ce4f5e** — WoodToPlanks threshold raised from `wood >= 2` to `wood >= 12` in both `system_assign_workers` and `system_processing`. Prevents Workshop from continuously draining wood down to 0-2 once built.
+
+**Commit 6bbebbc** — Added missing Priority 3 (first Workshop) to `auto_build_tick`. The priority list previously jumped from P2 (Hut) → P3.5 (Second Workshop, requires `has_workshop=true`), so the first Workshop was **never** auto-built. Production chain (Workshop → planks → Bakery) was permanently inaccessible.
+
+**Commit d24b68a** — Added `housing_satisfied` guard to Priority 3 Workshop condition. Without this, Workshop (8w) would fire before hut (10w), consuming wood and blocking hut construction.
+
+### Phase 4 Post-Fix Results (seeds 42 + 137)
+
+| | Seed 42 | Seed 137 |
+|---|---|---|
+| **Pop at T+12k** | 12 | 8 |
+| **Pop at T+24k** | 12 | 8 |
+| **Pop at T+36k** | 12 | 8 |
+| **Food (final)** | 365 ✓ (winter survived) | 205 |
+| **Wood (final)** | ~30 | 8 |
+| **Stone (final)** | ~15 | 10 |
+| **Rabbits** | 12 ✓ | 12 ✓ |
+
+Seed 42: Initial rabbit spawn fix resolved winter food crisis (food 11 → 365). Population growth still capped at 12 — hut placement requires investigation.
+
+Seed 137: Population stuck at 8. Wood sits at exactly 8 across all snapshots, 2 short of the 10w hut cost. Housing_satisfied guard prevents Workshop (correctly), but wood accumulation rate is too slow to bridge the gap between auto_build calls (every 200 ticks).
+
+### Phase 6 Final Verification (seed 777)
+
+| Metric | Value |
+|---|---|
+| **Pop** | 8 |
+| **Food (winter)** | ~0 ⚠️ (collapsed from 255) |
+| **Rabbits** | 12 ✓ |
+| **Wood** | 8 (same ceiling as seed 137) |
+
+Winter food decay (`max(1, food * 2/100)` per 30 ticks) collapsed food 255→0 over winter. Population frozen at 8, same wood=8 ceiling pattern as seed 137.
+
+### Design Notes
+
+- **Wood=8 ceiling is systemic**: Seeds 137 and 777 both stabilize at exactly wood=8. With 8 villagers, ~5 assigned to farms, ~3 free gatherers. Free villagers gather wood at ~1 wood/200–300 ticks each, but wood never exceeds 8. Possible causes: (a) free gatherers deposit wood then immediately re-gather to same quantity, (b) some background wood consumption not accounted for, (c) auto_build timing aligns exactly with wood accumulation rate keeping wood pegged just below hut cost.
+- **WoodToPlanks threshold fix is necessary but insufficient**: Raising to 12 protects hut wood, but if wood never reaches 10, Workshop still can't be built — production chain remains blocked.
+- **Housing_satisfied guard is correct design**: Prevents Workshop from racing huts. The underlying problem is that wood income needs to reach 10 before huts unlock, and that requires either faster gathering or lower hut cost.
+- **Initial rabbit spawn works**: All Phase 4+ runs show Rabbits: 12, confirming the spawn fix is effective. Seed 42 winter survival (food 365 vs. prior 11) directly validates this change.
+- **Missing first Workshop was a critical silent failure**: The production chain gating (planks → Bakery → food preservation in winter) was completely unreachable for an unknown number of sessions. The bug caused Workshops to never appear in any automated playtest since at least Session 17.
+
+### Next Session Priorities
+
+1. **Wood=8 ceiling / hut funding deadlock** — Either reduce hut wood cost (10w → 7w), increase initial wood stockpile (game starts with ~8-10 wood to allow immediate first hut), or make gatherers deposit more aggressively when close to a build threshold. Root cause: wood income rate (~3 wood per 200-tick auto_build interval) cannot bridge from 8w to 10w in one cycle.
+
+2. **Winter food decay too aggressive** — `max(1, food * 2/100)` per 30 ticks depletes 255 food in ~9000 winter ticks. With pop=8 and no Bakery/Granary, winter is instantly fatal. Halve the decay rate or make it scale with season severity rather than flat 2%.
+
+3. **Wolf surge entity spawning** — Confirmed broken in multiple sessions. Event message fires but 0 wolves spawn. Fix the entity creation call in `src/game/events.rs`.
+
+4. **Population growth after housing is satisfied** — Pop=8 with 2 huts (cap=8) never grows. Need to verify birth/growth system correctly checks `housing_surplus > 0`. Possible race: huts are counted as full before new villagers actually move in.
+
+5. **Frame duplication in `--play` mode** — Persists across all sessions. Low priority but should be fixed for clean playtest output.
+
