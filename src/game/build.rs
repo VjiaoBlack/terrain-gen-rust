@@ -394,7 +394,7 @@ impl super::Game {
                     break;
                 }
                 let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-                let d = rng.random_range(15.0f64..50.0);
+                let d = rng.random_range(5.0f64..18.0); // within villager sight_range (22 tiles)
                 let tx = cx + angle.cos() * d;
                 let ty = cy + angle.sin() * d;
                 if tx < 0.0 || ty < 0.0 || !self.map.is_walkable(tx, ty) {
@@ -606,10 +606,11 @@ impl super::Game {
         if self.tick % 2000 == 0 {
             let stone_deposit_count = self.world.query::<(&ecs::StoneDeposit,)>().iter().count();
             if stone_deposit_count == 0 || self.resources.stone < 20 {
-                // Place new deposits at alternating angles around settlement center
+                // Place new deposits at alternating angles around settlement center.
+                // Keep within villager sight_range (22 tiles) so they can be found and mined.
                 let cycle = (self.tick / 2000) as f64;
                 let base_angle = cycle * std::f64::consts::PI * 0.618; // golden-ratio rotation
-                let dist = 18.0 + (cycle % 4.0) * 8.0; // 18, 26, 34, 42 tiles
+                let dist = 8.0 + (cycle % 4.0) * 3.0; // 8, 11, 14, 17 tiles — always in sight range
                 for i in 0..2 {
                     let angle = base_angle + (i as f64) * std::f64::consts::PI;
                     let tx = cx + angle.cos() * dist;
