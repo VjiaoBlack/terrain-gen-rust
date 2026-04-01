@@ -666,7 +666,13 @@ impl super::Game {
             }
         }
 
-        // Priority 1: Farm when food is low and we don't have enough farms
+        // Priority 1: Farm when food is low and we don't have enough farms.
+        // Threshold: 1 farm per 3 villagers (div_ceil), minimum 2. The old "2/3 of pop"
+        // threshold (e.g. 6 farms for pop=8) was far too high — one farm already produces
+        // ~25 food/1000 ticks while 8 villagers consume only ~1.2 food/1000 ticks. The old
+        // threshold caused P1 to fire every 50 ticks until 6 farms existed, permanently
+        // blocking P3 (Workshop) from ever running. Minimum of 2 ensures early-game (pop=3)
+        // still queues a second farm before the threshold is satisfied.
         if self.resources.food < 8 + villager_count * 4
             && farm_count < (villager_count as usize).div_ceil(3) + 1
         {
@@ -726,17 +732,13 @@ impl super::Game {
             return;
         }
 
-        // Count existing build sites being worked on
-        let pending_builds = self.world.query::<&BuildSite>().iter().count();
-        // Don't queue too many optional/processing builds at once
-        if pending_builds >= 3 {
-            return;
-        }
-
-        // Priority 3: First Workshop — also queued here when housing is satisfied
-        // (has_workshop and pending_workshop_any pre-computed before P2 above).
-        if !has_workshop && !pending_workshop_any && villager_count >= 8 && self.resources.stone > 5
-        {
+        // Priority 3: First Workshop — also queued here when housing is satisfied.
+        // (has_workshop and pending_workshop_any pre-computed before P1 above)
+        // Pop threshold is 3: Workshop only fires when P1/P2 are satisfied (queued_critical
+        // returned above), so it can't pre-empt critical housing or food. No stone > 5 guard
+        // here — can_afford(&cost) already enforces the 3s requirement, and the extra guard
+        // caused Workshop to never queue on maps where stone sits at exactly 5 (seed 999).
+        if !has_workshop && !pending_workshop_any && villager_count >= 3 {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
@@ -746,6 +748,13 @@ impl super::Game {
                 self.notify("Auto-build: Workshop queued".to_string());
                 return;
             }
+        }
+
+        // Count existing build sites being worked on
+        let pending_builds = self.world.query::<&BuildSite>().iter().count();
+        // Don't queue too many optional/processing builds at once
+        if pending_builds >= 3 {
+            return;
         }
 
         // Priority 4: First Granary when population is established and food is adequate.
