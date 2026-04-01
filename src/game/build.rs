@@ -656,7 +656,11 @@ impl super::Game {
         // slots leaving no capacity for the Granary.
         let food_secure = self.resources.grain >= villager_count * 4
             || self.resources.food > 60 + villager_count * 6;
-        if !has_workshop && !pending_workshop_any && villager_count >= 8 && self.resources.stone > 5 && food_secure
+        if !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 8
+            && self.resources.stone >= 3
+            && food_secure
         {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)
@@ -710,7 +714,7 @@ impl super::Game {
         let saving_for_workshop = (!has_workshop
             && !pending_workshop_any
             && villager_count >= 8
-            && self.resources.stone > 5
+            && self.resources.stone >= 3
             && self.resources.grain >= villager_count * 4)
             || (has_workshop && self.resources.planks == 0);
         let hut_ok = !saving_for_workshop || self.resources.wood >= 10;
@@ -726,7 +730,7 @@ impl super::Game {
             } else if !has_workshop
                 && !pending_workshop_any
                 && villager_count >= 8
-                && self.resources.stone > 5
+                && self.resources.stone >= 3
             {
                 // Housing is needed but we can't afford a hut right now.
                 // Use the wood for Workshop instead — planks unlock Garrison which is
@@ -756,7 +760,10 @@ impl super::Game {
 
         // Priority 3: First Workshop — also queued here when housing is satisfied
         // (has_workshop and pending_workshop_any pre-computed before P2 above).
-        if !has_workshop && !pending_workshop_any && villager_count >= 8 && self.resources.stone > 5
+        if !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 8
+            && self.resources.stone >= 3
         {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)

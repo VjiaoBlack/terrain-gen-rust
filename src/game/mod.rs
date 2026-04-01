@@ -442,9 +442,40 @@ impl Game {
                             })
                         });
                         if has_forest {
-                            start_cx = ux;
-                            start_cy = uy;
-                            break 'search;
+                            // Count non-overlapping 3×3 Grass/Sand zones within 25 tiles
+                            // (step by 3 to avoid double-counting). Need ≥4 so auto-build
+                            // can place huts, farms, workshop, and garrison without running
+                            // out of valid spots. Seed 137 was permanently stuck at pop=4
+                            // because it spawned in a narrow mountain corridor with no 3×3
+                            // buildable zones, despite having wood=44 and stone=18.
+                            let mut buildable_count = 0usize;
+                            let scan_r = 25i32;
+                            let mut gx = ux as i32 - scan_r;
+                            while gx <= ux as i32 + scan_r - 2 {
+                                let mut gy = uy as i32 - scan_r;
+                                while gy <= uy as i32 + scan_r - 2 {
+                                    let zone_fits = (0..3i32).all(|fy| {
+                                        (0..3i32).all(|fx| {
+                                            let tx = (gx + fx).max(0) as usize;
+                                            let ty = (gy + fy).max(0) as usize;
+                                            matches!(
+                                                map.get(tx, ty),
+                                                Some(Terrain::Grass | Terrain::Sand)
+                                            )
+                                        })
+                                    });
+                                    if zone_fits {
+                                        buildable_count += 1;
+                                    }
+                                    gy += 3;
+                                }
+                                gx += 3;
+                            }
+                            if buildable_count >= 4 {
+                                start_cx = ux;
+                                start_cy = uy;
+                                break 'search;
+                            }
                         }
                     }
                 }
