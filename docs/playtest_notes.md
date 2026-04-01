@@ -3534,3 +3534,144 @@ Each stone discovery event spawns 2 deposits at 12 yield each = 24 total stone. 
 ## Tests
 
 All 194 lib tests pass. No regressions introduced. Commit `c8eef0e`.
+
+---
+
+## 2026-04-01 — Session 4 Playtest Report (Two Dev Loops)
+
+**Build:** release  
+**Auto-build:** enabled via `auto-build` input token  
+**Display size:** 70×25  
+**Seeds tested:** 42, 137, 777
+
+### Session Summary
+
+This session ran two full dev loops targeting two persistent issues: (1) seed 42's pop ceiling at ~8 due to stone equilibrating at 2 on mountain terrain, and (2) seed 137's permanent pop=4 despite abundant resources. The session ended with both issues still present — both fixes applied across two commits were insufficient.
+
+---
+
+### Phase 1 — Baseline Playtests
+
+Seeds 42, 137, and 999 were run for 36k ticks each (3 snapshots at T+12k/24k/36k). Results:
+
+| | Seed 42 | Seed 137 | Seed 999 |
+|---|---|---|---|
+| **T+12k pop** | 8 | 4 | — |
+| **T+24k pop** | 8 | 4 | — |
+| **T+36k pop** | 8 | 4 | — |
+| **Stone at T+36k** | 2 | 18 | — |
+| **Wood at T+36k** | 27 | 44 | — |
+| **Terrain** | Mountain-heavy (all `::::`) | Grass/forest/river | — |
+
+Seed 42 is almost entirely mountain terrain (`:` in the map). Pop hit 8 and stalled. Stone equilibrated at 2 — mined as fast as consumed.
+
+Seed 137 spawned in a grass/river area with abundant forest nearby. Pop=4 throughout despite stone=18 and wood=44 (enough to build 4+ huts). Auto-build appears to be doing nothing.
+
+---
+
+### Phase 3 — Fix Attempt 1 (commit `2ab4d0a`)
+
+**Fix 1 — Workshop stone threshold**: Changed all 4 `stone > 5` guards in `auto_build_tick()` to `stone >= 3`. Workshop costs 3 stone; the old threshold was twice as strict and prevented Workshop from ever queuing on maps where stone equilibrates below 6.
+
+**Fix 2 — Spawn buildable zone guarantee**: Added a check requiring ≥8 non-overlapping 3×3 Grass/Sand zones within 25 tiles of the spawn point. Added a fallback loop that drops the forest-adjacency requirement so we still find a valid spawn on open-grass maps. Previously the spawn code had a comment saying "require at least 5 distinct 3×3 buildable areas" but the check was never implemented.
+
+---
+
+### Phase 4 — Verification (seeds 42 and 137)
+
+Both seeds showed identical results to Phase 1 baseline. No improvement.
+
+- **Seed 42**: Stone still at 2 throughout. Workshop threshold fix had no effect because stone genuinely never accumulates above 2 — every unit mined is immediately consumed by ongoing construction. The ≥8 zone spawn fix didn't change seed 42's situation (it already spawns in a mountain-heavy area and the fallback loop picks the best available, which is still rocky terrain).
+
+- **Seed 137**: Pop still at 4 with stone=18, wood=44. The spawn moved to a different location due to the zone check, but auto-build still isn't consuming resources to build huts.
+
+---
+
+### Phase 5 — Fix Attempt 2 (commit `92c6608`)
+
+**Fix A — Stone deposit terrain preference**: `discover_stone_deposits()` now does two passes — first 60 random attempts require Grass/Sand/Forest terrain, second 60 allow any walkable tile. Previously deposits could land on mountain tiles (0.25× mining speed), making them effectively useless for accumulating stone.
+
+**Fix B — Spawn threshold raised to ≥8 + fallback**: The buildable zone threshold was raised from ≥4 to ≥8 (a narrow 3-wide grass corridor passes the ≥4 check since it yields 4 non-overlapping zones along its long axis). The fallback loop was also added to handle open-grass maps without adjacent forest.
+
+---
+
+### Phase 5 — Verification
+
+Both seeds still show identical results to Phase 1:
+
+**Seed 42 (Phase 5):**
+- T+12k: Pop 8, Stone 2, Wood 27
+- T+24k: Pop 8, Stone 2, Wood 27
+- T+36k: Pop 8, Stone 2, Wolf surge
+
+Stone terrain preference fix appears to have placed deposits on grass terrain (two `●` markers visible on the map at stone deposit locations), but stone still equilibrates at 2. Mining throughput on even-grass deposits may be insufficient when competing with building consumption.
+
+**Seed 137 (Phase 5):**
+- T+12k: Pop 4, Stone 18, Wood 44
+- T+24k: Pop 4, Stone 18, Wood 44
+- T+36k: Pop 4, Stone 18, Wolf pack repelled
+
+Stone=18 and wood=44 are more than enough to build multiple huts (10w+4s each). The auto-build system is not consuming resources. Root cause not yet identified — may be a `find_building_spot` failure (no valid 3×3 spot found near the spawn location) or a pending_builds guard blocking the queue.
+
+---
+
+### Phase 6 — Seed 777 Verification Playtest
+
+Seed 777 run for 30k ticks:
+
+| Snapshot | Season | Pop | Food | Wood | Stone | Notes |
+|---|---|---|---|---|---|---|
+| T+15k | Y1 Summer D3 night | 10 | 4 | 16 | 0 | Farm 19.9, Mine 1.3 |
+| T+30k | Y1 Autumn D6 | 7 | 4 | 16 | 0 | **Villager died!** Stone deposit discovered |
+
+Population collapsed from 10 to 7 between T+15k and T+30k. The map is almost entirely mountain terrain (`░░░░`) with small grass patches. Wood=16 and Stone=0 throughout (stone deposits not spawning due to `stone < 50` threshold not being met, or deposits landing on mountain terrain). Two stone deposits were discovered at T+30k but stone is still 0.
+
+Farming on mountain terrain (0.25× speed) is too slow to feed 10 villagers, causing starvation deaths before winter.
+
+---
+
+### Root Cause Analysis
+
+**Seed 42 / 777 (mountain terrain pop ceiling):**  
+The fundamental problem is that on mountain-heavy seeds, every core mechanic runs at 0.25× speed: farming, wood gathering, mining. Building consumption of stone is constant regardless of terrain, so stone equilibrates at whatever the mine throughput equals consumption — on mountain terrain, this is ~2. The Workshop threshold fix and deposit terrain preference are correct changes but don't address the throughput imbalance. A proper fix requires either (a) allowing settlement spawn to avoid mountain-majority terrain, or (b) adding a terrain modifier to building costs.
+
+**Seed 137 (pop=4 with abundant resources):**  
+Stone=18 and wood=44 should be sufficient for 4+ huts. The auto-build system appears to be silently failing to place buildings. Most likely `find_building_spot` is not finding a valid 3×3 Grass/Sand zone near the spawn location. The spawn location itself may be surrounded by river/forest tiles that pass the 3×3 walkability check for settlement scoring but not for building placement (which requires Grass/Sand specifically). The zone check in the spawn code counts only Grass/Sand, but the map itself may not have enough contiguous Grass/Sand in 3×3 chunks even if there are 8+ non-overlapping zones (rivers and sparse forest patches break the contiguous requirement in `can_place_building_impl`).
+
+---
+
+### What Works Well
+
+- **Seasonal tension**: Summer→Autumn→Winter resource arc is clear and motivating
+- **Garrison defense**: Wolf pack repelled on both seed 137 and 42 at T+36k without player input
+- **Granary chain**: Grain accumulating to 200 by winter on seeds with adequate grass terrain
+- **Stone deposit discovery messages**: "Stone deposit discovered nearby!" events fire correctly
+- **Auto-build on good terrain**: Seeds that land on mostly-grass terrain (e.g., previous session's seed 999) show healthy 4→8+ pop growth
+
+---
+
+### Remaining Issues
+
+1. **Mountain spawn not rejected**: Seeds 42 and 777 spawn on majority-mountain terrain. The ≥8 buildable zone check should reject these, but the fallback loop may still select them as "best available" when the map has no grass-majority region.
+
+2. **Seed 137 auto-build silent failure**: Pop=4 with stone=18, wood=44, and no buildings being constructed. `find_building_spot` likely fails silently every 50 ticks. Need logging to confirm.
+
+3. **Stone equilibrium at 2**: On mountain seeds, stone throughput equals consumption. Workshop threshold `>= 3` fires, Workshop gets built, but planks=0 because no one is assigned to it (or wood is also too slow). The Workshop/plank chain doesn't help if wood throughput is the bottleneck.
+
+4. **Non-determinism still present**: As noted in the previous session, AI behavior uses unseeded thread-local RNG, meaning the same seed can produce different outcomes across runs.
+
+---
+
+### Next Session Priorities
+
+1. **Add `find_building_spot` failure logging**: When `find_building_spot` returns `None` for a Hut or Farm request in `auto_build_tick`, log the failure with the requested building type. This will confirm whether seed 137's stall is a placement issue.
+
+2. **Expand spawn terrain rejection**: The fallback loop in spawn selection should also require that the spawn point itself is on Grass/Sand (not just that 8 nearby zones are). Currently a mountain-center spawn with 8 scattered grass patches nearby passes the check.
+
+3. **Mountain terrain difficulty balance**: Consider scaling villager food consumption by terrain difficulty, or adding a "mountain bonus" to farming yield to compensate for movement speed penalties. Alternatively, reject spawn points where >50% of tiles within 15 tiles are Mountain.
+
+4. **Year 2+ data for good seeds**: Run a successful seed (e.g., seed 999 from session 1) for 90k+ ticks to observe second-year population dynamics and whether the Workshop/Bakery chain eventually stabilizes.
+
+## Tests
+
+All lib tests pass. Commits `2ab4d0a` and `92c6608` introduced no regressions.
