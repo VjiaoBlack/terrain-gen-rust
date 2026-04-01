@@ -558,6 +558,35 @@ impl super::Game {
             .iter()
             .any(|pb| pb.recipe == Recipe::FoodToGrain);
 
+        // Priority 3: First Workshop — starts the planks production chain.
+        // Requires food security so wood gatherers aren't desperately needed for survival.
+        // Workshop costs 8w, and WoodToPlanks only fires at wood >= 12, so the 10w needed
+        // for the next hut is not blocked: auto_build's hut check (Priority 2) always wins
+        // at wood=10 before Workshop triggers at wood=8.
+        let pending_workshop = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Workshop);
+        let food_secure = self.resources.grain >= villager_count * 4
+            || self.resources.food > 60 + villager_count * 6;
+        if !has_workshop
+            && !pending_workshop
+            && villager_count >= 8
+            && self.resources.stone >= 3
+            && food_secure
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return;
+            }
+        }
+
         // Priority 3.5: Second Workshop when wood is accumulating faster than one can process
         let workshop_count = self
             .world
