@@ -379,6 +379,12 @@ fn main() -> Result<()> {
                         _ => GameInput::None,
                     };
                     game_obj.step(input, &mut r)?;
+                } else if cmd.starts_with("seed:") {
+                    // Seed must be passed via --seed CLI arg; this token is a no-op
+                    // (kept for command readability)
+                } else if cmd == "auto-build" {
+                    // Directly enable auto-build (not a toggle, so safe to use at start)
+                    game_obj.auto_build = true;
                 } else if cmd == "frame" {
                     // Dump current frame
                     println!("{}", r.frame_as_string());

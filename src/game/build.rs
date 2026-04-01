@@ -619,6 +619,53 @@ impl super::Game {
         let villager_count = villager_pos.len() as u32;
         let mut queued_critical = false;
 
+        // Pre-compute has_granary / pending_granary_any for use in P4 below.
+        let has_granary = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::FoodToGrain);
+        let pending_granary_any = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Granary);
+
+        // Pre-compute has_workshop / pending_workshop_any — used in P0.5, P2 fallback, and P3.
+        let has_workshop = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::WoodToPlanks);
+        let pending_workshop_any = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Workshop);
+
+        // Priority 0.5: Workshop — pre-empts Farm when grain buffer proves food security.
+        // Without this, P1 Farm always takes wood=5 first (Farm costs 5w, Workshop costs 5w),
+        // permanently preventing Workshop from ever being built.
+        // Condition: grain ALONE (not food+grain) covers 4 meals per villager. This requires
+        // a Granary to be running and accumulating grain, preventing early-game firing when
+        // the settlement has starting food=50 but no actual food production established yet.
+        if !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 8
+            && self.resources.stone > 5
+            && self.resources.grain >= villager_count * 4
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return; // Don't queue Farm or Hut this tick — Workshop is the priority
+            }
+        }
+
         // Priority 1: Farm when food is low and we don't have enough farms
         if self.resources.food < 8 + villager_count * 4
             && farm_count < ((villager_count as usize) * 2).div_ceil(3)
@@ -633,18 +680,6 @@ impl super::Game {
                 queued_critical = true;
             }
         }
-
-        // Pre-compute has_granary / pending_granary_any for use in P4 below.
-        let has_granary = self
-            .world
-            .query::<&ProcessingBuilding>()
-            .iter()
-            .any(|pb| pb.recipe == Recipe::FoodToGrain);
-        let pending_granary_any = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .any(|s| s.building_type == BuildingType::Granary);
 
         // Priority 2: Hut when population needs housing
         // Runs in the same tick as P1 so farm demand never permanently blocks housing.
@@ -667,6 +702,23 @@ impl super::Game {
                 self.place_build_site(bx, by, BuildingType::Hut);
                 self.notify("Auto-build: Hut queued".to_string());
                 queued_critical = true;
+            } else if !has_workshop
+                && !pending_workshop_any
+                && villager_count >= 8
+                && self.resources.stone > 5
+            {
+                // Housing is needed but we can't afford a hut right now.
+                // Use the wood for Workshop instead — planks unlock Garrison which is
+                // critical for wolf defense and stops the entire settlement from being wiped.
+                let workshop_cost = BuildingType::Workshop.cost();
+                if self.resources.can_afford(&workshop_cost)
+                    && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+                {
+                    self.resources.deduct(&workshop_cost);
+                    self.place_build_site(bx, by, BuildingType::Workshop);
+                    self.notify("Auto-build: Workshop queued".to_string());
+                    queued_critical = true;
+                }
             }
         }
 
@@ -681,19 +733,8 @@ impl super::Game {
             return;
         }
 
-        let has_workshop = self
-            .world
-            .query::<&ProcessingBuilding>()
-            .iter()
-            .any(|pb| pb.recipe == Recipe::WoodToPlanks);
-
-        // Priority 3: First Workshop — wait until population ≥ 8 so there are enough
-        // free gatherers to sustain Workshop wood consumption without starving Hut builds.
-        let pending_workshop_any = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .any(|s| s.building_type == BuildingType::Workshop);
+        // Priority 3: First Workshop — also queued here when housing is satisfied
+        // (has_workshop and pending_workshop_any pre-computed before P2 above).
         if !has_workshop && !pending_workshop_any && villager_count >= 8 && self.resources.stone > 5
         {
             let cost = BuildingType::Workshop.cost();

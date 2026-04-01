@@ -1667,7 +1667,7 @@ mod tests {
         assert_eq!(
             BuildingType::Workshop.cost(),
             Resources {
-                wood: 8,
+                wood: 5,
                 stone: 3,
                 ..Default::default()
             }

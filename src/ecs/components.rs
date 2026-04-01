@@ -243,7 +243,7 @@ impl BuildingType {
             BuildingType::Workshop => BuildingDef {
                 name: "Workshop",
                 cost: Resources {
-                    wood: 8,
+                    wood: 5,
                     stone: 3,
                     ..DEF_RES
                 },

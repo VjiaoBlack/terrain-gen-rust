@@ -3241,3 +3241,82 @@ Pop=16 stable, food/grain strongly positive. Wolves=2 vs old potential 4–9. Ra
 3. **Verify Smithy threshold fix medium-term** — Run 60k-tick test on seed 999 to confirm Smithy builds when Workshop is active and stone briefly crosses 25.
 4. **Garrison reachability** — Garrison costs 10p+10m. Consider reducing to 5p+5m for early game, or add a "Palisade" defense (wood+stone only) to bridge the wolf defense gap.
 
+---
+
+## Run 25 — Workshop Deadlock Fix + Auto-Build Command Fix
+
+### Baseline (Phase 1) → All three seeds run without auto-build by accident
+
+**Critical discovery**: The `seed:N` and `auto-build` tokens in `--inputs` strings were silently no-ops. All Phase 1–4 playtests in this session ran with seed=42 (default) and `auto_build=false`. Phase 1 results reflected the game without any automation. Fix: added `auto-build` and `seed:` as recognized `--inputs` tokens (`auto-build` directly sets `game.auto_build = true`; `seed:N` is a documented no-op reminding the user to pass `--seed N` separately).
+
+### Issues Identified
+
+1. **Workshop deadlock** (primary fix): Workshop cost was 8w while Hut costs 6w and Farm costs 5w. The `auto_build_tick` P1 Farm fired whenever `food < 8 + pop*4`, consuming wood=5 each time. Since wood rarely exceeded 7 (huts consume at 6w), Workshop at 8w was permanently unaffordable. The deadlock prevented planks production — a prerequisite for Garrison and Bakery.
+
+2. **P0.5 Workshop condition too loose** (regression fix): After lowering Workshop cost to 5w and adding a P0.5 priority block, the initial condition used `(food + grain) >= pop * 4`. With starting food=50 and pop=8, this evaluated to 50 >= 32 and triggered Workshop at T~200, consuming 5w+3s before farms were established, causing food=0 crash. Fixed by changing to `grain >= pop * 4` (grain alone, not food+grain), so Workshop P0.5 only fires once a Granary has been running long enough to accumulate a real grain buffer.
+
+### Changes Made
+
+| File | Change |
+|------|--------|
+| `src/ecs/components.rs` | Workshop cost 8w → 5w |
+| `src/ecs/mod.rs` | Updated `workshop_building_type_properties` test assertion |
+| `src/game/build.rs` | Added P0.5 Workshop priority block (fires before P1 Farm when `grain >= pop*4`); added P2 Workshop fallback when hut unaffordable; moved `has_workshop`/`pending_workshop_any` computation earlier |
+| `src/ecs/systems.rs` | WoodToPlanks worker threshold: `wood >= 10` → `wood >= 7`; WoodToPlanks processing trigger: `wood >= 10` → `wood >= 7` |
+| `src/main.rs` | Added `auto-build` token to `--inputs` parser (sets `game_obj.auto_build = true`); added `seed:N` as recognized no-op token |
+
+### Phase 4 + Phase 6 Results
+
+**Seed 42** (primary target):
+
+| Tick | Pop | Food | Wood | Stone | Planks | Grain | Wolves |
+|------|-----|------|------|-------|--------|-------|--------|
+| 12k | 8 | 477 | 18 | 10 | 0 | 24 | 0 |
+| 24k | 8 | 1,237 | 18 | 10 | 0 | 102 | 0 |
+| 36k | 8 | 1,454 | 2 | 6 | **6** | 164 | 2 |
+
+Pop=8 (was 3 before, Workshop deadlock suppressed growth). Planks=6 at T+36k — Workshop deadlock is **fixed**. "Wolf pack repelled by defenses!" log appears.
+
+**Seed 137** (mountainous terrain):
+
+| Tick | Pop | Food | Wood | Planks | Grain |
+|------|-----|------|------|--------|-------|
+| 12k | 8 | 475 | 18 | 0 | 32 |
+| 24k | 8 | 806 | 18 | 0 | 228 |
+| 36k | 8 | 865 | 18 | 0 | 422 |
+
+Previously stuck at pop=4 permanently (terrain constraint prevented hut finding — auto-build was actually off before). Now pop=8 with healthy food/grain. Planks=0 — Workshop build site placed but likely constrained by mountainous terrain footprint.
+
+**Seed 999** (flat, fast-growing):
+
+| Tick | Pop | Food | Wood | Planks | Grain |
+|------|-----|------|------|--------|-------|
+| 12k | 12 | 241 | 2 | 0 | 160 |
+| 24k | 12 | 775 | 2 | 0 | 356 |
+| 36k | 12 | 886 | 2 | 0 | 550 |
+
+Pop=12 (rapid growth via Huts). Wood=2 stable — all wood consumed by Hut building (pop needed 3 Huts = 18w, leaving wood at 2 equilibrium). Workshop P0.5 triggers when grain >= 48 and wood >= 5, but wood rarely accumulates above 2-3 before another Hut consumes it. Planks=0 as a result.
+
+**Seed 777** (Phase 6 verification):
+
+| Tick | Pop | Food | Wood | Planks | Grain |
+|------|-----|------|------|--------|-------|
+| 12k | 16 | 223 | 2 | 0 | 122 |
+| 24k | 15 | 727 | 2 | 0 | 316 |
+| 36k | 15 | 793 | 2 | 0 | 504 |
+
+Pop=15-16 (very healthy), food and grain strong. Same wood=2 equilibrium as seed 999 — pop grew fast enough that Huts consumed all wood before Workshop became affordable. One villager died. "Wolf pack repelled by defenses!" — some defense active.
+
+### Analysis
+
+The Workshop deadlock fix works correctly on seed 42: Workshop eventually builds and produces planks. The P0.5 grain-alone condition prevents early-game food crashes.
+
+Fast-growing seeds (777, 999) hit a new bottleneck: wood=2 equilibrium where rapid Hut building (pop=12-16 requires 3-4 huts = 18-24w) consumes wood faster than gatherers can accumulate it, leaving Workshop permanently unaffordable at 5w. The P0.5 Workshop condition fires when grain is high enough but `can_afford` fails because wood=2 < 5.
+
+### Next Session Priorities (updated)
+
+1. **Wood floor for Workshop** — Rapid-growth seeds get trapped at wood=2 because Hut builds consume wood before Workshop can fire. Options: (a) reduce Workshop cost to 4w so it can fire from a wood=4 floor; (b) after Workshop is queued as pending, pause Hut construction for 1 cycle to let wood accumulate; (c) dynamically lower the Hut build threshold when Workshop is pending.
+2. **WoodToPlanks threshold too high for low-wood steady state** — `wood >= 7` means Workshop idles even when wood=5-6. Lowering to `wood >= 4` (2 to consume + 2 buffer) would help planks appear sooner.
+3. **Settlement spawn terrain guarantee** — Seed 137 narrow mountain corridor still limits growth past pop=8.
+4. **Auto-build input correctness** — Document that `--play --seed N --inputs "auto-build,..."` is the correct invocation; `seed:N` in inputs string is not sufficient.
+
