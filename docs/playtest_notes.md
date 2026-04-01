@@ -4058,3 +4058,146 @@ Winter food decay (`max(1, food * 2/100)` per 30 ticks) collapsed food 255→0 o
 
 5. **Frame duplication in `--play` mode** — Persists across all sessions. Low priority but should be fixed for clean playtest output.
 
+---
+
+## 2026-04-01 — Session 21 (Automated)
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild at tick 100)  
+**Display size:** 70×25
+
+---
+
+### Playtest Results (Phase 1 — pre-fix baseline)
+
+Diagnostic runs confirmed the population ceiling bug reported in prior sessions.
+
+| Seed | T    | Pop | Food | Wood | Stone | Grain | Notes               |
+|------|------|-----|------|------|-------|-------|---------------------|
+| 42   | 2600 | 4   | 14   | 38   | 10    | 6     | Static since T=1100 |
+| 42   | 10000| 4   | 14   | 38   | 10    | 46    | Completely frozen   |
+
+All builds queued at T=50 (Garrison, Hut) never completed. Build skill decayed
+1.0 → 0.7 over 3000 ticks — conclusively zero building ticks. The P2 Hut queued at
+T=50 was never finished, so total housing capacity stayed at 4 (pre-built Hut only),
+housing_surplus = 4−4 = 0, births permanently blocked.
+
+---
+
+### Root Cause Analysis
+
+**`place_build_site` sets the entire 3×3 footprint to `BuildingFloor` immediately on
+placement.** When villagers walked toward the build-site position `(bx, by)` (the
+top-left corner of the footprint) they stepped onto `BuildingFloor`. The `_` catch-all
+arm of `ai_villager` checked `on_building` FIRST — before the build-site detection
+code — and immediately redirected them to seek the nearest outdoor tile. Villagers
+loop: approach footprint → enter floor → flee → repeat. No villager ever gets within
+1.5 tiles of `(bx, by)` to trigger `BehaviorState::Building`.
+
+The pre-built buildings in `Game::new()` bypass `BuildSite` entirely (entities spawned
+directly), so this bug only affected auto-built structures queued after game start.
+
+---
+
+### Fix (Phase 3)
+
+**File:** `src/ecs/ai.rs` — `ai_villager`, `_` arm  
+**Change:** Skip the `on_building` exit guard when an active build site is within 4 tiles.
+
+```rust
+// Before:
+if on_building {
+    // ... seek exit ...
+}
+
+// After:
+let near_active_build_site = build_sites
+    .iter()
+    .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < 4.0);
+if on_building && !near_active_build_site {
+    // ... seek exit ...
+}
+```
+
+4-tile threshold covers the full 3×3 footprint diagonal (√8 ≈ 2.83) plus margin.
+The threshold is intentionally conservative — it will not suppress the exit guard
+for completed buildings because those have no `BuildSite` entity at their location.
+
+**Tests:** All 194 lib tests pass. Commit `8a82c1c`.
+
+---
+
+### Post-Fix Results (Phase 4 — seeds 42 & 137; Phase 6 — seed 777)
+
+| Seed | T     | Pop | Food | Wood | Stone | Grain | Season      | Survived? |
+|------|-------|-----|------|------|-------|-------|-------------|-----------|
+| 42   | 12000 | 8   | 19   | 22   | 3     | 38    | Y1 Summer   | ✓         |
+| 42   | 24000 | 8   | 13   | 6    | 3     | 130   | Y1 Autumn   | ✓         |
+| 42   | 36000 | 8   | 0    | 6    | 3     | 176   | Y1 Winter   | ✓ (wolves repelled) |
+| 137  | 12000 | 16  | 20   | 6    | 0     | 66    | Y1 Summer   | ✓         |
+| 137  | 24000 | 16  | 165  | 6    | 0     | 258   | Y1 Autumn   | ✓         |
+| 137  | 36000 | 15  | 40   | 6    | 0     | 454   | Y1 Winter   | ✓         |
+| 777  | 15000 | 11  | 8    | 7    | 0     | 38    | Y1 Summer   | ✓ (so far)|
+| 777  | 28531 | 0   | —    | —    | —     | —     | Y1 Autumn D5| ✗ wiped   |
+
+**Comparison vs pre-fix:**
+- Seed 42: Pop 4 (static forever) → **8 stable, wolves repelled**
+- Seed 137: Pop 4 → **16 by Y1 Summer** (4× improvement)
+- Build skill: decaying 1.0→0.7 → **rising to 3.1** within 2000 ticks
+
+---
+
+### Design Notes
+
+1. **Wood starvation** (new, observable post-fix): Both seeds 42 and 137 show wood
+   dropping to ~6 by mid-game and staying there. The `timber_grove_discovery` mechanic
+   fires at T=3000/6000/9000 when `wood < 8`, so groves ARE being spawned. Likely
+   cause: with pop=8-16, 2/3 are assigned to farms/workshops, leaving only ~5 free
+   gatherers who may all be occupied with stone mining or building. The `wood_low &&
+   food_safe` clause in `system_assign_workers` frees 2 extra for woodcutting but may
+   not be enough at large pop.
+
+2. **Stone starvation**: Seed 137 hits stone=0 by Y1 Summer (T=12000). Deposit
+   discovery fires every 2000 ticks when stone<50; deposits placed within 8-18 tiles
+   of centroid. With pop=16 all consuming stone for buildings, the throughput may be
+   insufficient. The stone-mining worker reservation (next-session priority from
+   Session 20) is still unimplemented.
+
+3. **Seed 777 colony wipe**: Peaked at pop=11 before food/grain depletion in autumn.
+   Stone=0 meant no new farms/granaries, and wood=7 was too low for additional huts.
+   Without new buildings, population was capped below food-production capacity needed
+   to sustain 11 villagers through winter. Resource starvation cascade.
+
+4. **Granary chain working**: Grain=176-454 accumulated across multiple seeds by late
+   year. The `food > 15` guard keeps the granary from draining food below survival
+   minimum. Winter survival is now fundamentally grain-backed.
+
+5. **Building is now the bottleneck, not births**: Post-fix, births fire regularly and
+   the settlement grows to housing capacity. The limiting factor is now whether enough
+   Huts get queued AND completed before resources run out. This is the correct design
+   tension.
+
+---
+
+### Next Session Priorities
+
+1. **Wood gathering worker reservation**: In `system_assign_workers`, when `wood < 10`
+   reserve 2 villagers explicitly for `ResourceType::Wood` gathering (similar to the
+   `workshops_needing_worker` mechanism). Currently `wood_low && food_safe` frees 2
+   villagers but the freed capacity may go to stone/building instead of wood.
+
+2. **Stone-mining worker reservation**: Implement the reservation suggested in Session
+   20 notes: reserve 1 villager for stone when `stone < 5` and a deposit is in range.
+   Prevents stone=0 deadlocks that block late-game building.
+
+3. **Hut queuing at larger populations**: Check whether `auto_build_tick` correctly
+   queues enough Huts for pop=8+. The P2 condition `total_hut_capacity < pop + 4`
+   should keep queuing, but verify that `find_building_spot` succeeds (enough clear
+   terrain) and that stone/wood aren't depleted before the Hut can be afforded.
+
+4. **Year-2 stress test**: Run seed 42 to 60k ticks. With buildings now completing,
+   the Workshop → Smithy → Bakery chain should eventually activate. Verify it does.
+
+## Tests
+
+All 194 lib tests pass. Commit `8a82c1c` introduced no regressions.
