@@ -322,7 +322,8 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
-        game_obj.auto_build = true;
+        // auto_build starts false; `input:ToggleAutoBuild` in the command sequence enables it.
+        // (Do NOT set true here — that would cause ToggleAutoBuild to turn it back off.)
 
         let inputs_str = args
             .iter()
@@ -345,8 +346,10 @@ fn main() -> Result<()> {
             print!("{}", r.frame_as_string());
         } else {
             // Parse commands: tick:N runs N ticks, then named inputs
+            let mut last_cmd_was_frame = false;
             for cmd in inputs_str.split(',') {
                 let cmd = cmd.trim();
+                last_cmd_was_frame = false;
                 if let Some(n) = cmd.strip_prefix("tick:") {
                     let ticks: u64 = n.parse().unwrap_or(1);
                     for _ in 0..ticks {
@@ -380,13 +383,17 @@ fn main() -> Result<()> {
                     // Dump current frame
                     println!("{}", r.frame_as_string());
                     println!("--- tick {} ---", game_obj.tick);
+                    last_cmd_was_frame = true;
                 } else if cmd == "ansi" {
                     print!("{}", r.frame_as_ansi());
                     println!("--- tick {} ---", game_obj.tick);
+                    last_cmd_was_frame = true;
                 }
             }
-            // Always dump final frame
-            println!("{}", r.frame_as_string());
+            // Dump final frame only if the last command wasn't already a frame dump
+            if !last_cmd_was_frame {
+                println!("{}", r.frame_as_string());
+            }
         }
         return Ok(());
     }
