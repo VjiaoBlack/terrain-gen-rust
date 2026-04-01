@@ -381,15 +381,32 @@ impl super::Game {
 
         let mut rng = rand::rng();
         let mut spawned = 0u32;
-        for _ in 0..80 {
+        // Two passes: first prefer Grass/Sand/Forest (fast mining), then any walkable tile.
+        // On mountain-heavy seeds, deposits on mountain terrain (0.25× speed) mine far too
+        // slowly to accumulate enough stone for buildings. Grass/Sand deposits mine at full
+        // speed, so settlements receive usable stone much sooner.
+        for pass in 0..2u32 {
             if spawned >= 2 {
                 break;
             }
-            let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-            let d = rng.random_range(15.0f64..50.0);
-            let tx = cx + angle.cos() * d;
-            let ty = cy + angle.sin() * d;
-            if tx >= 0.0 && ty >= 0.0 && self.map.is_walkable(tx, ty) {
+            for _ in 0..60 {
+                if spawned >= 2 {
+                    break;
+                }
+                let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                let d = rng.random_range(15.0f64..50.0);
+                let tx = cx + angle.cos() * d;
+                let ty = cy + angle.sin() * d;
+                if tx < 0.0 || ty < 0.0 || !self.map.is_walkable(tx, ty) {
+                    continue;
+                }
+                let on_easy_terrain = matches!(
+                    self.map.get(tx as usize, ty as usize),
+                    Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
+                );
+                if pass == 0 && !on_easy_terrain {
+                    continue; // first pass: easy terrain only
+                }
                 ecs::spawn_stone_deposit(&mut self.world, tx, ty);
                 spawned += 1;
             }

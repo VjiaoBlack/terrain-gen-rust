@@ -443,11 +443,13 @@ impl Game {
                         });
                         if has_forest {
                             // Count non-overlapping 3×3 Grass/Sand zones within 25 tiles
-                            // (step by 3 to avoid double-counting). Need ≥4 so auto-build
-                            // can place huts, farms, workshop, and garrison without running
-                            // out of valid spots. Seed 137 was permanently stuck at pop=4
-                            // because it spawned in a narrow mountain corridor with no 3×3
-                            // buildable zones, despite having wood=44 and stone=18.
+                            // (step by 3 in both axes). Need ≥8 to reject narrow corridors:
+                            // a 3-wide corridor has zones only along one axis (e.g. 8 zones
+                            // requires a 24-long corridor), but a genuine open area (9×9)
+                            // provides 9 zones spread in both dimensions. The higher threshold
+                            // ensures auto-build can place multiple distinct buildings without
+                            // running out of valid spots, and rejects the seed 137 narrow
+                            // mountain corridor that has been blocking pop growth every session.
                             let mut buildable_count = 0usize;
                             let scan_r = 25i32;
                             let mut gx = ux as i32 - scan_r;
@@ -471,10 +473,67 @@ impl Game {
                                 }
                                 gx += 3;
                             }
-                            if buildable_count >= 4 {
+                            if buildable_count >= 8 {
                                 start_cx = ux;
                                 start_cy = uy;
                                 break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback spawn search: if no grass+forest+8zones position was found (happens on maps
+        // where open grass areas aren't adjacent to forest, e.g. seed 137 desert), accept any
+        // Grass/Sand tile with ≥8 buildable zones even without forest adjacency. Villagers can
+        // still gather wood from forests up to 22 tiles away via sight_range.
+        if start_cx == cx && start_cy == cy {
+            'fallback: for r in 0..80usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 2
+                            || y < 2
+                            || x as usize >= map_width - 2
+                            || y as usize >= map_height - 2
+                        {
+                            continue;
+                        }
+                        let ux = x as usize;
+                        let uy = y as usize;
+                        if matches!(map.get(ux, uy), Some(Terrain::Grass | Terrain::Sand)) {
+                            let mut buildable_count = 0usize;
+                            let scan_r = 25i32;
+                            let mut gx = ux as i32 - scan_r;
+                            while gx <= ux as i32 + scan_r - 2 {
+                                let mut gy = uy as i32 - scan_r;
+                                while gy <= uy as i32 + scan_r - 2 {
+                                    let zone_fits = (0..3i32).all(|fy| {
+                                        (0..3i32).all(|fx| {
+                                            let tx = (gx + fx).max(0) as usize;
+                                            let ty = (gy + fy).max(0) as usize;
+                                            matches!(
+                                                map.get(tx, ty),
+                                                Some(Terrain::Grass | Terrain::Sand)
+                                            )
+                                        })
+                                    });
+                                    if zone_fits {
+                                        buildable_count += 1;
+                                    }
+                                    gy += 3;
+                                }
+                                gx += 3;
+                            }
+                            if buildable_count >= 8 {
+                                start_cx = ux;
+                                start_cy = uy;
+                                break 'fallback;
                             }
                         }
                     }
