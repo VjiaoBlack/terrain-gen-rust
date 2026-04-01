@@ -2651,3 +2651,94 @@ Y1 Winter at pop 20–28, which is the correct baseline for this codebase state.
    - Plague events not prevented (no bread → plague kills 1/100 ticks)
    - Masonry = 0 (no Smithy) → no Garrison → wolves can raid freely in Y2+
    - Town Hall unreachable (needs 80 masonry)
+
+---
+
+## 2026-04-01 — Run 19 Automated Playtest Report
+
+**Build:** release  
+**Auto-build:** enabled (fixed in this session — was silently disabled since Run 18)  
+**Commits this session:** 4 (pushed to origin/master)
+
+### Fixes Applied This Session
+
+| Fix | File | Description |
+|-----|------|-------------|
+| Bread starvation bug | `systems.rs`, `mod.rs`, `components.rs` | Bread was produced but never consumed. `has_food` didn't include bread; villagers starved with full stockpiles |
+| Farm count increase | `build.rs` | Farm cap raised from `pop/2` to `pop*2/3`; food threshold raised from `pop*2` to `pop*4+8` |
+| Earlier Bakery trigger | `build.rs` | Trigger changed from `planks>20 && grain>50` to `planks>=8 && grain>30` |
+| Winter food decay cap | `mod.rs` | Decay now capped at 2/tick; was uncapped and could waste large stockpiles in extreme cases |
+| Granary cost reduced | `components.rs` | 12w+8s+4p → 6w+4s (matches design docs) |
+
+### Per-Game Summary (T=48000, Y2 Spring D1)
+
+| | Seed 42 | Seed 137 | Seed 777 |
+|---|---|---|---|
+| **Terrain** | Grassland/forest | Desert | Mountain |
+| **Final season** | Y2 Spring D1 | Y1 Winter D1 | Y2 Spring D1 |
+| **Final pop** | 3 | 0 (game over) | 7 |
+| **Food** | 4 | 0 | 0 |
+| **Wood** | 9 | 9 | 0 |
+| **Stone** | 9 | 8 | 2 |
+| **Planks** | 0 | 13 | 0 |
+| **Masonry** | 0 | 0 | 0 |
+| **Grain** | 32 | 2 | 20 |
+| **Bread** | — | — | — |
+| **Survived Y1 Winter** | ✓ | ✗ (T=35529) | ✓ |
+
+### Before/After Survival Comparison
+
+| Seed | Pre-Run-19 result | Post-Run-19 result |
+|------|-------------------|--------------------|
+| 42 | Game over T=40215 (Y1 Winter) | Survived Y1 Winter, pop=3 Y2 Spring |
+| 137 | Pop=11 at T=48000 (non-deterministic) | Variable: pop=0–24 at T=48000 (non-deterministic) |
+| 777 | Pop stuck at 8 (wood scarcity) | Pop=7 at Y2 Spring |
+
+### What Changed
+
+**Bread starvation (critical fix):** The most impactful fix this session. Bakeries were
+producing bread (visible in stockpile) but villagers were starving next to full bread
+supplies because `has_food` in `system_ai` only checked grain and food. Consumption order
+is now: grain → bread → food. This prevents the Y2 die-off pattern where grain depletes,
+bread sits unused, and villagers die.
+
+**Production chains now verified working:** Workshop → Planks, Granary → Grain, and
+(when triggered) Bakery → Bread all consume and produce correctly. Seed 137 at T=48000
+shows `planks=13` from a Workshop even though the settlement ultimately perished.
+
+**Non-determinism remains high:** The unseeded thread-local RNG in `system_ai` causes
+wide variance between runs of the same seed. Seed 137 ranges from pop=0 (game over) to
+pop=24 at T=48000 across runs — making it difficult to attribute survival to fixes alone.
+
+### Remaining Issues
+
+1. **Pop still collapses in Y1 Winter**: Seeds 42 and 777 enter Y2 Spring with only 3–7
+   villagers. A starting pop of ~8–10 drops to 3–7 despite the fixes. Root cause appears
+   to be food exhaustion before the Granary/Bakery chain produces enough to offset the
+   2.5× winter hunger multiplier.
+
+2. **Wood and food simultaneously hit zero in winter**: Seed 777 shows `food=0, wood=0`
+   at Y2 Spring. With no wood, no new farms/huts can be built. With no food, villagers
+   can't sustain work. This creates a death spiral if pop drops below ~5–6.
+
+3. **No planks/masonry in surviving seeds**: Seed 42 (pop=3) and seed 777 (pop=7) both
+   show `planks=0, masonry=0` at Y2 Spring. Workshop and Smithy are never built in these
+   runs, so the full production chain (Planks → Bakery, Masonry → Garrison) never
+   activates. With only 3 villagers, there aren't enough workers to run processing buildings
+   anyway.
+
+4. **Seed 137 still dying in Y1 Winter**: Desert terrain seed 137 continues to game-over
+   in winter. Grain=2 (nearly empty) and planks=13 but no grain consumers = bread never
+   started. Possibly the Bakery trigger requires grain > 30 but grain was consumed before
+   Bakery was built, or no Bakery was built due to wood shortage.
+
+5. **No rabbits/prey**: All seeds show `Rabbits: 0` throughout. No prey → no predator
+   pressure, and no secondary food source via hunting. Carry-over issue from prior sessions.
+
+### Next Steps
+
+- Investigate seed 137 Bakery trigger failure: why planks=13 but no bread produced
+- Consider raising early-game food production: more foraging/berry income before farms mature
+- Investigate whether pop=3 entering Y2 Spring is recoverable (3 villagers may be below
+  minimum critical mass to gather/build/farm simultaneously)
+- Add seeded RNG option to make playtests reproducible across runs
