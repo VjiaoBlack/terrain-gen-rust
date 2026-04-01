@@ -589,17 +589,17 @@ impl super::Game {
 
         // Priority 2: Hut when population is growing and needs housing
         // (runs unconditionally — housing must never be blocked by pending_builds cap)
-        let huts_pending = self
+        let completed_huts = self.world.query::<&HutBuilding>().iter().count();
+        let pending_huts = self
             .world
             .query::<&BuildSite>()
             .iter()
             .filter(|s| s.building_type == BuildingType::Hut)
             .count();
-        // Count total capacity: completed huts (4 each) + pending huts (4 each)
-        let huts_completed = self.world.query::<&HutBuilding>().iter().count();
-        let hut_capacity = (huts_completed + huts_pending) * 4;
-        // Queue a hut if total housing capacity < villagers + small buffer
-        if hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
+        // Count total housing slots: 4 per completed hut + 4 per pending hut.
+        // Queue another hut when total capacity is below villager count plus a small buffer.
+        let total_hut_capacity = (completed_huts + pending_huts) * 4;
+        if total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)

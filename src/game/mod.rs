@@ -449,7 +449,48 @@ impl Game {
             }
         }
 
-        // No wildlife at game start — wolves arrive via wolf surge events only.
+        // Wildlife: spawn 3 dens with 2 prey each in forest/grass tiles 8-50 tiles from center.
+        // Prey provide an early food web and are required for the breeding system to function
+        // (breeding needs at least 1 existing prey per den; 0 prey = 0 breeding = permanent extinction).
+        {
+            let mut dens_placed = 0usize;
+            let mut rng = rand::rng();
+            'den_search: for r in 8usize..50 {
+                for _ in 0..12 {
+                    let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                    let rx = (cx as i32 + (angle.cos() * r as f64) as i32)
+                        .clamp(1, map_width as i32 - 2);
+                    let ry = (cy as i32 + (angle.sin() * r as f64) as i32)
+                        .clamp(1, map_height as i32 - 2);
+                    if let Some(t) = map.get(rx as usize, ry as usize) {
+                        if matches!(t, Terrain::Forest | Terrain::Grass)
+                            && map.is_walkable(rx as f64, ry as f64)
+                        {
+                            let dx = rx as f64;
+                            let dy = ry as f64;
+                            ecs::spawn_den(&mut world, dx, dy);
+                            for _ in 0..2 {
+                                let mut prey_spawned = false;
+                                for _ in 0..20 {
+                                    let px = dx + rng.random_range(-3.0f64..3.0);
+                                    let py = dy + rng.random_range(-3.0f64..3.0);
+                                    if map.is_walkable(px, py) {
+                                        ecs::spawn_prey(&mut world, px, py, dx, dy);
+                                        prey_spawned = true;
+                                        break;
+                                    }
+                                }
+                                let _ = prey_spawned;
+                            }
+                            dens_placed += 1;
+                            if dens_placed >= 3 {
+                                break 'den_search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Settlement: stockpile + villagers near found start position
         let scx = start_cx;
