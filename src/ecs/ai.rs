@@ -831,10 +831,17 @@ pub(super) fn ai_villager(
             }
         }
         _ => {
-            // If villager is stuck inside a building (on BuildingFloor), try to leave
+            // If villager is stuck inside a completed building (on BuildingFloor), try to leave.
+            // Exception: if there's an active build site nearby, the villager is here to
+            // construct it — don't exit. BuildSite footprints are set to BuildingFloor before
+            // the building completes, so without this check villagers loop approach-and-flee
+            // forever and buildings are never finished.
             let on_building = map.get(pos.x.round() as usize, pos.y.round() as usize)
                 == Some(&Terrain::BuildingFloor);
-            if on_building {
+            let near_active_build_site = build_sites
+                .iter()
+                .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < 4.0);
+            if on_building && !near_active_build_site {
                 // Find nearest outdoor (non-building) walkable tile
                 for r in 1..=5i32 {
                     for dy in -r..=r {
