@@ -27,6 +27,7 @@ pub struct AiResult {
     pub deposited: Vec<ResourceType>,
     pub food_consumed: u32,
     pub grain_consumed: u32,
+    pub bread_consumed: u32,
     pub farming_ticks: u32,
     pub mining_ticks: u32,
     pub woodcutting_ticks: u32,
@@ -202,8 +203,8 @@ impl BuildingType {
             BuildingType::Hut => BuildingDef {
                 name: "Hut",
                 cost: Resources {
-                    wood: 10,
-                    stone: 4,
+                    wood: 6,
+                    stone: 3,
                     ..DEF_RES
                 },
                 build_time: 180,
@@ -242,8 +243,8 @@ impl BuildingType {
             BuildingType::Workshop => BuildingDef {
                 name: "Workshop",
                 cost: Resources {
-                    wood: 15,
-                    stone: 8,
+                    wood: 5,
+                    stone: 3,
                     ..DEF_RES
                 },
                 build_time: 220,
@@ -264,8 +265,8 @@ impl BuildingType {
             BuildingType::Garrison => BuildingDef {
                 name: "Garrison",
                 cost: Resources {
-                    planks: 10,
-                    masonry: 10,
+                    wood: 6,
+                    stone: 8,
                     ..DEF_RES
                 },
                 build_time: 180,
@@ -285,9 +286,8 @@ impl BuildingType {
             BuildingType::Granary => BuildingDef {
                 name: "Granary",
                 cost: Resources {
-                    wood: 12,
-                    stone: 8,
-                    planks: 4,
+                    wood: 6,
+                    stone: 4,
                     ..DEF_RES
                 },
                 build_time: 240,

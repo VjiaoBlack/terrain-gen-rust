@@ -410,11 +410,13 @@ impl Game {
             (cx as f64, cy as f64) // fallback
         };
 
-        // Find a good start position: grass/sand tile adjacent to forest, near map center
+        // Find a good start position: grass/sand tile adjacent to forest, near map center.
+        // Also require at least 5 distinct 3×3 buildable areas within 20 tiles so auto-build
         let cx = map_width / 2;
         let cy = map_height / 2;
         let mut start_cx = cx;
         let mut start_cy = cy;
+
         'search: for r in 0..80usize {
             for dy in -(r as i32)..=(r as i32) {
                 for dx in -(r as i32)..=(r as i32) {
@@ -440,56 +442,216 @@ impl Game {
                             })
                         });
                         if has_forest {
-                            start_cx = ux;
-                            start_cy = uy;
-                            break 'search;
+                            // Count non-overlapping 3×3 Grass/Sand zones within 25 tiles
+                            // (step by 3 in both axes). Need ≥8 to reject narrow corridors:
+                            // a 3-wide corridor has zones only along one axis (e.g. 8 zones
+                            // requires a 24-long corridor), but a genuine open area (9×9)
+                            // provides 9 zones spread in both dimensions. The higher threshold
+                            // ensures auto-build can place multiple distinct buildings without
+                            // running out of valid spots, and rejects the seed 137 narrow
+                            // mountain corridor that has been blocking pop growth every session.
+                            let mut buildable_count = 0usize;
+                            let scan_r = 25i32;
+                            let mut gx = ux as i32 - scan_r;
+                            while gx <= ux as i32 + scan_r - 2 {
+                                let mut gy = uy as i32 - scan_r;
+                                while gy <= uy as i32 + scan_r - 2 {
+                                    let zone_fits = (0..3i32).all(|fy| {
+                                        (0..3i32).all(|fx| {
+                                            let tx = (gx + fx).max(0) as usize;
+                                            let ty = (gy + fy).max(0) as usize;
+                                            matches!(
+                                                map.get(tx, ty),
+                                                Some(Terrain::Grass | Terrain::Sand)
+                                            )
+                                        })
+                                    });
+                                    if zone_fits {
+                                        buildable_count += 1;
+                                    }
+                                    gy += 3;
+                                }
+                                gx += 3;
+                            }
+                            if buildable_count >= 8 {
+                                start_cx = ux;
+                                start_cy = uy;
+                                break 'search;
+                            }
                         }
                     }
                 }
             }
         }
 
-        // No wildlife at game start — wolves arrive via wolf surge events only.
+        // Fallback spawn search: if no grass+forest+8zones position was found (happens on maps
+        // where open grass areas aren't adjacent to forest, e.g. seed 137 desert), accept any
+        // Grass/Sand tile with ≥8 buildable zones even without forest adjacency. Villagers can
+        // still gather wood from forests up to 22 tiles away via sight_range.
+        if start_cx == cx && start_cy == cy {
+            'fallback: for r in 0..80usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 2
+                            || y < 2
+                            || x as usize >= map_width - 2
+                            || y as usize >= map_height - 2
+                        {
+                            continue;
+                        }
+                        let ux = x as usize;
+                        let uy = y as usize;
+                        if matches!(map.get(ux, uy), Some(Terrain::Grass | Terrain::Sand)) {
+                            let mut buildable_count = 0usize;
+                            let scan_r = 25i32;
+                            let mut gx = ux as i32 - scan_r;
+                            while gx <= ux as i32 + scan_r - 2 {
+                                let mut gy = uy as i32 - scan_r;
+                                while gy <= uy as i32 + scan_r - 2 {
+                                    let zone_fits = (0..3i32).all(|fy| {
+                                        (0..3i32).all(|fx| {
+                                            let tx = (gx + fx).max(0) as usize;
+                                            let ty = (gy + fy).max(0) as usize;
+                                            matches!(
+                                                map.get(tx, ty),
+                                                Some(Terrain::Grass | Terrain::Sand)
+                                            )
+                                        })
+                                    });
+                                    if zone_fits {
+                                        buildable_count += 1;
+                                    }
+                                    gy += 3;
+                                }
+                                gx += 3;
+                            }
+                            if buildable_count >= 8 {
+                                start_cx = ux;
+                                start_cy = uy;
+                                break 'fallback;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Wildlife: spawn 3 dens with 2 prey each in forest/grass tiles 8-50 tiles from center.
+        // Prey provide an early food web and are required for the breeding system to function
+        // (breeding needs at least 1 existing prey per den; 0 prey = 0 breeding = permanent extinction).
+        {
+            let mut dens_placed = 0usize;
+            let mut rng = rand::rng();
+            'den_search: for r in 8usize..50 {
+                for _ in 0..12 {
+                    let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                    let rx = (cx as i32 + (angle.cos() * r as f64) as i32)
+                        .clamp(1, map_width as i32 - 2);
+                    let ry = (cy as i32 + (angle.sin() * r as f64) as i32)
+                        .clamp(1, map_height as i32 - 2);
+                    if let Some(t) = map.get(rx as usize, ry as usize) {
+                        if matches!(t, Terrain::Forest | Terrain::Grass)
+                            && map.is_walkable(rx as f64, ry as f64)
+                        {
+                            let dx = rx as f64;
+                            let dy = ry as f64;
+                            ecs::spawn_den(&mut world, dx, dy);
+                            for _ in 0..2 {
+                                let mut prey_spawned = false;
+                                for _ in 0..20 {
+                                    let px = dx + rng.random_range(-3.0f64..3.0);
+                                    let py = dy + rng.random_range(-3.0f64..3.0);
+                                    if map.is_walkable(px, py) {
+                                        ecs::spawn_prey(&mut world, px, py, dx, dy);
+                                        prey_spawned = true;
+                                        break;
+                                    }
+                                }
+                                let _ = prey_spawned;
+                            }
+                            dens_placed += 1;
+                            if dens_placed >= 3 {
+                                break 'den_search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Settlement: stockpile + villagers near found start position
         let scx = start_cx;
         let scy = start_cy;
 
-        // Helper: find a spot where an NxM building fits on natural terrain (no buildings)
-        let find_building_spot =
-            |map: &TileMap, cx: usize, cy: usize, bw: usize, bh: usize| -> (f64, f64) {
-                for r in 0..30usize {
-                    for dy in -(r as i32)..=(r as i32) {
-                        for dx in -(r as i32)..=(r as i32) {
-                            if (dx.unsigned_abs() as usize != r)
-                                && (dy.unsigned_abs() as usize != r)
-                            {
-                                continue;
-                            }
-                            let x = cx as i32 + dx;
-                            let y = cy as i32 + dy;
-                            if x < 0 || y < 0 {
-                                continue;
-                            }
-                            // Check all tiles in footprint are natural terrain
-                            let fits = (0..bh as i32).all(|fy| {
-                                (0..bw as i32).all(|fx| {
-                                    let tx = (x + fx) as usize;
-                                    let ty = (y + fy) as usize;
-                                    matches!(
-                                        map.get(tx, ty),
-                                        Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
-                                    )
-                                })
-                            });
-                            if fits {
-                                return (x as f64, y as f64);
-                            }
+        // Helper: find a spot where an NxM building fits on natural terrain (no buildings).
+        // Prefers Grass/Sand positions to avoid consuming Forest tiles that villagers need for
+        // wood gathering. Falls back to allowing Forest only if no Grass/Sand spot exists.
+        let find_building_spot = |map: &TileMap,
+                                  cx: usize,
+                                  cy: usize,
+                                  bw: usize,
+                                  bh: usize|
+         -> (f64, f64) {
+            // First pass: only Grass/Sand (preserve nearby forest for wood gathering)
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 {
+                            continue;
+                        }
+                        let fits = (0..bh as i32).all(|fy| {
+                            (0..bw as i32).all(|fx| {
+                                let tx = (x + fx) as usize;
+                                let ty = (y + fy) as usize;
+                                matches!(map.get(tx, ty), Some(Terrain::Grass | Terrain::Sand))
+                            })
+                        });
+                        if fits {
+                            return (x as f64, y as f64);
                         }
                     }
                 }
-                (cx as f64, cy as f64)
-            };
+            }
+            // Second pass: allow Forest as fallback (better than placing on impassable terrain)
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 {
+                            continue;
+                        }
+                        let fits = (0..bh as i32).all(|fy| {
+                            (0..bw as i32).all(|fx| {
+                                let tx = (x + fx) as usize;
+                                let ty = (y + fy) as usize;
+                                matches!(
+                                    map.get(tx, ty),
+                                    Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
+                                )
+                            })
+                        });
+                        if fits {
+                            return (x as f64, y as f64);
+                        }
+                    }
+                }
+            }
+            (cx as f64, cy as f64)
+        };
 
         // Place stockpile (2x2)
         let (sx, sy) = find_building_spot(&map, scx, scy, 2, 2);
@@ -536,6 +698,24 @@ impl Game {
         }
         ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
+        // Pre-built Granary — converts food to grain which is preserved through Winter.
+        // Without this, winter food decay (2%/30 ticks) kills all settlements before Year 2.
+        let (gsw, gsh) = BuildingType::Granary.size();
+        let (gx, gy) = find_building_spot(&map, scx + 5, scy + 4, gsw as usize, gsh as usize);
+        for (dx, dy, terrain) in BuildingType::Granary.tiles() {
+            map.set(
+                gx as usize + dx as usize,
+                gy as usize + dy as usize,
+                terrain,
+            );
+        }
+        ecs::spawn_processing_building(
+            &mut world,
+            gx + gsw as f64 / 2.0,
+            gy + gsh as f64 / 2.0,
+            Recipe::FoodToGrain,
+        );
+
         // Berry bushes near settlement so villagers have food access
         for &(bsx, bsy) in &[
             (scx.wrapping_sub(1), scy.wrapping_sub(1)),
@@ -551,23 +731,31 @@ impl Game {
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
-        // Spawn initial prey (rabbits) and dens 8–16 tiles from settlement.
-        // Rabbits are the first wildlife encountered and provide early food via hunting.
-        // Without them, hostile-terrain seeds have no animal food source at all.
-        let prey_offsets: &[(isize, isize)] = &[(-10, -6), (12, -4), (-8, 8), (10, 6), (-6, -12)];
-        for (ox, oy) in prey_offsets {
-            let px = scx.saturating_add_signed(*ox);
-            let py = scy.saturating_add_signed(*oy);
-            let (px, py) = find_walkable(&map, px, py);
-            ecs::spawn_prey(&mut world, px, py, px, py);
-        }
-        // Two dens give rabbits a home base and allow them to breed back after hunting.
-        let den_offsets: &[(isize, isize)] = &[(-11, -7), (11, 7)];
-        for (ox, oy) in den_offsets {
-            let dx = scx.saturating_add_signed(*ox);
-            let dy = scy.saturating_add_signed(*oy);
-            let (dx, dy) = find_walkable(&map, dx, dy);
-            ecs::spawn_den(&mut world, dx, dy);
+        // Spawn 3 prey dens 8-40 tiles from settlement center (forest/grass tiles preferred).
+        // Prey provide early food variety and establish the predator/prey ecosystem.
+        // Without initial prey, dens never get populated and rabbits remain at 0 forever.
+        // Wide search radius (8-40 tiles, 150 attempts) handles hostile terrain like mountains
+        // and water-heavy maps where the 8-25 range may have few walkable tiles.
+        {
+            let mut rng = rand::rng();
+            let scx_f = scx as f64;
+            let scy_f = scy as f64;
+            let mut dens_placed = 0u32;
+            for _ in 0..150 {
+                if dens_placed >= 3 {
+                    break;
+                }
+                let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                let dist = rng.random_range(8.0f64..40.0);
+                let px = scx_f + angle.cos() * dist;
+                let py = scy_f + angle.sin() * dist;
+                if px >= 0.0 && py >= 0.0 && map.is_walkable(px, py) {
+                    ecs::spawn_den(&mut world, px, py);
+                    ecs::spawn_prey(&mut world, px + 1.0, py, px, py);
+                    ecs::spawn_prey(&mut world, px - 1.0, py, px, py);
+                    dens_placed += 1;
+                }
+            }
         }
 
         // Spawn 3 villagers near the stockpile
@@ -599,8 +787,8 @@ impl Game {
             display_fps: None,
             resources: Resources {
                 food: 20,
-                wood: 20,
-                stone: 10,
+                wood: 60,
+                stone: 20,
                 ..Default::default()
             },
             build_mode: false,
@@ -943,6 +1131,7 @@ impl Game {
                     self.resources.wood,
                     self.resources.stone,
                     self.resources.grain,
+                    self.resources.bread,
                     &skill_mults,
                     settlement_defended,
                     self.day_night.is_night(),
@@ -984,6 +1173,16 @@ impl Game {
                     self.notify(format!(
                         "Villager ate grain (-{})",
                         ai_result.grain_consumed
+                    ));
+                }
+                if ai_result.bread_consumed > 0 {
+                    self.resources.bread = self
+                        .resources
+                        .bread
+                        .saturating_sub(ai_result.bread_consumed);
+                    self.notify(format!(
+                        "Villager ate bread (-{})",
+                        ai_result.bread_consumed
                     ));
                 }
                 if ai_result.food_consumed > 0 {
@@ -1221,7 +1420,9 @@ impl Game {
                     && self.tick.is_multiple_of(30)
                     && self.resources.food > 0
                 {
-                    let decay = std::cmp::max(1, self.resources.food * 2 / 100); // 2% per 30 ticks, min 1
+                    // Cap decay at 2 per event so large stockpiles don't evaporate over a winter.
+                    // Granary (converts food→grain) prevents spoilage entirely.
+                    let decay = std::cmp::min(2, std::cmp::max(1, self.resources.food * 2 / 100));
                     self.resources.food = self.resources.food.saturating_sub(decay);
                     self.notify(format!("Food spoiled in winter (-{})", decay));
                 }
@@ -1241,8 +1442,9 @@ impl Game {
                 // Population growth check
                 self.try_population_growth();
 
-                // Auto-build check (every 200 ticks)
-                if self.auto_build && self.tick.is_multiple_of(200) {
+                // Auto-build check (every 50 ticks — frequent enough to catch narrow
+                // resource windows, e.g. wood=8-9 where Workshop is affordable but Hut is not)
+                if self.auto_build && self.tick.is_multiple_of(50) {
                     self.auto_build_tick();
                 }
 
@@ -1250,6 +1452,12 @@ impl Game {
                 // Simulates settlement expanding its territory to find new stone sources.
                 if self.tick.is_multiple_of(2000) && self.resources.stone < 50 {
                     self.discover_stone_deposits();
+                }
+
+                // Timber grove discovery: when wood is critically low, reveal a nearby grove.
+                // Prevents permanent wood starvation on forest-sparse map seeds.
+                if self.tick.is_multiple_of(3000) && self.resources.wood < 8 {
+                    self.discover_timber_grove();
                 }
 
                 // Seasonal config for rain/water
@@ -1467,7 +1675,10 @@ mod tests {
 
         game.auto_build = true;
         game.resources.food = 2;
-        game.resources.wood = 10;
+        // Wood must be >= hut_cost + farm_cost (10 + 5 = 15) so the housing-priority guard
+        // does not block the farm: the guard prevents farms only when wood < 15 and a hut is
+        // needed, to ensure wood accumulates for the hut first.
+        game.resources.wood = 15;
         game.resources.stone = 10;
 
         // Ensure grass around settlement so farms can be placed
@@ -1511,9 +1722,16 @@ mod tests {
             farms_after > farms_before,
             "auto-build should queue a farm when food is low"
         );
-        let cost = BuildingType::Farm.cost();
-        assert_eq!(game.resources.food, 2 - cost.food);
-        assert_eq!(game.resources.wood, 10 - cost.wood);
+        let farm_cost = BuildingType::Farm.cost();
+        // Fix 5: P1 (farm) and P2 (hut) may both queue in the same tick.
+        // With wood=15 and a hut also needed, hut (10w) deducts after farm (5w) → wood=0.
+        // Assert farm cost was deducted; allow for hut also queuing.
+        assert_eq!(game.resources.food, 2 - farm_cost.food);
+        assert!(
+            game.resources.wood <= 15 - farm_cost.wood,
+            "farm cost (5w) should be deducted; wood={}",
+            game.resources.wood
+        );
     }
 
     #[test]
@@ -1701,29 +1919,27 @@ mod tests {
     }
 
     #[test]
-    fn garrison_placement_requires_refined_resources() {
+    fn garrison_placement_requires_wood_and_stone() {
         let mut game = Game::new(60, 42);
 
-        // Give only raw resources
+        // Insufficient wood
         game.resources = Resources {
-            food: 100,
-            wood: 100,
-            stone: 100,
+            wood: 5,
+            stone: 12,
             ..Default::default()
         };
 
         let cost = BuildingType::Garrison.cost();
         assert!(
             !game.resources.can_afford(&cost),
-            "should NOT afford garrison with only raw resources"
+            "should NOT afford garrison with insufficient wood"
         );
 
-        // Give refined resources
-        game.resources.planks = 10;
-        game.resources.masonry = 10;
+        // Sufficient wood + stone
+        game.resources.wood = 6;
         assert!(
             game.resources.can_afford(&cost),
-            "should afford garrison with refined resources"
+            "should afford garrison with 6 wood + 12 stone"
         );
     }
 
@@ -1823,6 +2039,7 @@ mod tests {
             &map,
             0.4,
             10,
+            0,
             0,
             0,
             0,
@@ -2203,27 +2420,27 @@ mod tests {
     }
 
     #[test]
-    fn winter_food_decay_is_percentage_based() {
+    fn winter_food_decay_is_capped() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
 
-        // Give lots of food so percentage decay is visible
+        // Give lots of food so decay behavior is visible
         game.resources.food = 200;
         game.day_night.season = Season::Winter;
 
         // Tick to a multiple of 30 so decay fires
         game.tick = 29;
         game.step(GameInput::None, &mut renderer).unwrap();
-        // At tick 30: 2% of 200 = 4 decay (before villagers eat)
-        // Food should be noticeably less than 200
+        // At tick 30: decay capped at 2 per event (not full 2% = 4)
+        // Food should decrease by at most 2 from spoilage alone
         assert!(
             game.resources.food < 200,
-            "percentage decay should reduce food"
+            "decay should reduce food in winter"
         );
-        // With 200 food, decay should be at least 4 (2%), not just 1
+        // Cap at 2 per event prevents large stockpile wipeout
         assert!(
-            game.resources.food <= 197,
-            "decay should be percentage-based, not flat -1"
+            game.resources.food >= 196,
+            "decay should be capped at 2, not full percentage"
         );
     }
 

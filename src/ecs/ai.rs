@@ -723,8 +723,11 @@ pub(super) fn ai_villager(
                     None,
                 );
             }
-            // Stop farming to gather resources only when BOTH are critically low
-            // (using || was too aggressive in early-game when wood is low but stone is fine)
+            // Stop farming to gather resources only when BOTH are critically low.
+            // Using only wood (||) was too aggressive: stone deposits keep stone at 5-9,
+            // so the OR condition fires whenever wood drops below 5, which happens often
+            // when Workshop is running (consumes 2w per cycle). This interrupted farming
+            // on every wood dip, collapsing food production heading into winter.
             if stockpile_wood < 5 && stockpile_stone < 5 {
                 return (
                     BehaviorState::Idle { timer: 5 },
@@ -867,8 +870,9 @@ pub(super) fn ai_villager(
                 }
             }
 
-            // Night shelter-seeking: villagers look for huts to sleep in at night
-            if is_night {
+            // Night shelter-seeking: villagers look for huts to sleep in at night.
+            // Exception: critically hungry villagers eat before sleeping (starvation override).
+            if is_night && hunger <= 0.6 {
                 let nearest_hut = hut_positions
                     .iter()
                     .map(|&(hx, hy)| (hx, hy, dist(pos.x, pos.y, hx, hy)))
@@ -1055,10 +1059,13 @@ pub(super) fn ai_villager(
             // Scarcity-driven task selection: score urgency of build vs gather
             // Food gathering gets urgent when stockpile is low relative to what villagers eat
             let food_urgent = stockpile_food < 5 || (has_stockpile_food && stockpile_food < 10);
+            // Use 1.5× sight range for build sites so villagers actively seek out
+            // builds placed at the edge of the auto-build search radius.
+            let build_sight = creature.sight_range * 1.5;
             let build_available = hunger < 0.4
                 && build_sites
                     .iter()
-                    .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < creature.sight_range);
+                    .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < build_sight);
 
             // When food is critically low, skip building and gather food/resources instead
             // (unless the build site IS a farm — always prioritize farm construction)
@@ -1066,7 +1073,7 @@ pub(super) fn ai_villager(
                 if food_urgent {
                     // Only build farms when food is urgent
                     build_sites.iter().any(|&(_, bx, by, assigned)| {
-                        !assigned && dist(pos.x, pos.y, bx, by) < creature.sight_range
+                        !assigned && dist(pos.x, pos.y, bx, by) < build_sight
                     })
                 } else {
                     true
@@ -1079,7 +1086,7 @@ pub(super) fn ai_villager(
                 let nearest_site = build_sites
                     .iter()
                     .map(|&(e, bx, by, _)| (e, bx, by, dist(pos.x, pos.y, bx, by)))
-                    .filter(|(_, _, _, d)| *d < creature.sight_range)
+                    .filter(|(_, _, _, d)| *d < build_sight)
                     .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap());
                 if let Some((site_e, bx, by, d)) = nearest_site {
                     if d < 1.5 {
@@ -1155,8 +1162,16 @@ pub(super) fn ai_villager(
 
             // Gather resources: pick whichever resource is most needed
             if hunger < 0.4 {
+                // When wood is critically low, search beyond normal sight range so
+                // villagers find forest even when no trees are nearby. This prevents
+                // the (None, Some(_)) fallback to stone gathering when wood=0-5.
+                let wood_search_range = if stockpile_wood < 5 {
+                    creature.sight_range * 1.5
+                } else {
+                    creature.sight_range
+                };
                 let wood_target =
-                    find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range)
+                    find_nearest_terrain(pos, map, Terrain::Forest, wood_search_range)
                         .map(|(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)));
 
                 let nearest_deposit = stone_deposits

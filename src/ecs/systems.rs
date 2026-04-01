@@ -80,6 +80,7 @@ pub fn system_ai(
     stockpile_wood: u32,
     stockpile_stone: u32,
     stockpile_grain: u32,
+    stockpile_bread: u32,
     skill_mults: &SkillMults,
     settlement_defended: bool,
     is_night: bool,
@@ -88,6 +89,7 @@ pub fn system_ai(
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
     let mut grain_consumed: u32 = 0;
+    let mut bread_consumed: u32 = 0;
     let mut farming_ticks: u32 = 0;
     let mut mining_ticks: u32 = 0;
     let mut woodcutting_ticks: u32 = 0;
@@ -241,7 +243,8 @@ pub fn system_ai(
 
                 let remaining_grain = stockpile_grain.saturating_sub(grain_consumed);
                 let remaining_food = stockpile_food.saturating_sub(food_consumed);
-                let has_food = remaining_grain > 0 || remaining_food > 0;
+                let remaining_bread = stockpile_bread.saturating_sub(bread_consumed);
+                let has_food = remaining_grain > 0 || remaining_food > 0 || remaining_bread > 0;
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
                 let near_food_source = food_positions
                     .iter()
@@ -258,7 +261,7 @@ pub fn system_ai(
                     &build_site_positions,
                     &stone_deposit_positions,
                     has_food,
-                    remaining_food + remaining_grain,
+                    remaining_food + remaining_grain + remaining_bread,
                     stockpile_wood,
                     stockpile_stone,
                     map,
@@ -268,10 +271,12 @@ pub fn system_ai(
                     is_night,
                 );
 
-                // If villager just started eating near stockpile (not near berry bush), consume grain first, then food
+                // Villager just started eating near stockpile: grain → bread → food
                 if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
                     if remaining_grain > 0 {
                         grain_consumed += 1;
+                    } else if remaining_bread > 0 {
+                        bread_consumed += 1;
                     } else {
                         food_consumed += 1;
                     }
@@ -441,6 +446,7 @@ pub fn system_ai(
         deposited: deposited_resources,
         food_consumed,
         grain_consumed,
+        bread_consumed,
         farming_ticks,
         mining_ticks,
         woodcutting_ticks,
@@ -506,13 +512,15 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .map(|(p, b)| {
             let has_input = match b.recipe {
-                // WoodToPlanks requires a surplus so wood can accumulate to 10 for hut
-                // building. Threshold 12 means: after one conversion (12→10), there's
-                // still enough wood for auto-build to fund a hut.
-                Recipe::WoodToPlanks => resources.wood >= 12,
+                // Threshold at 8: above hut cost (6w) so worker assignment doesn't
+                // fire when wood is too low for buildings, but low enough to be
+                // achievable. Once assigned, progress pauses if wood dips below 8
+                // (system_processing checks same threshold each tick).
+                Recipe::WoodToPlanks => resources.wood >= 8,
                 Recipe::StoneToMasonry => resources.stone >= 2,
-                Recipe::FoodToGrain => resources.food >= 3,
-                Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
+                // Don't assign granary workers when food is near survival minimum
+                Recipe::FoodToGrain => resources.food > 15,
+                Recipe::GrainToBread => resources.grain >= 2 && resources.planks >= 1,
             };
             (p.x, p.y, has_input)
         })
@@ -551,7 +559,24 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .filter(|(c, _)| c.species == Species::Villager)
         .count();
-    let max_assigned = (total_villagers * 2 / 3).max(1);
+    // When wood is critically low AND food is safe, free up 2 extra villagers for resource
+    // gathering. Stone deposit discovery keeps stone at 5-9, so the old farming break-off
+    // condition (wood<5 && stone<5) almost never fires — this is the targeted fix.
+    let wood_low = resources.wood < 8;
+    let food_safe = resources.food > total_villagers as u32 * 2;
+    let base_max = if wood_low && food_safe {
+        (total_villagers * 2 / 3).saturating_sub(2).max(1)
+    } else {
+        (total_villagers * 2 / 3).max(1)
+    };
+    // Reserve extra slots for workshops that have input but no worker yet — without this,
+    // farms fill every assignment slot and Workshop/Granary never gets a worker.
+    let workshops_needing_worker = workshops
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| w.2 && workshop_workers[*i] == 0)
+        .count();
+    let max_assigned = base_max + workshops_needing_worker;
     let currently_assigned = world
         .query::<&Behavior>()
         .iter()
@@ -607,30 +632,8 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
             continue;
         }
 
-        // Priority 2: farms that need tending (not harvest-ready, growth < 1.0)
-        let mut best_tend: Option<(usize, f64)> = None;
-        for (i, &(fx, fy, harvest_ready, _)) in farms.iter().enumerate() {
-            if !harvest_ready && farm_workers[i] == 0 {
-                let d = dist(pos.x, pos.y, fx, fy);
-                if best_tend.is_none() || d < best_tend.unwrap().1 {
-                    best_tend = Some((i, d));
-                }
-            }
-        }
-        if let Some((i, _)) = best_tend {
-            let (fx, fy, _, _) = farms[i];
-            farm_workers[i] += 1;
-            assignments.push((
-                e,
-                BehaviorState::Farming {
-                    target_x: fx,
-                    target_y: fy,
-                },
-            ));
-            continue;
-        }
-
-        // Priority 3: workshops that have inputs and need a worker
+        // Priority 2: workshops that have inputs and need a worker
+        // (before farm tending so the reserved workshop slots don't get consumed by farms)
         let mut best_workshop: Option<(usize, f64)> = None;
         for (i, &(wx, wy, has_input)) in workshops.iter().enumerate() {
             if has_input && workshop_workers[i] == 0 {
@@ -648,6 +651,29 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
                 BehaviorState::Working {
                     target_x: wx,
                     target_y: wy,
+                },
+            ));
+            continue;
+        }
+
+        // Priority 3: farms that need tending (not harvest-ready, growth < 1.0)
+        let mut best_tend: Option<(usize, f64)> = None;
+        for (i, &(fx, fy, harvest_ready, _)) in farms.iter().enumerate() {
+            if !harvest_ready && farm_workers[i] == 0 {
+                let d = dist(pos.x, pos.y, fx, fy);
+                if best_tend.is_none() || d < best_tend.unwrap().1 {
+                    best_tend = Some((i, d));
+                }
+            }
+        }
+        if let Some((i, _)) = best_tend {
+            let (fx, fy, _, _) = farms[i];
+            farm_workers[i] += 1;
+            assignments.push((
+                e,
+                BehaviorState::Farming {
+                    target_x: fx,
+                    target_y: fy,
                 },
             ));
         }
@@ -819,10 +845,12 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
 pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
     for (building, sprite) in world.query_mut::<(&mut ProcessingBuilding, &mut Sprite)>() {
         let has_input = match building.recipe {
-            Recipe::WoodToPlanks => resources.wood >= 12,
+            Recipe::WoodToPlanks => resources.wood >= 8,
             Recipe::StoneToMasonry => resources.stone >= 2,
-            Recipe::FoodToGrain => resources.food >= 3,
-            Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
+            // Only convert food→grain when there's a comfortable surplus.
+            // Without this guard, the granary drains food to 0 if bakery isn't built yet.
+            Recipe::FoodToGrain => resources.food > 15,
+            Recipe::GrainToBread => resources.grain >= 2 && resources.planks >= 1,
         };
         if has_input && building.worker_present {
             building.progress += 1;
@@ -840,7 +868,7 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
             building.progress = 0;
             match building.recipe {
                 Recipe::WoodToPlanks => {
-                    if resources.wood >= 12 {
+                    if resources.wood >= 2 {
                         resources.wood -= 2;
                         resources.planks += 1;
                     }
@@ -858,9 +886,9 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
                     }
                 }
                 Recipe::GrainToBread => {
-                    if resources.grain >= 2 && resources.wood >= 1 {
+                    if resources.grain >= 2 && resources.planks >= 1 {
                         resources.grain -= 2;
-                        resources.wood -= 1;
+                        resources.planks -= 1;
                         resources.bread += 3;
                     }
                 }
