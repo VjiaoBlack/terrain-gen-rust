@@ -1025,7 +1025,7 @@ impl super::Game {
         bt: BuildingType,
     ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
-        for r in 2i32..20 {
+        for r in 2i32..8 {
             for dy in -r..=r {
                 for dx in -r..=r {
                     if dx.abs() != r && dy.abs() != r {

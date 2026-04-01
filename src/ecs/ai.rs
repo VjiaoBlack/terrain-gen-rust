@@ -1002,10 +1002,13 @@ pub(super) fn ai_villager(
             // Scarcity-driven task selection: score urgency of build vs gather
             // Food gathering gets urgent when stockpile is low relative to what villagers eat
             let food_urgent = stockpile_food < 5 || (has_stockpile_food && stockpile_food < 10);
+            // Use 1.5× sight range for build sites so villagers actively seek out
+            // builds placed at the edge of the auto-build search radius.
+            let build_sight = creature.sight_range * 1.5;
             let build_available = hunger < 0.4
                 && build_sites
                     .iter()
-                    .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < creature.sight_range);
+                    .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < build_sight);
 
             // When food is critically low, skip building and gather food/resources instead
             // (unless the build site IS a farm — always prioritize farm construction)
@@ -1013,7 +1016,7 @@ pub(super) fn ai_villager(
                 if food_urgent {
                     // Only build farms when food is urgent
                     build_sites.iter().any(|&(_, bx, by, assigned)| {
-                        !assigned && dist(pos.x, pos.y, bx, by) < creature.sight_range
+                        !assigned && dist(pos.x, pos.y, bx, by) < build_sight
                     })
                 } else {
                     true
@@ -1026,7 +1029,7 @@ pub(super) fn ai_villager(
                 let nearest_site = build_sites
                     .iter()
                     .map(|&(e, bx, by, _)| (e, bx, by, dist(pos.x, pos.y, bx, by)))
-                    .filter(|(_, _, _, d)| *d < creature.sight_range)
+                    .filter(|(_, _, _, d)| *d < build_sight)
                     .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap());
                 if let Some((site_e, bx, by, d)) = nearest_site {
                     if d < 1.5 {
