@@ -3162,3 +3162,82 @@ Seed 777 reached pop=16 with a large food/grain buffer. Wolves present but no ga
 
 All 194 lib tests pass. No regressions introduced.
 
+---
+
+# Session 2026-04-01 (Run 24)
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild at tick 100)  
+**Display size:** 70×25  
+**Changes this session:** 1 commit (`0cedefe`) — 2 fixes
+
+---
+
+## Playtest Results (Phase 1 — Pre-Fix Baseline)
+
+| Seed | Pop | Food | Wood | Stone | Planks | Grain | Season | Survived? |
+|------|-----|------|------|-------|--------|-------|--------|----------|
+| 42   | 12→12→12 | 21/66/85 | 7 | 7 | 0 | 86/262/452 | Winter Y1 D1 | Yes (stalled) |
+| 137  | 4→4→4 | 17/15/0 | 44 | 18 | 0 | 68/160/206 | Winter Y1 D1 | Yes (borderline) |
+| 999  | 27→28 | 121/8 | 4 | 3 | 0 | 158/292 | Autumn Y1 D6 | Yes |
+
+Key observations:
+- **Seed 42**: Pop=12 ceiling (3 huts). Wood stuck at 7 — auto-build huts consume wood whenever it reaches 6+. Workshop (8w cost) never affordable.
+- **Seed 137**: Pop=4 stuck in narrow terrain corridor. No 3×3 buildable area found. Wood=44, stone=18 accumulate uselessly.
+- **Seed 999**: Pop=27-28, more open terrain. Grain accumulating. Bountiful harvest fired.
+- **All seeds**: Planks=0, Masonry=0, no Workshop/Smithy. Wolves arrive via WolfSurge in Y1 Winter (no garrison = deaths).
+
+---
+
+## Changes Made
+
+**1. Removed duplicate wolf spawning in WolfSurge event** (`src/game/events.rs`)
+
+The winter `WolfSurge` handler had two independent wolf spawning blocks:
+- **Block A (old)**: Spawned 3–5 wolves unconditionally via villager centroid
+- **Block B (new, kept)**: Spawned 1–4 wolves population-scaled (`max_wolves = (pop/5+1).clamp(1,4)`)
+
+Both fired on the same event, potentially spawning 4–9 wolves against a pop=8–28 settlement with no garrison. Block B was added to address "4 wolves vs pop=8 = instant wipe" but Block A was never removed. **Removed Block A, kept population-scaled Block B.**
+
+**2. Lowered Smithy auto-build stone threshold: `stone > 60` → `stone > 25`** (`src/game/build.rs`)
+
+Stone discovery gives ~24 stone per 2000-tick event. With huts consuming 3s and workshop 3s, stone rarely sustained above 25, let alone 60. Smithy was never built → masonry = 0 → Garrison (10 masonry) never built. Lowered to 25 so discovery events briefly push stone into Smithy-triggering range.
+
+---
+
+## Post-Fix Results (Phase 4 — Seeds 42, 137)
+
+| Seed | Pop T+36k | Wolves T+36k | Notes |
+|------|-----------|--------------|-------|
+| 42   | 11 | **1** ✓ | Survived. Wolves 1 vs old potential 4–9 |
+| 137  | 4 | **1** ✓ | Survived on grain=210. Terrain-constrained |
+
+## Post-Fix Results (Phase 6 — Seed 777, T+45k)
+
+| | T+15k | T+30k | T+45k |
+|---|---|---|---|
+| **Pop** | 16 | 16 | 16 |
+| **Food** | 471 | 1,080 | 366 |
+| **Grain** | 202 | 444 | 666 |
+| **Rabbits** | 17 | 17 | 0 (wolf-hunted) |
+| **Wolves** | 0 | 0 | **2** ✓ |
+
+Pop=16 stable, food/grain strongly positive. Wolves=2 vs old potential 4–9. Rabbits hunted to 0 by Winter (predator/prey ecology intact).
+
+---
+
+## Design Notes
+
+- **Duplicate wolf spawning was a silent compound bug**: Two "N wolves approach!" log entries would appear and the wolf counter showed the combined total, making it impossible to detect from output alone. The population-scaled block was the intended final version with a design comment; the old block was just never cleaned up.
+- **Wood budget is the tightest single constraint**: Huts (6w), Farms (5w), Workshop (8w) all draw from the same pool. With 3 free gatherers and night downtime, wood trickles in at ~6-9w per 100 ticks — enough for one hut, never accumulating to 8 for Workshop while housing demand is continuous.
+- **Smithy threshold fix is directionally correct but medium-term**: Stone=7 throughout Phase 4 (too low for 25 threshold). Impact shows once Workshop is running and stone discovery pushes briefly past 25.
+
+---
+
+## Next Session Priorities
+
+1. **Workshop wood affordability** — Workshop costs 8w; wood ceiling is 6-7w (consumed by huts). Options: (a) lower Workshop cost from 8w to 6w; (b) pause hut construction for 1 cycle when housing_surplus≥4 to let wood accumulate; (c) raise starting wood from 60 to 80.
+2. **Settlement spawn terrain guarantee** — Seed 137 spawns in a narrow corridor with no 3×3 buildable areas. `find_settlement_start` should require at least 4 clear 3×3 zones within 30 tiles.
+3. **Verify Smithy threshold fix medium-term** — Run 60k-tick test on seed 999 to confirm Smithy builds when Workshop is active and stone briefly crosses 25.
+4. **Garrison reachability** — Garrison costs 10p+10m. Consider reducing to 5p+5m for early game, or add a "Palisade" defense (wood+stone only) to bridge the wolf defense gap.
+
