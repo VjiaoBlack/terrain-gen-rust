@@ -785,7 +785,7 @@ impl super::Game {
             .query::<&BuildSite>()
             .iter()
             .any(|s| s.building_type == BuildingType::Smithy);
-        if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 60 {
+        if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 25 {
             let cost = BuildingType::Smithy.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Smithy)

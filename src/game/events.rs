@@ -171,40 +171,6 @@ impl Game {
                         .push("Wolf surge! Pack activity increases.".to_string());
                     self.notify("Wolf surge! Pack activity increases.".to_string());
 
-                    // Spawn 3-5 predators in a ring 20-38 tiles from settlement center
-                    let villager_pos: Vec<(f64, f64)> = self
-                        .world
-                        .query::<(&crate::ecs::Position, &Creature)>()
-                        .iter()
-                        .filter(|(_, c)| c.species == Species::Villager)
-                        .map(|(p, _)| (p.x, p.y))
-                        .collect();
-                    if !villager_pos.is_empty() {
-                        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>()
-                            / villager_pos.len() as f64;
-                        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>()
-                            / villager_pos.len() as f64;
-                        let wolf_count = rng.random_range(3u32..=5);
-                        let mut spawned = 0u32;
-                        for attempt in 0..60u32 {
-                            let angle = (attempt as f64) * std::f64::consts::TAU / 60.0
-                                + rng.random_range(0.0f64..0.5);
-                            let dist = rng.random_range(20.0f64..38.0);
-                            let wx = cx + angle.cos() * dist;
-                            let wy = cy + angle.sin() * dist;
-                            if self.map.is_walkable(wx, wy) {
-                                ecs::spawn_predator(&mut self.world, wx, wy);
-                                spawned += 1;
-                                if spawned >= wolf_count {
-                                    break;
-                                }
-                            }
-                        }
-                        if spawned > 0 {
-                            self.notify(format!("{} wolves approach!", spawned));
-                        }
-                    }
-
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
 
