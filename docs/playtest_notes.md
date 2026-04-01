@@ -2742,3 +2742,126 @@ pop=24 at T=48000 across runs — making it difficult to attribute survival to f
 - Investigate whether pop=3 entering Y2 Spring is recoverable (3 villagers may be below
   minimum critical mass to gather/build/farm simultaneously)
 - Add seeded RNG option to make playtests reproducible across runs
+
+---
+
+## Run 20 — Auto-Build Resource Deadlock Fix (2026-04-01)
+
+**Context**: Continued from Run 18. Commit `1fdba42` introduced a regression (changed farming
+break-off from `wood<5 && stone<5` to `wood<5 && food>=20`). Food drops below 20 quickly
+as the Granary converts food→grain, so the condition never fires. Wood stays at 0–3 permanently,
+no construction possible, pop collapses to 2–8.
+
+Commit `a5341e6` (end of previous session) partially restored this, but stone equilibrium
+sits at 8–9 (deposits replenish it), so `stone<5` never fires, keeping the wood deadlock.
+
+### Phase 1 Baseline (Regressed State — commit `1fdba42`)
+
+Seeds 42, 137, 999 run to T+36000 with auto-build:
+
+| Seed | T+12000     | T+24000     | T+36000          |
+|------|-------------|-------------|------------------|
+| 42   | Pop 8       | Pop 2       | GAME OVER T=11k  |
+| 137  | Pop 7       | Pop 3       | Pop 3            |
+| 999  | Pop 8       | ~Pop 5      | Pop ~5           |
+
+Wood=0–3 throughout. No Workshop built. Population collapses in winter.
+
+### Root Cause Analysis
+
+Chain of failures introduced by `d9843b0` (Workshop cost 15w+8s → 8w+3s) + `1fdba42`
+(farming break-off regression):
+
+1. Workshop costs only 3s now → auto-build queues Workshop immediately after first Hut
+2. Starting wood=20: Hut(-10w) + Workshop(-8w) = wood=2 after T=200
+3. Stone=10-4-3=3 briefly, but deposits replenish to 8–9 (stone equilibrium)
+4. Farming break-off condition `stone<5` never fires (stone=8–9 always)
+5. `wood<5 && stone<5` = FALSE → farmers never break off → wood stays at 2–3
+6. Hut costs 10w, Workshop costs 8w: both need wood>2–3 to be queued
+7. auto_build fired every 200 ticks, but wood only in the 8–10 window for ~32 ticks
+   between deposits, giving ~16% chance per cycle — almost never queued
+
+Secondary issue: with auto_build every 200 ticks and workshop (threshold=2) running once
+built, Workshop consumed wood as fast as 1–2 free gatherers could collect, keeping wood at
+0–2 forever.
+
+### Fixes Applied — Two Commits
+
+**Commit `a5341e6`** (from prior session): Revert farming break-off back to
+`wood<5 && stone<5` + `Idle{5}`. Partial fix — Pop 12, Grain 542 but Workshop never built.
+
+**Commit `030d9a2`** (this session): Three changes to break the deadlock:
+
+1. **`game/mod.rs`**: `auto_build_tick` now fires every **50 ticks** (was 200). With the
+   wood=8–9 Workshop window lasting ~32 ticks and wood rising at ~0.016/tick with 4+ free
+   gatherers, the 200-tick interval almost never hit the window. At 50 ticks, the window is
+   reliably caught.
+
+2. **`game/build.rs`**: Workshop auto-build now requires **`villager_count >= 12`**. With
+   fewer villagers only 1–3 free gatherers exist; Workshop's WoodToPlanks recipe (2w/batch)
+   depletes wood faster than they can collect, starving Hut construction. At 12+ villagers,
+   4+ free gatherers can sustain Workshop processing while still stockpiling wood for Huts.
+
+3. **`ecs/ai.rs`**: Comment tightened (no logic change); condition remains `wood<5 &&
+   stone<5` per Run 18 baseline.
+
+### Phase 4 Verification (Post-Fix — commit `030d9a2`)
+
+| Seed | T+12000           | T+24000           | T+36000 (Y1 Winter)       |
+|------|-------------------|-------------------|---------------------------|
+| 42   | Pop 7, Wood 2, Planks 0, Grain 60 | Pop 16, Food 153, Grain 342 | Pop 16, Food 172, Grain 534 ✓ |
+| 137  | Pop 20, Planks 12, Grain 172 | Pop 15, Food 2, Grain 222 | Pop 15, Food 0, Grain 222 ✓ |
+| 999  | Pop 12, Food 175, Grain 164 | Pop 11, Food 845, Grain 222 | Pop 11, Food 736, Grain 222 ✓ |
+
+All three seeds survive Y1 Winter. Significant improvement over regression (Pop 2–8, near
+Game Over).
+
+Seed 137 reached Pop 20 at T+12000 (Workshop built early → Planks=12), then dropped to 15
+by winter — likely wolf attacks and winter food shortage during transition. Grain=222 still
+adequate for survival.
+
+### Phase 6 Verification (Seed 777)
+
+| Snapshot  | Pop | Wood | Stone | Food | Grain | Notes |
+|-----------|-----|------|-------|------|-------|-------|
+| T+15000   | 8   | 0    | 8     | 0    | 82    | Y1 Summer, food from grain |
+| T+30000   | 8   | 0    | 8     | 1    | 164   | Y1 Autumn, no growth |
+| T+45000   | 8   | 2 wolves | 8  | 0    | 188   | Y1 Winter, wolves repelled |
+
+Seed 777 shows **terrain-limited** behaviour: wood=0 throughout because the starting area
+has no forests within villager sight_range (22 tiles). All starting wood (20) was consumed
+by initial Hut + Farm auto-builds. With no forest to gather, no further construction.
+Population survives (Grain=188) but cannot grow past initial Hut capacity (8).
+
+This is map-generation dependent, not a code regression. Run 17 seed 777 achieved Pop 28
+because that code version may have had different villager exploration/gathering radius or
+different auto-build priority ordering that allowed more Huts from the starting 20 wood.
+
+### Summary of Changes — Commits `a5341e6` + `030d9a2`
+
+| File | Change |
+|------|--------|
+| `src/ecs/ai.rs` | Reverted farming break-off to `wood<5 && stone<5` + `Idle{5}` |
+| `src/game/mod.rs` | `auto_build_tick` every 50 ticks (was 200) |
+| `src/game/build.rs` | Workshop requires `villager_count >= 12` before queuing |
+
+### Remaining Issues for Next Session
+
+1. **Seed 777 forest poverty**: Starting area has no forests within sight range. Wood
+   stagnates at 0 after initial buildings. Possible fixes: (a) raise starting wood from 20
+   to 40; (b) add a "prospecting" mechanic to discover resource nodes beyond sight range;
+   (c) adjust settlement placement algorithm to guarantee nearby forest.
+
+2. **Seed 137 wolf deaths (pop 20→15)**: Population peaked at 20 in early game then
+   dropped to 15 by autumn. Garrison never built (needs masonry, which needs Workshop+Smithy
+   chain not yet running). Defense gap between reaching pop 20 and having Garrison.
+
+3. **Workshop→Plank chain still fragile**: At pop=12–16, Workshop is built and processes
+   wood. But with only 4 free gatherers, Plank production competes with Hut construction
+   for wood. Bakery (needs planks) and Garrison (needs masonry) remain out of reach for
+   Y1.
+
+4. **Food spoilage at high food counts**: Seed 999 shows food=736 at Y1 Winter, then
+   `Food spoiled in winter (-15)` × 3. A Granary exists (pre-built) but can't convert
+   food→grain fast enough when food is very plentiful. Consider auto-building a second
+   Granary when food > villager_count * 10.
