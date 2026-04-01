@@ -461,8 +461,10 @@ impl super::Game {
                         if fx >= 0 && fy >= 0 {
                             let fx = fx as usize;
                             let fy = fy as usize;
-                            if matches!(self.map.get(fx, fy), Some(Terrain::Grass | Terrain::Sand))
-                            {
+                            if matches!(
+                                self.map.get(fx, fy),
+                                Some(Terrain::Grass | Terrain::Sand | Terrain::Mountain)
+                            ) {
                                 self.map.set(fx, fy, Terrain::Forest);
                                 count += 1;
                             }
@@ -673,8 +675,8 @@ impl super::Game {
         //       workers compete with farm workers, the settlement clearly has enough food.
         // (a) is preferred but (b) prevents the deadlock when many farms fill all worker
         // slots leaving no capacity for the Granary.
-        let food_secure = self.resources.grain >= villager_count * 4
-            || self.resources.food > 60 + villager_count * 6;
+        let food_secure = self.resources.grain >= villager_count * 2
+            || self.resources.food > villager_count * 4 + 20;
         if !has_workshop
             && !pending_workshop_any
             && villager_count >= 8
@@ -786,6 +788,10 @@ impl super::Game {
                     self.notify("Auto-build: Workshop queued".to_string());
                     queued_critical = true;
                 }
+            } else {
+                // Housing is needed but no valid terrain for a hut (and no workshop fallback).
+                // Plant a timber grove to convert Mountain/barren tiles into buildable Forest.
+                self.discover_timber_grove();
             }
         }
 

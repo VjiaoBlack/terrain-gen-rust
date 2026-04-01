@@ -4201,3 +4201,94 @@ for completed buildings because those have no `BuildSite` entity at their locati
 ## Tests
 
 All 194 lib tests pass. Commit `8a82c1c` introduced no regressions.
+
+---
+
+## 2026-04-01 — Automated Playtest Report (Session 23)
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild at start)  
+**Display size:** default  
+
+### Baseline Playtests (Pre-fix, seeds from prior session)
+
+| Seed | Ticks | Pop | Notes |
+|------|-------|-----|-------|
+| 42   | 15000 | ~8  | Mountain terrain, hut placement failing |
+| 137  | 15000 | ~8  | Desert/flat seed, Workshop food_secure too strict |
+| 999  | 15000 | ~8  | Grass-heavy map, housing stall |
+
+### Root Causes Identified
+
+1. **`discover_timber_grove` ignores Mountain terrain**: The grove function only converted `Grass | Sand → Forest`, silently failing on mountainous seeds (42, 999) where surroundings are Mountain tiles. Grove would attempt 80 times, plant <3 tiles, and never notify.
+
+2. **P2 Hut: no terrain fallback**: When `find_building_spot(Hut)` returned `None` due to no valid 3×3 buildable patch, no corrective action was taken. Housing surplus stayed at 0, births were permanently blocked at pop=8.
+
+3. **Workshop `food_secure` threshold too strict for all-farms seeds**: Condition was `grain >= pop*4 || food > 60+pop*6`. At pop=8 this required grain=32 with the food fallback requiring food=108. Desert seeds with many farms accumulated grain slowly (~3200 ticks to reach threshold), delaying Workshop past the point where wood was available.
+
+### Fixes Applied (src/game/build.rs)
+
+**Fix 1 — `discover_timber_grove`: convert Mountain tiles**  
+```rust
+// Before:
+if matches!(self.map.get(fx, fy), Some(Terrain::Grass | Terrain::Sand)) {
+// After:
+if matches!(self.map.get(fx, fy), Some(Terrain::Grass | Terrain::Sand | Terrain::Mountain)) {
+```
+Mountain tiles now become Forest, giving villagers wood sources and buildable terrain on rocky seeds.
+
+**Fix 2 — P2 Hut: trigger grove when no spot found**  
+Added `else` branch after the workshop-fallback `else if` in the Hut priority block. When housing is needed but `find_building_spot` returns `None` and the workshop fallback also doesn't apply, `discover_timber_grove()` fires immediately rather than waiting for the `tick % 3000 == 0 && wood < 8` trigger. This breaks the pop=8 ceiling on terrain-sparse maps.
+
+**Fix 3 — Workshop `food_secure` threshold lowered**  
+```rust
+// Before:
+let food_secure = self.resources.grain >= villager_count * 4
+    || self.resources.food > 60 + villager_count * 6;
+// After:
+let food_secure = self.resources.grain >= villager_count * 2
+    || self.resources.food > villager_count * 4 + 20;
+```
+At pop=8: threshold drops from grain=32 to grain=16 (or food=52 → food=52). Workshop now queues 1000–2000 ticks earlier on food-rich flat seeds, unblocking the planks → smithy → masonry chain.
+
+### Verification Playtests (Post-fix)
+
+| Seed | Ticks | Pop | Notes |
+|------|-------|-----|-------|
+| 42   | 15000 | 15  | +88% vs baseline; grove fired (15 new tiles), hut placement succeeded |
+| 137  | 15000 | 35  | +338% vs baseline; Workshop queued ~T=3000; grain=88 |
+| 999  | 15000 | 8   | Still at 8 (Workshop pending, no planks yet) |
+| 999  | 30000 | 26  | +225% vs T=15000 baseline; pop grew once Workshop delivered planks |
+
+Seed 999 at T=15000 showed the expected mid-construction state (Garrison being built, grain=70, Workshop queued) — the 30k run confirmed growth continued normally.
+
+### Final Verification — Seed 777, 45k Ticks
+
+| Metric | Value |
+|--------|-------|
+| Pop    | 12    |
+| Food   | 0     |
+| Grain  | 440   |
+| Wood   | 3     |
+| Stone  | 5     |
+| Planks | 2     |
+| Season | Winter Y1 D8 (freezing night) |
+| Wolves | 3 (repelled by defenses) |
+| Farm skill | 92.2 |
+| Military | 6.2 |
+
+Seed 777 is a mountain-heavy map (`░░░░░` dominates). Pop=12 at 45k ticks is below the flat-map seeds — wolf packs attacked (repelled), winter food=0 but grain=440 buffer is providing resilience. Timber grove planted (20 new tiles) confirming Fix 1+2 fired on this seed.
+
+### Tests
+
+All 194 lib tests pass (`cargo test --lib`). No regressions from fixes.
+
+### Remaining Issues / Next Session
+
+1. **Seed 999 T=15000 pop=8**: Population doesn't grow until Workshop produces planks (~T=15000–18000). The `saving_for_workshop` hut-defer logic is correct but the window between Workshop queued and first plank is long (Workshop build_time=220 + processing 120 ticks/plank). Consider reducing Workshop build_time from 220 to 160.
+
+2. **Seed 777 pop ceiling ~12–15 at 45k**: Mountain seeds have very limited buildable flat terrain even after grove. Multiple groves may be needed. Consider increasing grove attempt radius from 10–28 to 8–22 to place groves closer to the settlement where building-spot searches can find them.
+
+3. **Wood depletion at late game**: Seed 42 T=15000 shows wood=0. Grove fired once but Workshop+Huts consumed the wood. Either reduce Hut cost from 6w to 4w or increase grove cluster size from 5×5 to 7×7.
+
+4. **Non-determinism**: RNG in `system_ai` is unseeded (thread-local), causing different results across runs. Consider seeding with the game seed for reproducible AI behavior in testing.
