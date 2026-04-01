@@ -1102,8 +1102,16 @@ pub(super) fn ai_villager(
 
             // Gather resources: pick whichever resource is most needed
             if hunger < 0.4 {
+                // When wood is critically low, search beyond normal sight range so
+                // villagers find forest even when no trees are nearby. This prevents
+                // the (None, Some(_)) fallback to stone gathering when wood=0-5.
+                let wood_search_range = if stockpile_wood < 5 {
+                    creature.sight_range * 1.5
+                } else {
+                    creature.sight_range
+                };
                 let wood_target =
-                    find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range)
+                    find_nearest_terrain(pos, map, Terrain::Forest, wood_search_range)
                         .map(|(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)));
 
                 let nearest_deposit = stone_deposits

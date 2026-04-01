@@ -516,7 +516,7 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
                 Recipe::StoneToMasonry => resources.stone >= 2,
                 // Don't assign granary workers when food is near survival minimum
                 Recipe::FoodToGrain => resources.food > 15,
-                Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
+                Recipe::GrainToBread => resources.grain >= 2 && resources.planks >= 1,
             };
             (p.x, p.y, has_input)
         })
@@ -555,7 +555,16 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .filter(|(c, _)| c.species == Species::Villager)
         .count();
-    let max_assigned = (total_villagers * 2 / 3).max(1);
+    // When wood is critically low AND food is safe, free up 2 extra villagers for resource
+    // gathering. Stone deposit discovery keeps stone at 5-9, so the old farming break-off
+    // condition (wood<5 && stone<5) almost never fires — this is the targeted fix.
+    let wood_low = resources.wood < 8;
+    let food_safe = resources.food > total_villagers as u32 * 2;
+    let max_assigned = if wood_low && food_safe {
+        (total_villagers * 2 / 3).saturating_sub(2).max(1)
+    } else {
+        (total_villagers * 2 / 3).max(1)
+    };
     let currently_assigned = world
         .query::<&Behavior>()
         .iter()
@@ -828,7 +837,7 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
             // Only convert food→grain when there's a comfortable surplus.
             // Without this guard, the granary drains food to 0 if bakery isn't built yet.
             Recipe::FoodToGrain => resources.food > 15,
-            Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
+            Recipe::GrainToBread => resources.grain >= 2 && resources.planks >= 1,
         };
         if has_input && building.worker_present {
             building.progress += 1;
@@ -864,9 +873,9 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
                     }
                 }
                 Recipe::GrainToBread => {
-                    if resources.grain >= 2 && resources.wood >= 1 {
+                    if resources.grain >= 2 && resources.planks >= 1 {
                         resources.grain -= 2;
-                        resources.wood -= 1;
+                        resources.planks -= 1;
                         resources.bread += 3;
                     }
                 }

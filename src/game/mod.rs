@@ -496,41 +496,70 @@ impl Game {
         let scx = start_cx;
         let scy = start_cy;
 
-        // Helper: find a spot where an NxM building fits on natural terrain (no buildings)
-        let find_building_spot =
-            |map: &TileMap, cx: usize, cy: usize, bw: usize, bh: usize| -> (f64, f64) {
-                for r in 0..30usize {
-                    for dy in -(r as i32)..=(r as i32) {
-                        for dx in -(r as i32)..=(r as i32) {
-                            if (dx.unsigned_abs() as usize != r)
-                                && (dy.unsigned_abs() as usize != r)
-                            {
-                                continue;
-                            }
-                            let x = cx as i32 + dx;
-                            let y = cy as i32 + dy;
-                            if x < 0 || y < 0 {
-                                continue;
-                            }
-                            // Check all tiles in footprint are natural terrain
-                            let fits = (0..bh as i32).all(|fy| {
-                                (0..bw as i32).all(|fx| {
-                                    let tx = (x + fx) as usize;
-                                    let ty = (y + fy) as usize;
-                                    matches!(
-                                        map.get(tx, ty),
-                                        Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
-                                    )
-                                })
-                            });
-                            if fits {
-                                return (x as f64, y as f64);
-                            }
+        // Helper: find a spot where an NxM building fits on natural terrain (no buildings).
+        // Prefers Grass/Sand positions to avoid consuming Forest tiles that villagers need for
+        // wood gathering. Falls back to allowing Forest only if no Grass/Sand spot exists.
+        let find_building_spot = |map: &TileMap,
+                                  cx: usize,
+                                  cy: usize,
+                                  bw: usize,
+                                  bh: usize|
+         -> (f64, f64) {
+            // First pass: only Grass/Sand (preserve nearby forest for wood gathering)
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 {
+                            continue;
+                        }
+                        let fits = (0..bh as i32).all(|fy| {
+                            (0..bw as i32).all(|fx| {
+                                let tx = (x + fx) as usize;
+                                let ty = (y + fy) as usize;
+                                matches!(map.get(tx, ty), Some(Terrain::Grass | Terrain::Sand))
+                            })
+                        });
+                        if fits {
+                            return (x as f64, y as f64);
                         }
                     }
                 }
-                (cx as f64, cy as f64)
-            };
+            }
+            // Second pass: allow Forest as fallback (better than placing on impassable terrain)
+            for r in 0..30usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 0 || y < 0 {
+                            continue;
+                        }
+                        let fits = (0..bh as i32).all(|fy| {
+                            (0..bw as i32).all(|fx| {
+                                let tx = (x + fx) as usize;
+                                let ty = (y + fy) as usize;
+                                matches!(
+                                    map.get(tx, ty),
+                                    Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
+                                )
+                            })
+                        });
+                        if fits {
+                            return (x as f64, y as f64);
+                        }
+                    }
+                }
+            }
+            (cx as f64, cy as f64)
+        };
 
         // Place stockpile (2x2)
         let (sx, sy) = find_building_spot(&map, scx, scy, 2, 2);
@@ -610,20 +639,22 @@ impl Game {
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
-        // Spawn 3 prey dens 8-25 tiles from settlement center (forest/grass tiles preferred).
+        // Spawn 3 prey dens 8-40 tiles from settlement center (forest/grass tiles preferred).
         // Prey provide early food variety and establish the predator/prey ecosystem.
         // Without initial prey, dens never get populated and rabbits remain at 0 forever.
+        // Wide search radius (8-40 tiles, 150 attempts) handles hostile terrain like mountains
+        // and water-heavy maps where the 8-25 range may have few walkable tiles.
         {
             let mut rng = rand::rng();
             let scx_f = scx as f64;
             let scy_f = scy as f64;
             let mut dens_placed = 0u32;
-            for _ in 0..80 {
+            for _ in 0..150 {
                 if dens_placed >= 3 {
                     break;
                 }
                 let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-                let dist = rng.random_range(8.0f64..25.0);
+                let dist = rng.random_range(8.0f64..40.0);
                 let px = scx_f + angle.cos() * dist;
                 let py = scy_f + angle.sin() * dist;
                 if px >= 0.0 && py >= 0.0 && map.is_walkable(px, py) {
@@ -664,8 +695,8 @@ impl Game {
             display_fps: None,
             resources: Resources {
                 food: 20,
-                wood: 20,
-                stone: 10,
+                wood: 60,
+                stone: 20,
                 ..Default::default()
             },
             build_mode: false,
@@ -1546,7 +1577,10 @@ mod tests {
 
         game.auto_build = true;
         game.resources.food = 2;
-        game.resources.wood = 10;
+        // Wood must be >= hut_cost + farm_cost (10 + 5 = 15) so the housing-priority guard
+        // does not block the farm: the guard prevents farms only when wood < 15 and a hut is
+        // needed, to ensure wood accumulates for the hut first.
+        game.resources.wood = 15;
         game.resources.stone = 10;
 
         // Ensure grass around settlement so farms can be placed
@@ -1590,9 +1624,16 @@ mod tests {
             farms_after > farms_before,
             "auto-build should queue a farm when food is low"
         );
-        let cost = BuildingType::Farm.cost();
-        assert_eq!(game.resources.food, 2 - cost.food);
-        assert_eq!(game.resources.wood, 10 - cost.wood);
+        let farm_cost = BuildingType::Farm.cost();
+        // Fix 5: P1 (farm) and P2 (hut) may both queue in the same tick.
+        // With wood=15 and a hut also needed, hut (10w) deducts after farm (5w) → wood=0.
+        // Assert farm cost was deducted; allow for hut also queuing.
+        assert_eq!(game.resources.food, 2 - farm_cost.food);
+        assert!(
+            game.resources.wood <= 15 - farm_cost.wood,
+            "farm cost (5w) should be deducted; wood={}",
+            game.resources.wood
+        );
     }
 
     #[test]

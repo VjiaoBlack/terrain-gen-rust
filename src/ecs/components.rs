@@ -203,8 +203,8 @@ impl BuildingType {
             BuildingType::Hut => BuildingDef {
                 name: "Hut",
                 cost: Resources {
-                    wood: 10,
-                    stone: 4,
+                    wood: 6,
+                    stone: 3,
                     ..DEF_RES
                 },
                 build_time: 180,
