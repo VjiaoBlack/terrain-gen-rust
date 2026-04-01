@@ -723,11 +723,12 @@ pub(super) fn ai_villager(
                     None,
                 );
             }
-            // Stop farming when wood is critically low — wood shortage blocks Workshop
-            // production and building construction. Stone is checked separately because
-            // the old "wood < 5 && stone < 5" AND condition almost never fires (stone
-            // deposits keep stone at 5-9), leaving wood perpetually stuck near 3.
-            if stockpile_wood < 5 {
+            // Stop farming to gather resources only when BOTH are critically low.
+            // Using only wood (||) was too aggressive: stone deposits keep stone at 5-9,
+            // so the OR condition fires whenever wood drops below 5, which happens often
+            // when Workshop is running (consumes 2w per cycle). This interrupted farming
+            // on every wood dip, collapsing food production heading into winter.
+            if stockpile_wood < 5 && stockpile_stone < 5 {
                 return (
                     BehaviorState::Idle { timer: 5 },
                     0.0,
