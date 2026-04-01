@@ -2865,3 +2865,91 @@ different auto-build priority ordering that allowed more Huts from the starting 
    `Food spoiled in winter (-15)` × 3. A Granary exists (pre-built) but can't convert
    food→grain fast enough when food is very plentiful. Consider auto-building a second
    Granary when food > villager_count * 10.
+
+---
+
+## 2026-04-01 — Run 21: Auto-Build Unblock + Food Chain Repair
+
+**Build:** release  
+**Seeds tested:** 42, 137, 777, 999 (Phase 1 & 4), 777 (Phase 6 verification)  
+**Ticks per run:** 45,000  
+**Auto-build:** enabled via `input:ToggleAutoBuild`  
+
+### Root-Cause Investigation: Why Pop Was Always Stuck at 8
+
+Three compounding bugs were identified this session, each requiring separate fixes:
+
+#### Bug 1 (from previous session): `auto_build = true` in `--play` mode (main.rs)
+`game_obj.auto_build = true` was set unconditionally when entering `--play` mode. Since
+`input:ToggleAutoBuild` TOGGLES the flag, this caused it to flip from true → false at tick 100.
+All 20+ prior headless sessions ran with auto-build OFF. **Fixed last session.**
+
+#### Bug 2 (this session): Influence radius deadlock in `can_place_building`
+`can_place_building` required `influence > 0.1` for all tile placements. The influence map
+decays 2%/tick with slow diffusion; empirical simulation confirmed influence drops below 0.1 at
+distance 11+ tiles from sources. Once the initial cluster of buildings filled the ~10-tile radius,
+`find_building_spot` returned `None` for all subsequent auto-build requests.
+
+**Fix:** Added `can_place_building_impl(bx, by, bt, require_influence: bool)`. Player-initiated
+placement still requires `influence > 0.1` (you must build within your territory). `auto_build_tick`
+uses `require_influence=false` so it can expand the settlement boundary.
+
+**Files:** `src/game/build.rs`
+
+#### Bug 3 (this session): Granary drains food to 0 before bakery is built
+The `FoodToGrain` recipe was gated on `food >= 3`, meaning the granary converted food all the way
+down to near-zero. Without a bakery (which requires planks, which require a workshop, which requires
+pop ≥ 12 and sufficient wood), grain accumulated at 400–686 while food hit 0. The `try_population_growth`
+function only checked `resources.food`, not grain, so births stopped with food=0 even with hundreds
+of grain available.
+
+**Fix 1:** Changed `FoodToGrain` processing threshold from `food >= 3` to `food > 15` (stops
+converting when food is near survival minimum). Updated both `system_assign_workers` (worker
+assignment) and `system_processing` (actual conversion) in `src/ecs/systems.rs`.
+
+**Fix 2:** `try_population_growth` now counts `effective_food = food + grain/2 + bread` for birth
+eligibility checks. Grain counts as half food (since 3 food → 2 grain via granary, so 1 grain ≈ 1.5
+food in reverse). The birth cost deduction (`food -= 5`) now draws from grain when food is
+insufficient, avoiding a u32 underflow bug (food=0 - 5 = 4294967291).
+
+**Files:** `src/ecs/systems.rs`, `src/game/build.rs`, `src/ecs/mod.rs` (test update)
+
+### Phase 1 Playtest Results (pre-fix, seeds 42/137/777/999 @ tick 45,000)
+
+All four seeds showed pop=8 (stuck), confirming the influence deadlock was universal.
+
+### Phase 4 / Phase 6 Verification Results (post-fix, tick 45,000)
+
+| Seed | Pop | Food | Wood | Stone | Grain | Planks | Bread | Notes |
+|------|-----|------|------|-------|-------|--------|-------|-------|
+| 42   | 8   | 0    | 0    | 7     | 446   | 0      | 0     | Housing-capped; wood scarcity blocks hut construction |
+| 137  | 8   | 1167 | 1    | 3     | 84    | 0      | 0     | Food-rich but wood=1 blocks hut (needs 10w) |
+| 777  | 19  | 0    | 0    | 9     | 162   | 52     | 84    | Full chain working: workshop→planks, granary→grain, bakery→bread |
+| 999  | 8   | 0    | 0    | 7     | 452   | 0      | 0     | Same pattern as 42 |
+
+**Seed 777** is the clear success: pop grew from 8 → 19, planks=52, bread=84, mine skill=6.0,
+wood skill=15.9. The influence fix unblocked auto-build, the granary threshold maintained food
+buffer, and grain counting allowed births even when raw food was depleted.
+
+### Residual Issues
+
+1. **Wood scarcity on forest-heavy maps (seeds 42, 999, 137)**: With 8 villagers, `max_assigned = 5`
+   leaves only 3 free gatherers. The farming-leave condition (`wood < 5 && stone < 5`) never fires
+   when stone ≥ 5, so assigned farmers never break off to help gather wood. 3 gatherers barely
+   produce enough wood for farm construction; huts (10w each) are unaffordable. Population stays at 8
+   indefinitely. Root fix would require a smarter villager task-switching heuristic or lowering the
+   farm-leave thresholds for individual resources.
+
+2. **`day_night_affects_colors` integration test** (pre-existing, unrelated to this session):
+   Cell [5][35] shows identical brightness at noon and midnight (both=90). Likely the test uses
+   a hardcoded position that falls on a constant-color tile (water, building, or panel UI element).
+   Confirmed pre-existing — the test failed before this session's changes.
+
+### Summary of Changes
+
+| File | Change |
+|------|--------|
+| `src/game/build.rs` | `can_place_building_impl` with `require_influence` flag; `find_building_spot` uses `require_influence=false` |
+| `src/game/build.rs` | `try_population_growth` uses `effective_food = food + grain/2 + bread`; birth cost draws from grain on underflow |
+| `src/ecs/systems.rs` | `FoodToGrain` threshold: `food >= 3` → `food > 15` in both worker-assignment and processing |
+| `src/ecs/mod.rs` | Updated `system_processing_converts_food_to_grain` test for new threshold |

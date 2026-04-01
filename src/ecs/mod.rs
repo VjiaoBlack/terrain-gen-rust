@@ -1736,8 +1736,10 @@ mod tests {
     fn system_processing_converts_food_to_grain() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::FoodToGrain);
+        // Granary only converts when food > 15 (starvation guard). Start with 19 so one
+        // conversion (food-=3 → 16 > 15) fires on tick 120, leaving 16 food and 2 grain.
         let mut resources = Resources {
-            food: 6,
+            food: 19,
             ..Default::default()
         };
 
@@ -1748,7 +1750,7 @@ mod tests {
             system_processing(&mut world, &mut resources, 1.0);
         }
 
-        assert_eq!(resources.food, 3, "should have consumed 3 food");
+        assert_eq!(resources.food, 16, "should have consumed 3 food (one conversion at 19→16)");
         assert_eq!(resources.grain, 2, "should have produced 2 grain");
     }
 

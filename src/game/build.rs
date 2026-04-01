@@ -11,6 +11,16 @@ use crate::tilemap::Terrain;
 
 impl super::Game {
     pub fn can_place_building(&self, bx: i32, by: i32, building_type: BuildingType) -> bool {
+        self.can_place_building_impl(bx, by, building_type, true)
+    }
+
+    fn can_place_building_impl(
+        &self,
+        bx: i32,
+        by: i32,
+        building_type: BuildingType,
+        require_influence: bool,
+    ) -> bool {
         let (w, h) = building_type.size();
         for dy in 0..h {
             for dx in 0..w {
@@ -44,20 +54,23 @@ impl super::Game {
             }
         }
 
-        // Must be within settlement influence (any tile of building footprint)
-        let in_territory = (0..h).any(|dy| {
-            (0..w).any(|dx| {
-                let tx = bx + dx;
-                let ty = by + dy;
-                if tx >= 0 && ty >= 0 {
-                    self.influence.get(tx as usize, ty as usize) > 0.1
-                } else {
-                    false
-                }
-            })
-        });
-        if !in_territory {
-            return false;
+        // For player-initiated placement, must be within settlement influence.
+        // Auto-build skips this check — it expands the settlement boundary.
+        if require_influence {
+            let in_territory = (0..h).any(|dy| {
+                (0..w).any(|dx| {
+                    let tx = bx + dx;
+                    let ty = by + dy;
+                    if tx >= 0 && ty >= 0 {
+                        self.influence.get(tx as usize, ty as usize) > 0.1
+                    } else {
+                        false
+                    }
+                })
+            });
+            if !in_territory {
+                return false;
+            }
         }
         true
     }
@@ -429,6 +442,12 @@ impl super::Game {
             return;
         }
 
+        // Count grain as food equivalent (1 grain = 0.5 food, since it takes ~2 food to make 1
+        // grain via granary). Bread counts as food directly. This prevents the deadlock where
+        // food=0 but grain=400+ blocks births — grain is food, just stored in a different form.
+        let effective_food =
+            self.resources.food + self.resources.grain / 2 + self.resources.bread;
+
         // Require minimum food proportional to population to prevent growing into starvation.
         // 2× pop threshold (vs just food >= 5) prevents births during food crises on large
         // populations, while remaining loose enough not to choke small settlements.
@@ -437,16 +456,23 @@ impl super::Game {
         } else {
             5
         };
-        if villager_count < 2 || self.resources.food < min_food {
+        if villager_count < 2 || effective_food < min_food {
             return;
         }
 
         // Food security gate: prevent breeding into starvation at larger populations
-        if villager_count > 10 && self.resources.food < villager_count * 3 {
+        if villager_count > 10 && effective_food < villager_count * 3 {
             return;
         }
 
-        self.resources.food -= 5;
+        // Consume 5 food equivalent (use grain if food is short — grain counts 2:1)
+        if self.resources.food >= 5 {
+            self.resources.food -= 5;
+        } else {
+            let from_grain = (5 - self.resources.food) * 2;
+            self.resources.food = 0;
+            self.resources.grain = self.resources.grain.saturating_sub(from_grain);
+        }
 
         // Collect villager positions to find a spawn point nearby
         let villager_pos: Vec<(f64, f64)> = self
@@ -947,7 +973,7 @@ impl super::Game {
                     }
                     let bx = cx as i32 + dx * bw;
                     let by = cy as i32 + dy * bh;
-                    if self.can_place_building(bx, by, bt) {
+                    if self.can_place_building_impl(bx, by, bt, false) {
                         return Some((bx, by));
                     }
                 }
