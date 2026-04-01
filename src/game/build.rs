@@ -557,9 +557,14 @@ impl super::Game {
                 .filter(|s| s.building_type == BuildingType::Farm)
                 .count();
 
-        // Priority 1: Farm when food is low and we don't have many farms
-        // (runs unconditionally — food and housing must never be blocked by pending_builds cap)
+        // Priority 1 & 2: Farm and Hut are both unconditional — they run together before any
+        // optional-build cap. Both may queue in the same tick (farm deducts first; hut checks
+        // can_afford on what remains). This prevents the scenario where food demand always fires
+        // P1 and returns before P2, starving housing construction and blocking population growth.
         let villager_count = villager_pos.len() as u32;
+        let mut queued_critical = false;
+
+        // Priority 1: Farm when food is low and we don't have enough farms
         if self.resources.food < 8 + villager_count * 4
             && farm_count < ((villager_count as usize) * 2).div_ceil(3)
         {
@@ -570,7 +575,7 @@ impl super::Game {
                 self.resources.deduct(&cost);
                 self.place_build_site(bx, by, BuildingType::Farm);
                 self.notify("Auto-build: Farm queued".to_string());
-                return;
+                queued_critical = true;
             }
         }
 
@@ -586,19 +591,19 @@ impl super::Game {
             .iter()
             .any(|s| s.building_type == BuildingType::Granary);
 
-        // Priority 2: Hut when population is growing and needs housing
-        // (runs unconditionally — housing must never be blocked by pending_builds cap)
-        let huts_pending = self
+        // Priority 2: Hut when population needs housing
+        // Runs in the same tick as P1 so farm demand never permanently blocks housing.
+        let completed_huts = self.world.query::<&HutBuilding>().iter().count();
+        let pending_huts = self
             .world
             .query::<&BuildSite>()
             .iter()
             .filter(|s| s.building_type == BuildingType::Hut)
             .count();
-        // Count total capacity: completed huts (4 each) + pending huts (4 each)
-        let huts_completed = self.world.query::<&HutBuilding>().iter().count();
-        let hut_capacity = (huts_completed + huts_pending) * 4;
-        // Queue a hut if total housing capacity < villagers + small buffer
-        if hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
+        // Count total housing slots: 4 per completed hut + 4 per pending hut.
+        // Queue another hut when total capacity is below villager count plus a small buffer.
+        let total_hut_capacity = (completed_huts + pending_huts) * 4;
+        if total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)
@@ -606,8 +611,12 @@ impl super::Game {
                 self.resources.deduct(&cost);
                 self.place_build_site(bx, by, BuildingType::Hut);
                 self.notify("Auto-build: Hut queued".to_string());
-                return;
+                queued_critical = true;
             }
+        }
+
+        if queued_critical {
+            return;
         }
 
         // Count existing build sites being worked on
@@ -623,15 +632,14 @@ impl super::Game {
             .iter()
             .any(|pb| pb.recipe == Recipe::WoodToPlanks);
 
-        // Priority 3: First Workshop — queue once a hut exists and population ≥ 4.
-        // Requires pop ≥ 4 (not 8) because wood drains to 0 by the time pop reaches 8
-        // as huts consume all available wood first.
+        // Priority 3: First Workshop — wait until population ≥ 8 so there are enough
+        // free gatherers to sustain Workshop wood consumption without starving Hut builds.
         let pending_workshop_any = self
             .world
             .query::<&BuildSite>()
             .iter()
             .any(|s| s.building_type == BuildingType::Workshop);
-        if !has_workshop && !pending_workshop_any && villager_count >= 4 && self.resources.stone > 5
+        if !has_workshop && !pending_workshop_any && villager_count >= 8 && self.resources.stone > 5
         {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)

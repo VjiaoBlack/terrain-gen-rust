@@ -555,7 +555,16 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .filter(|(c, _)| c.species == Species::Villager)
         .count();
-    let max_assigned = (total_villagers * 2 / 3).max(1);
+    // When wood is critically low AND food is safe, free up 2 extra villagers for resource
+    // gathering. Stone deposit discovery keeps stone at 5-9, so the old farming break-off
+    // condition (wood<5 && stone<5) almost never fires — this is the targeted fix.
+    let wood_low = resources.wood < 8;
+    let food_safe = resources.food > total_villagers as u32 * 2;
+    let max_assigned = if wood_low && food_safe {
+        (total_villagers * 2 / 3).saturating_sub(2).max(1)
+    } else {
+        (total_villagers * 2 / 3).max(1)
+    };
     let currently_assigned = world
         .query::<&Behavior>()
         .iter()

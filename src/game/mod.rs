@@ -449,7 +449,48 @@ impl Game {
             }
         }
 
-        // No wildlife at game start — wolves arrive via wolf surge events only.
+        // Wildlife: spawn 3 dens with 2 prey each in forest/grass tiles 8-50 tiles from center.
+        // Prey provide an early food web and are required for the breeding system to function
+        // (breeding needs at least 1 existing prey per den; 0 prey = 0 breeding = permanent extinction).
+        {
+            let mut dens_placed = 0usize;
+            let mut rng = rand::rng();
+            'den_search: for r in 8usize..50 {
+                for _ in 0..12 {
+                    let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                    let rx = (cx as i32 + (angle.cos() * r as f64) as i32)
+                        .clamp(1, map_width as i32 - 2);
+                    let ry = (cy as i32 + (angle.sin() * r as f64) as i32)
+                        .clamp(1, map_height as i32 - 2);
+                    if let Some(t) = map.get(rx as usize, ry as usize) {
+                        if matches!(t, Terrain::Forest | Terrain::Grass)
+                            && map.is_walkable(rx as f64, ry as f64)
+                        {
+                            let dx = rx as f64;
+                            let dy = ry as f64;
+                            ecs::spawn_den(&mut world, dx, dy);
+                            for _ in 0..2 {
+                                let mut prey_spawned = false;
+                                for _ in 0..20 {
+                                    let px = dx + rng.random_range(-3.0f64..3.0);
+                                    let py = dy + rng.random_range(-3.0f64..3.0);
+                                    if map.is_walkable(px, py) {
+                                        ecs::spawn_prey(&mut world, px, py, dx, dy);
+                                        prey_spawned = true;
+                                        break;
+                                    }
+                                }
+                                let _ = prey_spawned;
+                            }
+                            dens_placed += 1;
+                            if dens_placed >= 3 {
+                                break 'den_search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Settlement: stockpile + villagers near found start position
         let scx = start_cx;
@@ -598,20 +639,22 @@ impl Game {
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
-        // Spawn 3 prey dens 8-25 tiles from settlement center (forest/grass tiles preferred).
+        // Spawn 3 prey dens 8-40 tiles from settlement center (forest/grass tiles preferred).
         // Prey provide early food variety and establish the predator/prey ecosystem.
         // Without initial prey, dens never get populated and rabbits remain at 0 forever.
+        // Wide search radius (8-40 tiles, 150 attempts) handles hostile terrain like mountains
+        // and water-heavy maps where the 8-25 range may have few walkable tiles.
         {
             let mut rng = rand::rng();
             let scx_f = scx as f64;
             let scy_f = scy as f64;
             let mut dens_placed = 0u32;
-            for _ in 0..80 {
+            for _ in 0..150 {
                 if dens_placed >= 3 {
                     break;
                 }
                 let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-                let dist = rng.random_range(8.0f64..25.0);
+                let dist = rng.random_range(8.0f64..40.0);
                 let px = scx_f + angle.cos() * dist;
                 let py = scy_f + angle.sin() * dist;
                 if px >= 0.0 && py >= 0.0 && map.is_walkable(px, py) {
@@ -1534,7 +1577,10 @@ mod tests {
 
         game.auto_build = true;
         game.resources.food = 2;
-        game.resources.wood = 10;
+        // Wood must be >= hut_cost + farm_cost (10 + 5 = 15) so the housing-priority guard
+        // does not block the farm: the guard prevents farms only when wood < 15 and a hut is
+        // needed, to ensure wood accumulates for the hut first.
+        game.resources.wood = 15;
         game.resources.stone = 10;
 
         // Ensure grass around settlement so farms can be placed
@@ -1578,9 +1624,16 @@ mod tests {
             farms_after > farms_before,
             "auto-build should queue a farm when food is low"
         );
-        let cost = BuildingType::Farm.cost();
-        assert_eq!(game.resources.food, 2 - cost.food);
-        assert_eq!(game.resources.wood, 10 - cost.wood);
+        let farm_cost = BuildingType::Farm.cost();
+        // Fix 5: P1 (farm) and P2 (hut) may both queue in the same tick.
+        // With wood=15 and a hut also needed, hut (10w) deducts after farm (5w) → wood=0.
+        // Assert farm cost was deducted; allow for hut also queuing.
+        assert_eq!(game.resources.food, 2 - farm_cost.food);
+        assert!(
+            game.resources.wood <= 15 - farm_cost.wood,
+            "farm cost (5w) should be deducted; wood={}",
+            game.resources.wood
+        );
     }
 
     #[test]
