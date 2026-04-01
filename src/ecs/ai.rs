@@ -724,10 +724,7 @@ pub(super) fn ai_villager(
                 );
             }
             // Stop farming to gather resources only when BOTH are critically low.
-            // Using || was too aggressive (always true early-game when wood is low).
-            // Using food>=20 was too strict (granary converts food quickly, food stays <20).
-            // Using && with stone threshold fires reliably after auto-build depletes
-            // the initial stone supply (stone drops to 3-4 after first hut+workshop build).
+            // (using || was too aggressive in early-game when wood is low but stone is fine)
             if stockpile_wood < 5 && stockpile_stone < 5 {
                 return (
                     BehaviorState::Idle { timer: 5 },

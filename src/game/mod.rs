@@ -1278,8 +1278,9 @@ impl Game {
                 // Population growth check
                 self.try_population_growth();
 
-                // Auto-build check (every 200 ticks)
-                if self.auto_build && self.tick.is_multiple_of(200) {
+                // Auto-build check (every 50 ticks — frequent enough to catch narrow
+                // resource windows, e.g. wood=8-9 where Workshop is affordable but Hut is not)
+                if self.auto_build && self.tick.is_multiple_of(50) {
                     self.auto_build_tick();
                 }
 

@@ -598,15 +598,18 @@ impl super::Game {
             .iter()
             .any(|pb| pb.recipe == Recipe::WoodToPlanks);
 
-        // Priority 3: First Workshop — build as soon as we can afford it with modest stone margin.
-        // Lower threshold (stone > 5) lets small settlements build workshops once resource flow
-        // is established, unlocking the plank production chain.
+        // Priority 3: First Workshop — wait until population ≥ 12 so there are enough
+        // free gatherers to sustain Workshop wood consumption without starving Hut builds.
         let pending_workshop_any = self
             .world
             .query::<&BuildSite>()
             .iter()
             .any(|s| s.building_type == BuildingType::Workshop);
-        if !has_workshop && !pending_workshop_any && self.resources.stone > 5 {
+        if !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 12
+            && self.resources.stone > 5
+        {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
