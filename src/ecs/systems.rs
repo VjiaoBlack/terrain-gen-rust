@@ -506,7 +506,10 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .map(|(p, b)| {
             let has_input = match b.recipe {
-                Recipe::WoodToPlanks => resources.wood >= 2,
+                // WoodToPlanks requires a surplus so wood can accumulate to 10 for hut
+                // building. Threshold 12 means: after one conversion (12→10), there's
+                // still enough wood for auto-build to fund a hut.
+                Recipe::WoodToPlanks => resources.wood >= 12,
                 Recipe::StoneToMasonry => resources.stone >= 2,
                 Recipe::FoodToGrain => resources.food >= 3,
                 Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
@@ -816,7 +819,7 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
 pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
     for (building, sprite) in world.query_mut::<(&mut ProcessingBuilding, &mut Sprite)>() {
         let has_input = match building.recipe {
-            Recipe::WoodToPlanks => resources.wood >= 2,
+            Recipe::WoodToPlanks => resources.wood >= 12,
             Recipe::StoneToMasonry => resources.stone >= 2,
             Recipe::FoodToGrain => resources.food >= 3,
             Recipe::GrainToBread => resources.grain >= 2 && resources.wood >= 1,
@@ -837,7 +840,7 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
             building.progress = 0;
             match building.recipe {
                 Recipe::WoodToPlanks => {
-                    if resources.wood >= 2 {
+                    if resources.wood >= 12 {
                         resources.wood -= 2;
                         resources.planks += 1;
                     }

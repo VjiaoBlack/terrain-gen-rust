@@ -1674,7 +1674,7 @@ mod tests {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
         let mut resources = Resources {
-            wood: 10,
+            wood: 14,
             ..Default::default()
         };
 
@@ -1685,7 +1685,7 @@ mod tests {
             system_processing(&mut world, &mut resources, 1.0);
         }
 
-        assert_eq!(resources.wood, 8, "should have consumed 2 wood");
+        assert_eq!(resources.wood, 12, "should have consumed 2 wood");
         assert_eq!(resources.planks, 1, "should have produced 1 planks");
     }
 
@@ -1820,7 +1820,7 @@ mod tests {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
         let mut resources = Resources {
-            wood: 10,
+            wood: 14,
             ..Default::default()
         };
 
@@ -1832,7 +1832,7 @@ mod tests {
         }
 
         assert_eq!(
-            resources.wood, 8,
+            resources.wood, 12,
             "should have consumed 2 wood at double speed"
         );
         assert_eq!(
@@ -2040,7 +2040,7 @@ mod tests {
         let pb = spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
 
         let mut resources = Resources {
-            wood: 10,
+            wood: 14, // >= 12 threshold so has_input=true when worker present
             ..Default::default()
         };
         system_processing(&mut world, &mut resources, 1.0);
