@@ -497,11 +497,13 @@ impl super::Game {
                 .filter(|s| s.building_type == BuildingType::Farm)
                 .count();
 
-        // Priority 1: Farm when food is low and we don't have many farms
-        // (runs unconditionally — food and housing must never be blocked by pending_builds cap)
+        // Priority 1: Farm when food is critically low and we don't have enough farms.
+        // Threshold is villager_count (not villager_count*2) to avoid draining wood with
+        // speculative farms when food is merely "low" rather than "critical".
+        // Cap at pop/4 farms: fewer, fully-staffed farms outperform many understaffed ones.
         let villager_count = villager_pos.len() as u32;
-        if self.resources.food < 8 + villager_count * 2
-            && farm_count < (villager_count as usize).div_ceil(2)
+        if self.resources.food < 5 + villager_count
+            && farm_count < (villager_count as usize).div_ceil(4).max(2)
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
@@ -514,18 +516,19 @@ impl super::Game {
             }
         }
 
-        // Priority 2: Hut when population is growing and needs housing
-        // (runs unconditionally — housing must never be blocked by pending_builds cap)
-        let hut_count = self
+        // Priority 2: Hut when housing capacity cannot accommodate current population.
+        // Count BOTH completed HutBuilding entities AND pending Hut build sites.
+        // Previously only pending sites were counted, so auto-build always thought more
+        // huts were needed but could never fund them (wood drained by farm spam).
+        let pending_hut_count = self
             .world
             .query::<&BuildSite>()
             .iter()
             .filter(|s| s.building_type == BuildingType::Hut)
             .count();
-        // Count completed huts by checking for Hut-shaped building floor clusters
-        // Simple heuristic: 1 hut per 3 villagers needed
+        let completed_hut_count = self.world.query::<&HutBuilding>().iter().count();
         let huts_needed = (villager_count as usize).div_ceil(3);
-        if hut_count < huts_needed && villager_count >= 3 {
+        if pending_hut_count + completed_hut_count < huts_needed && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)

@@ -551,6 +551,25 @@ impl Game {
             ecs::spawn_stone_deposit(&mut world, dx, dy);
         }
 
+        // Spawn initial prey (rabbits) and dens 8–16 tiles from settlement.
+        // Rabbits are the first wildlife encountered and provide early food via hunting.
+        // Without them, hostile-terrain seeds have no animal food source at all.
+        let prey_offsets: &[(isize, isize)] = &[(-10, -6), (12, -4), (-8, 8), (10, 6), (-6, -12)];
+        for (ox, oy) in prey_offsets {
+            let px = scx.saturating_add_signed(*ox);
+            let py = scy.saturating_add_signed(*oy);
+            let (px, py) = find_walkable(&map, px, py);
+            ecs::spawn_prey(&mut world, px, py, px, py);
+        }
+        // Two dens give rabbits a home base and allow them to breed back after hunting.
+        let den_offsets: &[(isize, isize)] = &[(-11, -7), (11, 7)];
+        for (ox, oy) in den_offsets {
+            let dx = scx.saturating_add_signed(*ox);
+            let dy = scy.saturating_add_signed(*oy);
+            let (dx, dy) = find_walkable(&map, dx, dy);
+            ecs::spawn_den(&mut world, dx, dy);
+        }
+
         // Spawn 3 villagers near the stockpile
         for i in 0..3 {
             let (vx, vy) = find_walkable(&map, scx + i * 2, scy + 1);

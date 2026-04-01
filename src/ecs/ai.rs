@@ -998,6 +998,60 @@ pub(super) fn ai_villager(
                 }
             }
 
+            // Stone emergency: when stone is critically low and a deposit is visible,
+            // redirect Idle/Wander villagers to mine stone BEFORE they seek build sites.
+            // Exception: villagers already en route to a build site (Seek{BuildSite})
+            // are NOT interrupted — stopping them caused the "workshop sits unbuilt
+            // indefinitely" regression where all workers abandoned an in-progress build.
+            let committed_to_build = matches!(
+                state,
+                BehaviorState::Seek {
+                    reason: SeekReason::BuildSite,
+                    ..
+                }
+            );
+            let stone_deposit_visible = !stone_deposits.is_empty()
+                && stone_deposits
+                    .iter()
+                    .any(|&(dx, dy)| dist(pos.x, pos.y, dx, dy) < creature.sight_range);
+            if stockpile_stone < 5 && !committed_to_build && stone_deposit_visible && hunger < 0.4 {
+                let nearest = stone_deposits
+                    .iter()
+                    .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
+                    .filter(|(_, _, d)| *d < creature.sight_range)
+                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                if let Some((dx, dy, d)) = nearest {
+                    if d < 1.5 {
+                        return (
+                            BehaviorState::Gathering {
+                                timer: (90.0 / skill_mults.gather_stone_speed) as u32,
+                                resource_type: ResourceType::Stone,
+                            },
+                            0.0,
+                            0.0,
+                            hunger,
+                            None,
+                            None,
+                        );
+                    } else {
+                        let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                        move_toward_astar(pos, dx, dy, speed, &mut vel, map);
+                        return (
+                            BehaviorState::Seek {
+                                target_x: dx,
+                                target_y: dy,
+                                reason: SeekReason::Stone,
+                            },
+                            vel.dx,
+                            vel.dy,
+                            hunger,
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
+
             // Scarcity-driven task selection: score urgency of build vs gather
             // Food gathering gets urgent when stockpile is low relative to what villagers eat
             let food_urgent = stockpile_food < 5 || (has_stockpile_food && stockpile_food < 10);
