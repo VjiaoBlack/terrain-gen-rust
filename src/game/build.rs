@@ -426,7 +426,9 @@ impl super::Game {
                 break;
             }
             let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-            let d = rng.random_range(15.0f64..45.0);
+            // Keep grove within villagers' extended wood-search sight range (22 * 1.5 = 33).
+            // Old range 15-45 put some groves outside sight range, preventing wood gathering.
+            let d = rng.random_range(10.0f64..28.0);
             let tx = (cx + angle.cos() * d) as usize;
             let ty = (cy + angle.sin() * d) as usize;
             if self.map.is_walkable(tx as f64, ty as f64)
@@ -643,17 +645,18 @@ impl super::Game {
             .iter()
             .any(|s| s.building_type == BuildingType::Workshop);
 
-        // Priority 0.5: Workshop — pre-empts Farm when grain buffer proves food security.
+        // Priority 0.5: Workshop — pre-empts Farm when food security is proven.
         // Without this, P1 Farm always takes wood=5 first (Farm costs 5w, Workshop costs 5w),
         // permanently preventing Workshop from ever being built.
-        // Condition: grain ALONE (not food+grain) covers 4 meals per villager. This requires
-        // a Granary to be running and accumulating grain, preventing early-game firing when
-        // the settlement has starting food=50 but no actual food production established yet.
-        if !has_workshop
-            && !pending_workshop_any
-            && villager_count >= 8
-            && self.resources.stone > 5
-            && self.resources.grain >= villager_count * 4
+        // Two signals for food security:
+        //   (a) grain >= pop*4: Granary is running and accumulating a buffer, OR
+        //   (b) food > 60 + pop*6: raw food surplus is large enough that even if Granary
+        //       workers compete with farm workers, the settlement clearly has enough food.
+        // (a) is preferred but (b) prevents the deadlock when many farms fill all worker
+        // slots leaving no capacity for the Granary.
+        let food_secure = self.resources.grain >= villager_count * 4
+            || self.resources.food > 60 + villager_count * 6;
+        if !has_workshop && !pending_workshop_any && villager_count >= 8 && self.resources.stone > 5 && food_secure
         {
             let cost = BuildingType::Workshop.cost();
             if self.resources.can_afford(&cost)
@@ -693,7 +696,19 @@ impl super::Game {
         // Count total housing slots: 4 per completed hut + 4 per pending hut.
         // Queue another hut when total capacity is below villager count plus a small buffer.
         let total_hut_capacity = (completed_huts + pending_huts) * 4;
-        if total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
+        // Defer hut construction in two Workshop-related scenarios:
+        // (a) Workshop conditions are met but not yet built/queued: wood is depleted by hut
+        //     builds before it can accumulate to Workshop cost — defer huts until wood=10.
+        // (b) Workshop exists but hasn't produced the first plank yet: huts would drain wood
+        //     below the processing threshold — defer until wood=10 or first plank arrives.
+        let saving_for_workshop = (!has_workshop
+            && !pending_workshop_any
+            && villager_count >= 8
+            && self.resources.stone > 5
+            && self.resources.grain >= villager_count * 4)
+            || (has_workshop && self.resources.planks == 0);
+        let hut_ok = !saving_for_workshop || self.resources.wood >= 10;
+        if hut_ok && total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)

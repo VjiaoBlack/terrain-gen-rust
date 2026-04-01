@@ -514,7 +514,7 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
             let has_input = match b.recipe {
                 // Keep threshold below the hut cost (6w) so Workshop processes wood
                 // in the gap when hut construction is unaffordable.
-                Recipe::WoodToPlanks => resources.wood >= 7,
+                Recipe::WoodToPlanks => resources.wood >= 5,
                 Recipe::StoneToMasonry => resources.stone >= 2,
                 // Don't assign granary workers when food is near survival minimum
                 Recipe::FoodToGrain => resources.food > 15,
@@ -562,11 +562,19 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
     // condition (wood<5 && stone<5) almost never fires — this is the targeted fix.
     let wood_low = resources.wood < 8;
     let food_safe = resources.food > total_villagers as u32 * 2;
-    let max_assigned = if wood_low && food_safe {
+    let base_max = if wood_low && food_safe {
         (total_villagers * 2 / 3).saturating_sub(2).max(1)
     } else {
         (total_villagers * 2 / 3).max(1)
     };
+    // Reserve extra slots for workshops that have input but no worker yet — without this,
+    // farms fill every assignment slot and Workshop/Granary never gets a worker.
+    let workshops_needing_worker = workshops
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| w.2 && workshop_workers[*i] == 0)
+        .count();
+    let max_assigned = base_max + workshops_needing_worker;
     let currently_assigned = world
         .query::<&Behavior>()
         .iter()
@@ -622,30 +630,8 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
             continue;
         }
 
-        // Priority 2: farms that need tending (not harvest-ready, growth < 1.0)
-        let mut best_tend: Option<(usize, f64)> = None;
-        for (i, &(fx, fy, harvest_ready, _)) in farms.iter().enumerate() {
-            if !harvest_ready && farm_workers[i] == 0 {
-                let d = dist(pos.x, pos.y, fx, fy);
-                if best_tend.is_none() || d < best_tend.unwrap().1 {
-                    best_tend = Some((i, d));
-                }
-            }
-        }
-        if let Some((i, _)) = best_tend {
-            let (fx, fy, _, _) = farms[i];
-            farm_workers[i] += 1;
-            assignments.push((
-                e,
-                BehaviorState::Farming {
-                    target_x: fx,
-                    target_y: fy,
-                },
-            ));
-            continue;
-        }
-
-        // Priority 3: workshops that have inputs and need a worker
+        // Priority 2: workshops that have inputs and need a worker
+        // (before farm tending so the reserved workshop slots don't get consumed by farms)
         let mut best_workshop: Option<(usize, f64)> = None;
         for (i, &(wx, wy, has_input)) in workshops.iter().enumerate() {
             if has_input && workshop_workers[i] == 0 {
@@ -663,6 +649,29 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
                 BehaviorState::Working {
                     target_x: wx,
                     target_y: wy,
+                },
+            ));
+            continue;
+        }
+
+        // Priority 3: farms that need tending (not harvest-ready, growth < 1.0)
+        let mut best_tend: Option<(usize, f64)> = None;
+        for (i, &(fx, fy, harvest_ready, _)) in farms.iter().enumerate() {
+            if !harvest_ready && farm_workers[i] == 0 {
+                let d = dist(pos.x, pos.y, fx, fy);
+                if best_tend.is_none() || d < best_tend.unwrap().1 {
+                    best_tend = Some((i, d));
+                }
+            }
+        }
+        if let Some((i, _)) = best_tend {
+            let (fx, fy, _, _) = farms[i];
+            farm_workers[i] += 1;
+            assignments.push((
+                e,
+                BehaviorState::Farming {
+                    target_x: fx,
+                    target_y: fy,
                 },
             ));
         }
@@ -834,7 +843,7 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
 pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
     for (building, sprite) in world.query_mut::<(&mut ProcessingBuilding, &mut Sprite)>() {
         let has_input = match building.recipe {
-            Recipe::WoodToPlanks => resources.wood >= 7,
+            Recipe::WoodToPlanks => resources.wood >= 5,
             Recipe::StoneToMasonry => resources.stone >= 2,
             // Only convert food→grain when there's a comfortable surplus.
             // Without this guard, the granary drains food to 0 if bakery isn't built yet.
