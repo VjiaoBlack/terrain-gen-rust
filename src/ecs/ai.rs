@@ -1014,12 +1014,8 @@ pub(super) fn ai_villager(
                     .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < build_sight);
 
             // When food is critically low, skip building and gather food/resources instead
-            // (unless the build site IS a farm — always prioritize farm construction).
-            // When wood is critically low (< 5), also suppress building so freed villagers
-            // actually gather wood rather than queuing at build sites — this breaks the
-            // deadlock where build-site priority keeps wood perpetually at 3.
-            let wood_critical = stockpile_wood < 5;
-            let should_build = if build_available && hunger < 0.4 && !wood_critical {
+            // (unless the build site IS a farm — always prioritize farm construction)
+            let should_build = if build_available && hunger < 0.4 {
                 if food_urgent {
                     // Only build farms when food is urgent
                     build_sites.iter().any(|&(_, bx, by, assigned)| {

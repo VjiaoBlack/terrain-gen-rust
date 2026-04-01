@@ -1011,7 +1011,7 @@ mod tests {
             &map,
             0.4,
             0,
-            10, // wood=10 > critical threshold (5) so should_build is not suppressed
+            10, // stockpile_wood (unused for building decision in this test)
             0,
             0,
             0,
