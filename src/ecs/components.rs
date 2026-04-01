@@ -265,8 +265,8 @@ impl BuildingType {
             BuildingType::Garrison => BuildingDef {
                 name: "Garrison",
                 cost: Resources {
-                    planks: 10,
-                    masonry: 10,
+                    wood: 6,
+                    stone: 12,
                     ..DEF_RES
                 },
                 build_time: 180,

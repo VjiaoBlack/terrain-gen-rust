@@ -410,11 +410,13 @@ impl Game {
             (cx as f64, cy as f64) // fallback
         };
 
-        // Find a good start position: grass/sand tile adjacent to forest, near map center
+        // Find a good start position: grass/sand tile adjacent to forest, near map center.
+        // Also require at least 5 distinct 3×3 buildable areas within 20 tiles so auto-build
         let cx = map_width / 2;
         let cy = map_height / 2;
         let mut start_cx = cx;
         let mut start_cy = cy;
+
         'search: for r in 0..80usize {
             for dy in -(r as i32)..=(r as i32) {
                 for dx in -(r as i32)..=(r as i32) {
@@ -1827,29 +1829,27 @@ mod tests {
     }
 
     #[test]
-    fn garrison_placement_requires_refined_resources() {
+    fn garrison_placement_requires_wood_and_stone() {
         let mut game = Game::new(60, 42);
 
-        // Give only raw resources
+        // Insufficient wood
         game.resources = Resources {
-            food: 100,
-            wood: 100,
-            stone: 100,
+            wood: 5,
+            stone: 12,
             ..Default::default()
         };
 
         let cost = BuildingType::Garrison.cost();
         assert!(
             !game.resources.can_afford(&cost),
-            "should NOT afford garrison with only raw resources"
+            "should NOT afford garrison with insufficient wood"
         );
 
-        // Give refined resources
-        game.resources.planks = 10;
-        game.resources.masonry = 10;
+        // Sufficient wood + stone
+        game.resources.wood = 6;
         assert!(
             game.resources.can_afford(&cost),
-            "should afford garrison with refined resources"
+            "should afford garrison with 6 wood + 12 stone"
         );
     }
 

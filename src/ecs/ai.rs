@@ -724,7 +724,10 @@ pub(super) fn ai_villager(
                 );
             }
             // Stop farming to gather resources only when BOTH are critically low.
-            // (using || was too aggressive in early-game when wood is low but stone is fine)
+            // Using only wood (||) was too aggressive: stone deposits keep stone at 5-9,
+            // so the OR condition fires whenever wood drops below 5, which happens often
+            // when Workshop is running (consumes 2w per cycle). This interrupted farming
+            // on every wood dip, collapsing food production heading into winter.
             if stockpile_wood < 5 && stockpile_stone < 5 {
                 return (
                     BehaviorState::Idle { timer: 5 },

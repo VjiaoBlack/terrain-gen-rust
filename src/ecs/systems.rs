@@ -512,9 +512,11 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .map(|(p, b)| {
             let has_input = match b.recipe {
-                // Keep threshold below the hut cost (6w) so Workshop processes wood
-                // in the gap when hut construction is unaffordable.
-                Recipe::WoodToPlanks => resources.wood >= 5,
+                // Threshold at 8: above hut cost (6w) so worker assignment doesn't
+                // fire when wood is too low for buildings, but low enough to be
+                // achievable. Once assigned, progress pauses if wood dips below 8
+                // (system_processing checks same threshold each tick).
+                Recipe::WoodToPlanks => resources.wood >= 8,
                 Recipe::StoneToMasonry => resources.stone >= 2,
                 // Don't assign granary workers when food is near survival minimum
                 Recipe::FoodToGrain => resources.food > 15,
@@ -843,7 +845,7 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
 pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
     for (building, sprite) in world.query_mut::<(&mut ProcessingBuilding, &mut Sprite)>() {
         let has_input = match building.recipe {
-            Recipe::WoodToPlanks => resources.wood >= 5,
+            Recipe::WoodToPlanks => resources.wood >= 8,
             Recipe::StoneToMasonry => resources.stone >= 2,
             // Only convert food→grain when there's a comfortable surplus.
             // Without this guard, the granary drains food to 0 if bakery isn't built yet.

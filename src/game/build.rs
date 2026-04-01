@@ -669,9 +669,15 @@ impl super::Game {
             }
         }
 
-        // Priority 1: Farm when food is low and we don't have enough farms
+        // Priority 1: Farm when food is low and we don't have enough farms.
+        // Threshold: 1 farm per 3 villagers (div_ceil), minimum 2. The old "2/3 of pop"
+        // threshold (e.g. 6 farms for pop=8) was far too high — one farm already produces
+        // ~25 food/1000 ticks while 8 villagers consume only ~1.2 food/1000 ticks. The old
+        // threshold caused P1 to fire every 50 ticks until 6 farms existed, permanently
+        // blocking P3 (Workshop) from ever running. Minimum of 2 ensures early-game (pop=3)
+        // still queues a second farm before the threshold is satisfied.
         if self.resources.food < 8 + villager_count * 4
-            && farm_count < ((villager_count as usize) * 2).div_ceil(3)
+            && farm_count < (villager_count as usize).div_ceil(3) + 1
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
@@ -879,7 +885,10 @@ impl super::Game {
             }
         }
 
-        // Priority 5.2: Garrison when masonry is available and wolves have appeared (or pop is large)
+        // Priority 5.2: Garrison — build proactively once stone is sufficient.
+        // Garrison costs 6w+12s (no masonry) so it can be built at pop=4 before the first wolf
+        // surge in winter. The masonry→garrison chain caused a deadlock: masonry requires
+        // Workshop (pop≥8), but wolves prevent pop from reaching 8 without garrison.
         let has_garrison = self.world.query::<&GarrisonBuilding>().iter().count() > 0;
         let pending_garrison = self
             .world
@@ -891,11 +900,7 @@ impl super::Game {
             .query::<(&Position, &Creature)>()
             .iter()
             .any(|(_, c)| c.species == Species::Predator);
-        if !has_garrison
-            && !pending_garrison
-            && self.resources.masonry >= 2
-            && (wolves_present || villager_count >= 40)
-        {
+        if !has_garrison && !pending_garrison && villager_count >= 4 && self.resources.stone >= 12 {
             let cost = BuildingType::Garrison.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)

@@ -1011,7 +1011,7 @@ mod tests {
             &map,
             0.4,
             0,
-            0,
+            10, // stockpile_wood (unused for building decision in this test)
             0,
             0,
             0,
@@ -1876,11 +1876,11 @@ mod tests {
         assert_eq!(
             garrison.cost(),
             Resources {
-                planks: 10,
-                masonry: 10,
+                wood: 6,
+                stone: 12,
                 ..Default::default()
             },
-            "garrison cost should be 10 planks, 10 masonry"
+            "garrison cost should be 6 wood, 12 stone"
         );
         assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
         assert_eq!(
@@ -2039,30 +2039,32 @@ mod tests {
     }
 
     #[test]
-    fn garrison_requires_refined_resources() {
+    fn garrison_cost_is_wood_and_stone_only() {
         let cost = BuildingType::Garrison.cost();
-        assert_eq!(cost.planks, 10);
-        assert_eq!(cost.masonry, 10);
-        assert_eq!(cost.wood, 0, "garrison should not require raw wood");
-        assert_eq!(cost.stone, 0, "garrison should not require raw stone");
+        assert_eq!(cost.wood, 6, "garrison should require 6 wood");
+        assert_eq!(cost.stone, 12, "garrison should require 12 stone");
+        assert_eq!(cost.masonry, 0, "garrison should not require masonry");
+        assert_eq!(cost.planks, 0, "garrison should not require planks");
 
-        let raw_only = Resources {
-            food: 100,
-            wood: 100,
-            stone: 100,
+        let sufficient = Resources {
+            wood: 6,
+            stone: 12,
             ..Default::default()
         };
         assert!(
-            !raw_only.can_afford(&cost),
-            "raw resources alone should not afford garrison"
+            sufficient.can_afford(&cost),
+            "wood+stone should be sufficient to afford garrison"
         );
 
-        let refined = Resources {
-            planks: 10,
-            masonry: 10,
+        let insufficient = Resources {
+            wood: 5,
+            stone: 12,
             ..Default::default()
         };
-        assert!(refined.can_afford(&cost));
+        assert!(
+            !insufficient.can_afford(&cost),
+            "insufficient wood should not afford garrison"
+        );
     }
 
     #[test]
@@ -2223,8 +2225,8 @@ mod tests {
         let mut world = World::new();
         let stone = spawn_stone_deposit(&mut world, 5.0, 5.0);
         let ry = world.get::<&ResourceYield>(stone).unwrap();
-        assert_eq!(ry.remaining, 12);
-        assert_eq!(ry.max, 12);
+        assert_eq!(ry.remaining, 20);
+        assert_eq!(ry.max, 20);
     }
 
     #[test]
@@ -2346,7 +2348,7 @@ mod tests {
             .iter()
             .map(|(_, ry)| ry.remaining)
             .collect();
-        assert_eq!(stone_yield, vec![12], "stone yield should round-trip");
+        assert_eq!(stone_yield, vec![20], "stone yield should round-trip");
     }
 
     #[test]
