@@ -867,8 +867,9 @@ pub(super) fn ai_villager(
                 }
             }
 
-            // Night shelter-seeking: villagers look for huts to sleep in at night
-            if is_night {
+            // Night shelter-seeking: villagers look for huts to sleep in at night.
+            // Exception: critically hungry villagers eat before sleeping (starvation override).
+            if is_night && hunger <= 0.6 {
                 let nearest_hut = hut_positions
                     .iter()
                     .map(|&(hx, hy)| (hx, hy, dist(pos.x, pos.y, hx, hy)))
