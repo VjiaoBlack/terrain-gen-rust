@@ -1362,6 +1362,12 @@ impl Game {
                     self.discover_stone_deposits();
                 }
 
+                // Timber grove discovery: when wood is critically low, reveal a nearby grove.
+                // Prevents permanent wood starvation on forest-sparse map seeds.
+                if self.tick.is_multiple_of(3000) && self.resources.wood < 8 {
+                    self.discover_timber_grove();
+                }
+
                 // Seasonal config for rain/water
                 let mut tick_config = self.sim_config.clone();
                 tick_config.rain_rate *= mods.rain_mult;

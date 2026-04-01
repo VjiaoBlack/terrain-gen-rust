@@ -402,6 +402,61 @@ impl super::Game {
         }
     }
 
+    /// Discover a nearby timber grove when wood is critically low.
+    /// Plants a small cluster of Forest tiles 15–45 tiles from the settlement
+    /// centre, giving gatherers a local wood source on forest-sparse maps.
+    pub(super) fn discover_timber_grove(&mut self) {
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if villager_pos.is_empty() {
+            return;
+        }
+        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
+        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
+
+        let mut rng = rand::rng();
+        let mut grove_planted = false;
+        for _ in 0..80 {
+            if grove_planted {
+                break;
+            }
+            let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+            let d = rng.random_range(15.0f64..45.0);
+            let tx = (cx + angle.cos() * d) as usize;
+            let ty = (cy + angle.sin() * d) as usize;
+            if self.map.is_walkable(tx as f64, ty as f64)
+                && !matches!(self.map.get(tx, ty), Some(Terrain::Forest))
+            {
+                // Plant a 3×3 cluster of forest tiles around this anchor point.
+                let mut count = 0u32;
+                for dy in -2i32..=2 {
+                    for dx in -2i32..=2 {
+                        let fx = tx as i32 + dx;
+                        let fy = ty as i32 + dy;
+                        if fx >= 0 && fy >= 0 {
+                            let fx = fx as usize;
+                            let fy = fy as usize;
+                            if matches!(self.map.get(fx, fy), Some(Terrain::Grass | Terrain::Sand))
+                            {
+                                self.map.set(fx, fy, Terrain::Forest);
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+                if count >= 3 {
+                    self.notify(format!("Timber grove discovered! ({count} new tiles)"));
+                    grove_planted = true;
+                }
+            }
+        }
+    }
+
     /// Check conditions and spawn a new villager if met.
     /// Births require: 2+ villagers, food >= 5, and housing capacity.
     /// More surplus housing = shorter birth cooldown (min 200, max 800 ticks).
