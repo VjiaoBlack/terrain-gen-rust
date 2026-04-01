@@ -80,6 +80,7 @@ pub fn system_ai(
     stockpile_wood: u32,
     stockpile_stone: u32,
     stockpile_grain: u32,
+    stockpile_bread: u32,
     skill_mults: &SkillMults,
     settlement_defended: bool,
     is_night: bool,
@@ -88,6 +89,7 @@ pub fn system_ai(
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
     let mut food_consumed: u32 = 0;
     let mut grain_consumed: u32 = 0;
+    let mut bread_consumed: u32 = 0;
     let mut farming_ticks: u32 = 0;
     let mut mining_ticks: u32 = 0;
     let mut woodcutting_ticks: u32 = 0;
@@ -241,7 +243,8 @@ pub fn system_ai(
 
                 let remaining_grain = stockpile_grain.saturating_sub(grain_consumed);
                 let remaining_food = stockpile_food.saturating_sub(food_consumed);
-                let has_food = remaining_grain > 0 || remaining_food > 0;
+                let remaining_bread = stockpile_bread.saturating_sub(bread_consumed);
+                let has_food = remaining_grain > 0 || remaining_food > 0 || remaining_bread > 0;
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
                 let near_food_source = food_positions
                     .iter()
@@ -258,7 +261,7 @@ pub fn system_ai(
                     &build_site_positions,
                     &stone_deposit_positions,
                     has_food,
-                    remaining_food + remaining_grain,
+                    remaining_food + remaining_grain + remaining_bread,
                     stockpile_wood,
                     stockpile_stone,
                     map,
@@ -268,10 +271,12 @@ pub fn system_ai(
                     is_night,
                 );
 
-                // If villager just started eating near stockpile (not near berry bush), consume grain first, then food
+                // Villager just started eating near stockpile: grain → bread → food
                 if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
                     if remaining_grain > 0 {
                         grain_consumed += 1;
+                    } else if remaining_bread > 0 {
+                        bread_consumed += 1;
                     } else {
                         food_consumed += 1;
                     }
@@ -441,6 +446,7 @@ pub fn system_ai(
         deposited: deposited_resources,
         food_consumed,
         grain_consumed,
+        bread_consumed,
         farming_ticks,
         mining_ticks,
         woodcutting_ticks,

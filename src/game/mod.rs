@@ -967,6 +967,7 @@ impl Game {
                     self.resources.wood,
                     self.resources.stone,
                     self.resources.grain,
+                    self.resources.bread,
                     &skill_mults,
                     settlement_defended,
                     self.day_night.is_night(),
@@ -1008,6 +1009,16 @@ impl Game {
                     self.notify(format!(
                         "Villager ate grain (-{})",
                         ai_result.grain_consumed
+                    ));
+                }
+                if ai_result.bread_consumed > 0 {
+                    self.resources.bread = self
+                        .resources
+                        .bread
+                        .saturating_sub(ai_result.bread_consumed);
+                    self.notify(format!(
+                        "Villager ate bread (-{})",
+                        ai_result.bread_consumed
                     ));
                 }
                 if ai_result.food_consumed > 0 {
@@ -1849,6 +1860,7 @@ mod tests {
             &map,
             0.4,
             10,
+            0,
             0,
             0,
             0,
