@@ -512,7 +512,7 @@ pub fn system_assign_workers(world: &mut World, resources: &Resources) {
         .iter()
         .map(|(p, b)| {
             let has_input = match b.recipe {
-                Recipe::WoodToPlanks => resources.wood >= 2,
+                Recipe::WoodToPlanks => resources.wood >= 10,
                 Recipe::StoneToMasonry => resources.stone >= 2,
                 // Don't assign granary workers when food is near survival minimum
                 Recipe::FoodToGrain => resources.food > 15,
@@ -832,7 +832,7 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
 pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mult: f64) {
     for (building, sprite) in world.query_mut::<(&mut ProcessingBuilding, &mut Sprite)>() {
         let has_input = match building.recipe {
-            Recipe::WoodToPlanks => resources.wood >= 2,
+            Recipe::WoodToPlanks => resources.wood >= 10,
             Recipe::StoneToMasonry => resources.stone >= 2,
             // Only convert food→grain when there's a comfortable surplus.
             // Without this guard, the granary drains food to 0 if bakery isn't built yet.

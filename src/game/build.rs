@@ -1025,6 +1025,7 @@ impl super::Game {
         bt: BuildingType,
     ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
+        // Primary search: coarse grid (building-size steps), close to settlement
         for r in 2i32..8 {
             for dy in -r..=r {
                 for dx in -r..=r {
@@ -1033,6 +1034,21 @@ impl super::Game {
                     }
                     let bx = cx as i32 + dx * bw;
                     let by = cy as i32 + dy * bh;
+                    if self.can_place_building_impl(bx, by, bt, false) {
+                        return Some((bx, by));
+                    }
+                }
+            }
+        }
+        // Fallback: fine-grid scan for narrow terrain corridors where coarse grid misses valid spots
+        for r in 4i32..64 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let bx = cx as i32 + dx;
+                    let by = cy as i32 + dy;
                     if self.can_place_building_impl(bx, by, bt, false) {
                         return Some((bx, by));
                     }

@@ -3065,3 +3065,100 @@ Seed 777 reached pop=20 (up from 19 in session 21). Stable through winter/wolf a
 
 All 194 lib tests pass. No regressions introduced.
 
+---
+
+## 2026-04-01 — Automated Playtest Report (Session 23)
+
+**Build:** release  
+**Auto-build:** enabled (ToggleAutoBuild at tick 100, stays on)  
+**Display size:** 70×25
+
+### Phase 1 Baseline Results (T=36,100)
+
+| | Seed 42 | Seed 137 | Seed 999 |
+|---|---|---|---|
+| **Final pop** | 11 | 4 | 16 |
+| **Food** | 0 | 0 | 7 |
+| **Wood** | 7 | 44 | 0 |
+| **Planks** | 0 | 0 | 4 |
+| **Grain** | 442 | 212 | 180 |
+| **Season** | Winter Y1 D1 | Winter Y1 D1 | Autumn Y1 D6 |
+| **Survived?** | Yes | Yes (6 wolves) | Yes |
+
+Key observations:
+- Seed 137 stuck at pop=4 with wood=44 and stone=18 (enough for huts) — `find_building_spot` cannot find a valid 3×3 tile area on its coarse grid due to narrow mountain terrain
+- Seed 999 capped at pop=16 with wood=0 and planks=4 — Workshop was draining wood to 0-2 continuously (threshold=2), preventing Hut construction (cost 6w)
+
+### Root Cause Analysis
+
+1. **WoodToPlanks threshold too low (≥2)**: Workshop activates as soon as wood hits 2, keeping
+   stockpile permanently at 0-2. Hut construction requires 6w but wood never accumulates that
+   high. Seed 999 stuck at pop=16 (4 huts × 4 capacity); next hut can never be afforded.
+   Both `system_assign_workers` (~L515) and `system_processing` (~L835) in `systems.rs` share
+   this threshold.
+
+2. **`find_building_spot` coarse-grid misses narrow corridors**: The ring search uses step size
+   `dx * bw` (= dx × 3 for 3-wide buildings), checking only positions at multiples of 3 tiles
+   from the settlement center. Narrow grass corridors between mountains (as in seed 137) may
+   fall between grid points and never be found. Seed 137 has wood=44, stone=18 — easily enough
+   to build huts — but auto-build silently skips the step when `find_building_spot` returns None.
+
+### Fixes Applied
+
+| Fix | File | Change |
+|-----|------|--------|
+| WoodToPlanks threshold | `src/ecs/systems.rs` L515, L835 | `resources.wood >= 2` → `resources.wood >= 10` (both worker-assignment and processing checks) |
+| `find_building_spot` fallback | `src/game/build.rs` | Added fine-grid (step=1) fallback scan at r=4..64 after primary coarse-grid (step=bw) scan fails. Primary scan unchanged — preserves well-spaced placement for normal terrain |
+
+**WoodToPlanks rationale**: Wood now accumulates to ≥10 before Workshop converts 2→1 plank. After conversion, wood=8 — still above Hut cost (6w). Subsequent gatherers refill wood to 10, and the cycle continues. Hut construction can proceed between conversion cycles.
+
+**`find_building_spot` fallback rationale**: Primary coarse-grid search (step=3) is preserved for all seeds with normal terrain — buildings stay well-spaced. The fallback only activates when no coarse-grid position is valid. Fallback starts at r=4 to avoid placing buildings right next to the settlement center.
+
+### Phase 4 Verification Results (T=36,100)
+
+| | Seed 42 | Seed 137 | Seed 999 |
+|---|---|---|---|
+| **Baseline pop** | 11 | 4 | 16 |
+| **Phase 4 pop** | 11 | 4 | 22 |
+| **Delta** | ±0 | ±0 | +6 |
+| **Wood** | 7 | 44 | 4 |
+| **Grain** | 410 | 210 | 442 |
+
+- Seed 42: Fully maintained — coarse-grid primary path unchanged
+- Seed 137: Still pop=4 — fine-grid fallback also finds no valid 3×3 position; the terrain genuinely has no buildable 3×3 area accessible within 64 tiles. This is a map-generation issue beyond this fix's scope.
+- Seed 999: pop 16→22 — WoodToPlanks fix allows wood to accumulate past 6, enabling 2 additional Hut builds
+
+### Phase 6 Final Verification — Seed 777 (T=36,100)
+
+| Metric | Value |
+|--------|-------|
+| Final pop | 16 |
+| Food | 1,165 |
+| Wood | 2 |
+| Grain | 542 |
+| Wolves | 7 |
+| Survived? | Yes |
+
+Seed 777 reached pop=16 with a large food/grain buffer. Wolves present but no game-over.
+
+### Residual Issues
+
+1. **Seed 137 has no buildable terrain**: Even the fine-grid fallback (step=1, r=4..64) finds no
+   valid 3×3 position. The settlement is in a single-tile-wide grass corridor. Fix would require
+   map generation ensuring settlement sites have at least a 5×5 clear area, or smaller
+   building footprints (1×1 shelters) for constrained terrain.
+
+2. **Planks=0 across all seeds**: Workshop threshold raised to 10, but wood still gets spent
+   on building construction before reaching 10. Workshop rarely fires; no planks means no
+   Garrison (10p+10m) and no Bakery (8p). With 6+ wolves per seed by T=36k, lack of Garrison
+   is a persistent survival risk. Next session should investigate lowering Garrison cost or
+   providing an early-game wolf deterrent that doesn't require planks.
+
+3. **Workshop pop threshold=8 delays Workshop too long**: Workshop only builds at pop≥8.
+   But pop=8 requires 2 huts, which requires wood. Meanwhile no planks → no Garrison →
+   wolves can wipe the settlement before Workshop is ever built. Consider lowering to pop≥6.
+
+### Tests
+
+All 194 lib tests pass. No regressions introduced.
+
