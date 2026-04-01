@@ -3320,3 +3320,68 @@ Fast-growing seeds (777, 999) hit a new bottleneck: wood=2 equilibrium where rap
 3. **Settlement spawn terrain guarantee** — Seed 137 narrow mountain corridor still limits growth past pop=8.
 4. **Auto-build input correctness** — Document that `--play --seed N --inputs "auto-build,..."` is the correct invocation; `seed:N` in inputs string is not sufficient.
 
+---
+
+## 2026-04-01 — Session 24: Garrison Deadlock Fix
+
+**Build:** release  
+**Auto-build:** enabled (`--auto-build` flag)  
+**Ticks:** 200,000 per seed  
+
+### Root Causes Identified
+
+Two blocking issues prevented garrison from ever being built:
+
+1. **`--auto-build` flag not wired in `--play` mode** (`src/main.rs`): The flag was only
+   handled in the `--screenshot` path. Running `--play --auto-build` silently ignored the
+   flag — `auto_build` stayed `false` and `auto_build_tick()` never fired. All prior
+   Session 23/24 playtests showed Build=0.0 for this reason.
+
+2. **Masonry deadlock chain**: Garrison required masonry (2m). Masonry required Smithy worker.
+   Smithy worker required pop≥8. Pop≥8 required surviving winter. Surviving winter required
+   Garrison. Circular dependency; garrison was never built.
+
+3. **Reactive garrison trigger**: Even when masonry was available, auto-build only queued
+   garrison when `wolves_present || villager_count >= 40` — both conditions were typically
+   false before the first wolf surge killed the settlement.
+
+### Fixes Applied
+
+| Fix | File | Change |
+|-----|------|--------|
+| Wire `--auto-build` in play mode | `src/main.rs` | Added flag check in `--play` path alongside existing `--screenshot` path |
+| Remove masonry from garrison | `src/ecs/components.rs` | Cost changed from 4w+6s+2m → 6w+12s (no masonry) |
+| Proactive garrison trigger | `src/game/build.rs` | Changed trigger from `wolves_present\|\|pop≥40` to `pop≥4 && stone≥12` |
+| Update garrison tests | `src/ecs/mod.rs`, `src/game/mod.rs` | Updated 3 tests to expect new 6w+12s cost |
+
+### Verification Results (200k ticks, `--auto-build`)
+
+| Seed | Pop@100k | Pop@200k | Survived | Military |
+|------|----------|----------|----------|----------|
+| 42   | 8        | 8        | Yes      | 13.4     |
+| 137  | 7        | 24       | Yes      | 15.6     |
+| 999  | 8        | 8        | Yes      | 10.4     |
+| 777  | —        | 0 (†64k) | No       | 6.1 peak |
+
+**Baseline (Session 23):** all seeds Pop=0 at 200k ticks (0/4 surviving).  
+**After fixes:** 3/4 seeds surviving at 200k (75% survival), seed 137 reached Pop=24.
+
+### Remaining Issues
+
+1. **Seed 777 dies at tick ~64k**: Settlement collapses before garrison provides meaningful
+   defense. Likely a combination of terrain constraints limiting farm expansion and an early
+   wolf surge before stone threshold (12) is reached. Garrison auto-build may still be
+   too late for some terrain configurations.
+
+2. **Pop plateau at 8 for seeds 42/999**: Settlement builds garrison but doesn't grow past 8.
+   Possible causes: housing bottleneck (huts) or food supply limited by small flat terrain area.
+   Workshop pop≥8 threshold means no planks, limiting further construction options.
+
+3. **Workshop→Smithy chain still inactive at pop=4**: The masonry chain (Workshop+Smithy)
+   requires pop≥8 to staff workers. For small or wolf-pressured settlements, masonry
+   production never starts, blocking Town Hall. This is acceptable for now since garrison
+   no longer needs masonry.
+
+### Tests
+
+All 194 lib tests pass. No regressions introduced.

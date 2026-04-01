@@ -668,7 +668,7 @@ impl super::Game {
 
         // Priority 1: Farm when food is low and we don't have enough farms
         if self.resources.food < 8 + villager_count * 4
-            && farm_count < ((villager_count as usize) * 2).div_ceil(3)
+            && farm_count < (villager_count as usize).div_ceil(3) + 1
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
@@ -864,7 +864,10 @@ impl super::Game {
             }
         }
 
-        // Priority 5.2: Garrison when masonry is available and wolves have appeared (or pop is large)
+        // Priority 5.2: Garrison — build proactively once stone is sufficient.
+        // Garrison costs 6w+12s (no masonry) so it can be built at pop=4 before the first wolf
+        // surge in winter. The masonry→garrison chain caused a deadlock: masonry requires
+        // Workshop (pop≥8), but wolves prevent pop from reaching 8 without garrison.
         let has_garrison = self.world.query::<&GarrisonBuilding>().iter().count() > 0;
         let pending_garrison = self
             .world
@@ -878,8 +881,8 @@ impl super::Game {
             .any(|(_, c)| c.species == Species::Predator);
         if !has_garrison
             && !pending_garrison
-            && self.resources.masonry >= 2
-            && (wolves_present || villager_count >= 40)
+            && villager_count >= 4
+            && self.resources.stone >= 12
         {
             let cost = BuildingType::Garrison.cost();
             if self.resources.can_afford(&cost)
