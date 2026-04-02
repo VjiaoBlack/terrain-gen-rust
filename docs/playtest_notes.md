@@ -4603,3 +4603,116 @@ with proportional birth gate (food < pop×3 when pop>10).
 
 - Wolves and prey confirmed working (wolves scale to pop in remote version, 1–4 based on pop/5).
   Predator/prey ecology functional once initial prey exist.
+
+---
+## 2026-04-02 — Session 27 Playtest Report
+
+**Build:** release  
+**Auto-build:** enabled (bug fixed this session — see below)  
+**Display size:** 80×30
+
+### Root Cause Discovery: `--play` Mode Never Enabled Auto-Build
+
+All prior sessions that used `cargo run --release -- --play --ticks N` without the `--auto-build` flag
+were running with `auto_build = false`. The flag check in `main.rs` was:
+
+```rust
+if args.iter().any(|a| a == "--auto-build") {
+    game_obj.auto_build = true;
+}
+```
+
+This meant every `--play` playtest produced identical "no-auto-build" behavior: pop capped at 4
+(one pre-built Hut), wood/stone accumulating but never spent, Planks=0, Workshop never built.
+The Workshop-not-built symptom that triggered this session was actually a symptom of auto_build
+being off, not a logic bug.
+
+**Fix**: `--play` mode now unconditionally sets `auto_build = true` (same as `--screenshot`).
+The `--auto-build` flag check was replaced with an unconditional assignment. Players can still
+disable auto_build at any point via `input:ToggleAutoBuild` in the `--inputs` sequence.
+
+### Fix 2: Workshop Pop Threshold 8→4
+
+With auto_build properly enabled, the secondary issue became visible: P0.5 Workshop required
+`villager_count >= 8`. By the time pop reached 8, the initial building cluster (pre-built Hut +
+Farm + Granary, plus early Garrison) had consumed most 3×3 Grass patches near the settlement.
+`find_building_spot(Workshop)` then returned `None`, triggering `discover_timber_grove()` instead.
+
+**Fix**: Lowered `villager_count >= 8` to `villager_count >= 4` in four places:
+- P0.5 Workshop condition
+- `saving_for_workshop` guard
+- P2 Hut fallback Workshop condition
+- P3 Workshop condition
+
+Also added an early-game escape hatch for `food_secure`:
+```rust
+let food_secure = self.resources.grain >= villager_count * 2
+    || self.resources.food > villager_count * 4 + 20
+    || (villager_count <= 5 && self.resources.food >= 10); // early-game
+```
+At pop=4, starting food=20 ≥ 10 satisfies this immediately, so Workshop fires at T≈50-100
+when wood=60 is available — before terrain fills up.
+
+### Phase 4 Verification Playtests (36k ticks)
+
+| Seed | Pop | Food | Wood | Stone | Planks | Masonry | Grain | Wolves | Notes |
+|------|-----|------|------|-------|--------|---------|-------|--------|-------|
+| 42   | 8   | 0    | 8    | 4     | 6      | 0       | 162   | 1      | Workshop ✓, housing terrain-limited |
+| 137  | 16  | 1497 | 0    | 6     | 0      | 0       | 528   | 4      | Pop doubled, wood=0 desert issue |
+| 999  | 19  | 0    | 9    | 0     | 7      | 5       | 84    | 1      | Workshop + Smithy ✓ |
+
+### Phase 6 Final Verification — Seed 777, 36k Ticks
+
+| Metric | Value |
+|--------|-------|
+| Pop    | 8     |
+| Food   | 0     |
+| Wood   | 2     |
+| Stone  | 3     |
+| Planks | 9     |
+| Masonry| 0     |
+| Grain  | 124   |
+| Wolves | 2     |
+| Season | Winter Y1 D1 |
+
+Seed 777 shows Workshop active (Planks=9) and wolf defense working (wolf pack repelled). Pop=8 is
+terrain-limited (dense forest/water map leaves few 3×3 Grass patches for Huts). Same terrain
+constraint as previous sessions on this seed.
+
+### Observations
+
+1. **Workshop now fires on 3/4 seeds** (42, 999, 777). Seed 137 (desert biome) has wood=0 which
+   prevents Workshop processing even if built. The settlement still grows to pop=16+ on seed 137.
+
+2. **Wolf defense confirmed functional** on all 4 seeds. "Wolf pack repelled by defenses!" appears
+   consistently once Garrison is built.
+
+3. **Seed 42 terrain constraint**: map is mountain/water-heavy; buildable area is tiny. Pop caps
+   at 8 due to no space for additional Huts. `discover_timber_grove()` converts Mountain→Forest
+   but the settlement's effective walkable area remains limited.
+
+4. **Desert seed (137) wood=0**: Timber grove discovery fires but doesn't fully solve wood
+   starvation on maps with very few trees. Food abundance (1497+528 grain) is not matched by
+   production chain progress.
+
+### Tests
+
+All 194 lib tests pass (`cargo test --lib`). No regressions.
+
+### Changes Made This Session
+
+- `src/main.rs`: `--play` mode unconditionally sets `auto_build = true`
+- `src/game/build.rs`: Workshop pop threshold 8→4 in four locations; `food_secure` escape hatch
+
+### Remaining Issues / Next Session
+
+1. **Pop ceiling on terrain-limited seeds (42, 777)**: `find_building_spot(Hut)` returns None
+   on maps where the buildable area is exhausted by 4 buildings. Need either larger search radius
+   or smarter land clearing (converting Mountain/water-adjacent tiles to buildable terrain).
+
+2. **Wood=0 on desert seed (137)**: No trees → no Workshop production. Timber grove helps but
+   only yields ~25 tiles per discovery and desert maps regenerate very little wood. Options:
+   reduce building costs on desert biomes, or add a "plant trees" action triggered when wood=0.
+
+3. **Masonry chain**: Seeds 42/137/777 show Masonry=0. Stone equilibrates below Smithy threshold.
+   Need stone to accumulate above ~10 for `saving_for_smithy` to activate.

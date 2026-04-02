@@ -700,11 +700,14 @@ impl super::Game {
         //       workers compete with farm workers, the settlement clearly has enough food.
         // (a) is preferred but (b) prevents the deadlock when many farms fill all worker
         // slots leaving no capacity for the Granary.
+        // food_secure: either grain buffer or surplus food, OR early-game (pop≤5) with any food
+        // present — at pop=4, food=20 satisfies this so Workshop fires immediately when affordable.
         let food_secure = self.resources.grain >= villager_count * 2
-            || self.resources.food > villager_count * 4 + 20;
+            || self.resources.food > villager_count * 4 + 20
+            || (villager_count <= 5 && self.resources.food >= 10);
         if !has_workshop
             && !pending_workshop_any
-            && villager_count >= 8
+            && villager_count >= 4
             && self.resources.stone >= 3
             && food_secure
         {
@@ -781,7 +784,7 @@ impl super::Game {
         // stayed at 0, and huts were permanently blocked, capping population at 16.
         let saving_for_workshop = !has_workshop
             && !pending_workshop_any
-            && villager_count >= 8
+            && villager_count >= 4
             && self.resources.stone >= 3
             && self.resources.grain >= villager_count * 4;
         // Saving-for-smithy guard: when Workshop exists, stone > 10, and Smithy not yet built,
@@ -804,7 +807,7 @@ impl super::Game {
                 queued_critical = true;
             } else if !has_workshop
                 && !pending_workshop_any
-                && villager_count >= 8
+                && villager_count >= 4
                 && self.resources.stone >= 3
             {
                 // Housing is needed but we can't afford a hut right now.
@@ -841,7 +844,7 @@ impl super::Game {
         // (has_workshop and pending_workshop_any pre-computed before P2 above).
         if !has_workshop
             && !pending_workshop_any
-            && villager_count >= 8
+            && villager_count >= 4
             && self.resources.stone >= 3
         {
             let cost = BuildingType::Workshop.cost();

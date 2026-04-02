@@ -322,9 +322,9 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
-        if args.iter().any(|a| a == "--auto-build") {
-            game_obj.auto_build = true;
-        }
+        // auto_build is always enabled in --play mode (it's the headless testing mode).
+        // Use input:ToggleAutoBuild in --inputs to disable it if needed.
+        game_obj.auto_build = true;
         // auto_build can also be toggled via `input:ToggleAutoBuild` in the command sequence.
 
         let inputs_str = args
