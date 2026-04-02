@@ -997,7 +997,7 @@ mod tests {
         let map = walkable_map(30, 30);
         let villager = spawn_villager(&mut world, 10.0, 10.0);
         spawn_stockpile(&mut world, 5.0, 5.0);
-        let _site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall);
+        let _site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall, 0);
 
         {
             let mut c = world.get::<&mut Creature>(villager).unwrap();
@@ -1034,7 +1034,7 @@ mod tests {
         let map = walkable_map(30, 30);
         let villager = spawn_villager(&mut world, 10.0, 10.0);
         spawn_stockpile(&mut world, 5.0, 5.0);
-        let site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall);
+        let site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall, 0);
 
         {
             let mut s = world.get::<&mut BuildSite>(site).unwrap();
@@ -1581,7 +1581,7 @@ mod tests {
         spawn_stone_deposit(&mut world, 7.0, 7.0);
         spawn_den(&mut world, 15.0, 15.0);
         spawn_stockpile(&mut world, 12.0, 12.0);
-        spawn_build_site(&mut world, 8.0, 8.0, BuildingType::Hut);
+        spawn_build_site(&mut world, 8.0, 8.0, BuildingType::Hut, 0);
         spawn_farm_plot(&mut world, 9.0, 9.0);
 
         let serialized = serialize_world(&world);

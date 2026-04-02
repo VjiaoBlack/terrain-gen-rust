@@ -136,7 +136,13 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
-pub fn spawn_build_site(world: &mut World, x: f64, y: f64, building_type: BuildingType) -> Entity {
+pub fn spawn_build_site(
+    world: &mut World,
+    x: f64,
+    y: f64,
+    building_type: BuildingType,
+    queued_at: u64,
+) -> Entity {
     world.spawn((
         Position { x, y },
         Sprite {
@@ -148,6 +154,7 @@ pub fn spawn_build_site(world: &mut World, x: f64, y: f64, building_type: Buildi
             progress: 0,
             required: building_type.build_time(),
             assigned: false,
+            queued_at,
         },
     ))
 }

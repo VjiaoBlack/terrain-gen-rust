@@ -105,7 +105,17 @@ impl Game {
 
         match season {
             Season::Summer => {
-                if !self.events.has_event_type("drought") && rng.random_range(0u32..100) < 15 {
+                // Only allow drought when the settlement has a grain buffer (grain ≥ 20).
+                // Without stored grain, a drought-halved farm yield immediately kills the
+                // settlement — there's no gameplay tension, just unavoidable death. Once grain
+                // is established, drought becomes a meaningful challenge to manage.
+                // Reduced probability: 5% per 100 ticks. Summer is 12000 ticks (120 checks),
+                // so expected ~1-2 droughts per Summer when a grain buffer exists.
+                let has_grain_buffer = self.resources.grain >= 20;
+                if has_grain_buffer
+                    && !self.events.has_event_type("drought")
+                    && rng.random_range(0u32..100) < 5
+                {
                     self.events.active_events.push(GameEvent::Drought {
                         ticks_remaining: 300,
                     });

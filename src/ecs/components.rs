@@ -421,6 +421,9 @@ pub struct BuildSite {
     pub progress: u32,
     pub required: u32,
     pub assigned: bool,
+    /// Game tick when this site was placed. Used to detect stuck sites.
+    #[serde(default)]
+    pub queued_at: u64,
 }
 
 /// Marker for a completed farm plot — grows crops and produces food.

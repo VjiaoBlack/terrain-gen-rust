@@ -1851,6 +1851,7 @@ mod tests {
             scx as f64 + 2.0,
             scy as f64,
             BuildingType::Wall,
+            0,
         );
 
         // Run for enough ticks — wall requires 30 build_time, villagers may be slow on terrain

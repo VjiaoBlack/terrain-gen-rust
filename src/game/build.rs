@@ -130,7 +130,7 @@ impl super::Game {
                 }
             }
         }
-        ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt);
+        ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt, self.tick);
     }
 
     /// Handle a mouse click at screen coordinates.
@@ -420,9 +420,11 @@ impl super::Game {
         }
     }
 
-    /// Discover a nearby timber grove when wood is critically low.
-    /// Plants a small cluster of Forest tiles 15–45 tiles from the settlement
-    /// centre, giving gatherers a local wood source on forest-sparse maps.
+    /// Discover a nearby timber grove / clearing when the settlement is land-locked.
+    /// Creates a 5×5 patch: the inner 3×3 core becomes Grass (a clean buildable clearing)
+    /// and the outer ring becomes Forest (wood resource). This guarantees that
+    /// `find_building_spot` succeeds on the next auto_build_tick even when the area is
+    /// already dense with Forest tiles (which previously blocked the old Forest-only planting).
     pub(super) fn discover_timber_grove(&mut self) {
         let villager_pos: Vec<(f64, f64)> = self
             .world
@@ -437,46 +439,82 @@ impl super::Game {
         let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
         let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
 
-        let mut rng = rand::rng();
+        // Systematic ring scan rather than random angles — random approaches fail on maps
+        // where buildable land lies in a narrow sector (e.g. peninsulas, cliff edges).
+        // Scan outward ring-by-ring at 1-tile steps; first valid anchor wins.
+        let cxi = cx as i32;
+        let cyi = cy as i32;
         let mut grove_planted = false;
-        for _ in 0..80 {
-            if grove_planted {
-                break;
-            }
-            let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-            // Keep grove within villagers' extended wood-search sight range (22 * 1.5 = 33).
-            // Old range 15-45 put some groves outside sight range, preventing wood gathering.
-            let d = rng.random_range(10.0f64..28.0);
-            let tx = (cx + angle.cos() * d) as usize;
-            let ty = (cy + angle.sin() * d) as usize;
-            if self.map.is_walkable(tx as f64, ty as f64)
-                && !matches!(self.map.get(tx, ty), Some(Terrain::Forest))
-            {
-                // Plant a 3×3 cluster of forest tiles around this anchor point.
-                let mut count = 0u32;
-                for dy in -2i32..=2 {
-                    for dx in -2i32..=2 {
-                        let fx = tx as i32 + dx;
-                        let fy = ty as i32 + dy;
-                        if fx >= 0 && fy >= 0 {
+        'outer: for r in 5i32..22 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue; // perimeter only
+                    }
+                    let tx = cxi + dx;
+                    let ty = cyi + dy;
+                    if tx < 0 || ty < 0 {
+                        continue;
+                    }
+                    let tx = tx as usize;
+                    let ty = ty as usize;
+                    let anchor_terrain = self.map.get(tx, ty);
+                    // Skip out-of-bounds and built structures; accept all walkable terrain
+                    // including Forest (previously excluded, causing silent infinite failure).
+                    let is_built = matches!(
+                        anchor_terrain,
+                        Some(Terrain::BuildingFloor | Terrain::BuildingWall | Terrain::Road)
+                    );
+                    if is_built || anchor_terrain.is_none() {
+                        continue;
+                    }
+                    if !self.map.is_walkable(tx as f64, ty as f64)
+                        && !matches!(anchor_terrain, Some(Terrain::Mountain))
+                    {
+                        continue; // skip Water and other non-walkable non-Mountain
+                    }
+
+                    // Inner 3×3 core → Grass (clean buildable footprint for future hut/workshop).
+                    // Outer ring → Forest (wood resource for gatherers).
+                    let mut count = 0u32;
+                    for ody in -2i32..=2 {
+                        for odx in -2i32..=2 {
+                            let fx = tx as i32 + odx;
+                            let fy = ty as i32 + ody;
+                            if fx < 0 || fy < 0 {
+                                continue;
+                            }
                             let fx = fx as usize;
                             let fy = fy as usize;
                             if matches!(
                                 self.map.get(fx, fy),
-                                Some(Terrain::Grass | Terrain::Sand | Terrain::Mountain)
+                                Some(
+                                    Terrain::BuildingFloor | Terrain::BuildingWall | Terrain::Road
+                                )
                             ) {
+                                continue;
+                            }
+                            let is_core = odx.abs() <= 1 && ody.abs() <= 1;
+                            if is_core {
+                                if !matches!(self.map.get(fx, fy), Some(Terrain::Grass)) {
+                                    self.map.set(fx, fy, Terrain::Grass);
+                                    count += 1;
+                                }
+                            } else if !matches!(self.map.get(fx, fy), Some(Terrain::Forest)) {
                                 self.map.set(fx, fy, Terrain::Forest);
                                 count += 1;
                             }
                         }
                     }
-                }
-                if count >= 3 {
-                    self.notify(format!("Timber grove discovered! ({count} new tiles)"));
-                    grove_planted = true;
+                    if count >= 3 {
+                        self.notify(format!("Timber grove discovered! ({count} new tiles)"));
+                        grove_planted = true;
+                        break 'outer;
+                    }
                 }
             }
         }
+        let _ = grove_planted; // suppress unused warning
     }
 
     /// Check conditions and spawn a new villager if met.
@@ -647,11 +685,15 @@ impl super::Game {
         // extra farms is wasteful: it consumes 5w that P2 Hut needs (6w) and keeps wood stuck
         // at ≤1 indefinitely. Defer farms when housing is saturated and at least 2 farms exist.
         let completed_huts = self.world.query::<&HutBuilding>().iter().count();
+        // Only count pending huts that are "active": either have made progress or were placed
+        // recently (< 500 ticks ago). Stale zero-progress huts (stuck, unreachable) are excluded
+        // so they don't inflate total_hut_capacity and block new hut queuing.
         let pending_huts = self
             .world
             .query::<&BuildSite>()
             .iter()
             .filter(|s| s.building_type == BuildingType::Hut)
+            .filter(|s| s.progress > 0 || self.tick.saturating_sub(s.queued_at) < 500)
             .count();
         let total_hut_capacity = (completed_huts + pending_huts) * 4;
 
@@ -798,8 +840,9 @@ impl super::Game {
             && (!saving_for_smithy || at_housing_crisis || self.resources.wood >= 14);
         if hut_ok && total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
+            let spot = self.find_building_spot(cx, cy, BuildingType::Hut);
             if self.resources.can_afford(&cost)
-                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)
+                && let Some((bx, by)) = spot
             {
                 self.resources.deduct(&cost);
                 self.place_build_site(bx, by, BuildingType::Hut);
@@ -821,6 +864,10 @@ impl super::Game {
                     self.place_build_site(bx, by, BuildingType::Workshop);
                     self.notify("Auto-build: Workshop queued".to_string());
                     queued_critical = true;
+                } else {
+                    // Workshop placement also failed — no valid 3×3 terrain anywhere.
+                    // Create a buildable clearing so the next tick can queue the hut/workshop.
+                    self.discover_timber_grove();
                 }
             } else {
                 // Housing is needed but no valid terrain for a hut (and no workshop fallback).
@@ -1154,7 +1201,67 @@ impl super::Game {
         }
     }
 
+    /// BFS flood-fill to find all walkable tiles reachable from (cx, cy) within `radius` tiles.
+    /// Used by `find_building_spot` to filter out terrain-valid but unreachable spots (e.g.
+    /// land across a water body). Returns a flat bitset indexed by y*width+x.
+    ///
+    /// Pending build-site footprints are treated as SOLID during the BFS even though their tiles
+    /// are currently BuildingFloor (walkable). This prevents placing new buildings behind a
+    /// pending build site that will later wall off access when it completes.
+    fn reachable_tiles(&self, cx: f64, cy: f64, radius: i32) -> Vec<bool> {
+        let w = self.map.width;
+        let h = self.map.height;
+        let mut visited = vec![false; w * h];
+        let si = cx.round() as i32;
+        let sj = cy.round() as i32;
+        if si < 0 || sj < 0 || si >= w as i32 || sj >= h as i32 {
+            return visited;
+        }
+
+        // Mark all pending build-site footprint tiles as blocked (they will become walls).
+        let mut pending_blocked = vec![false; w * h];
+        for (pos, site) in self.world.query::<(&Position, &BuildSite)>().iter() {
+            let (bw, bh) = site.building_type.size();
+            let bx = pos.x as i32;
+            let by = pos.y as i32;
+            for dy in 0..bh {
+                for dx in 0..bw {
+                    let fx = bx + dx;
+                    let fy = by + dy;
+                    if fx >= 0 && fy >= 0 && (fx as usize) < w && (fy as usize) < h {
+                        pending_blocked[fy as usize * w + fx as usize] = true;
+                    }
+                }
+            }
+        }
+
+        let mut queue = std::collections::VecDeque::new();
+        let start_idx = sj as usize * w + si as usize;
+        visited[start_idx] = true;
+        queue.push_back((si, sj));
+        while let Some((x, y)) = queue.pop_front() {
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                    continue;
+                }
+                let idx = ny as usize * w + nx as usize;
+                if visited[idx] || pending_blocked[idx] {
+                    continue;
+                }
+                if (nx - si).abs() > radius || (ny - sj).abs() > radius {
+                    continue;
+                }
+                if self.map.is_walkable(nx as f64, ny as f64) {
+                    visited[idx] = true;
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        visited
+    }
+
     /// Find a valid spot for a building near (cx, cy), searching outward in rings.
+    /// Only returns spots reachable from the centroid (connected land, not across water).
     pub(super) fn find_building_spot(
         &self,
         cx: f64,
@@ -1162,6 +1269,19 @@ impl super::Game {
         bt: BuildingType,
     ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
+        // Pre-compute which tiles are reachable from the settlement centroid.
+        // This filters out terrain-valid spots on disconnected land (e.g. across a river).
+        let reachable = self.reachable_tiles(cx, cy, 80);
+        let is_reachable = |bx: i32, by: i32| -> bool {
+            // Check the center tile of the building footprint is reachable.
+            let cx = bx + bw / 2;
+            let cy = by + bh / 2;
+            if cx < 0 || cy < 0 {
+                return false;
+            }
+            let idx = cy as usize * self.map.width + cx as usize;
+            idx < reachable.len() && reachable[idx]
+        };
         // Primary search: coarse grid (building-size steps), close to settlement
         for r in 2i32..8 {
             for dy in -r..=r {
@@ -1171,7 +1291,7 @@ impl super::Game {
                     }
                     let bx = cx as i32 + dx * bw;
                     let by = cy as i32 + dy * bh;
-                    if self.can_place_building_impl(bx, by, bt, false) {
+                    if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
                         return Some((bx, by));
                     }
                 }
@@ -1186,7 +1306,7 @@ impl super::Game {
                     }
                     let bx = cx as i32 + dx;
                     let by = cy as i32 + dy;
-                    if self.can_place_building_impl(bx, by, bt, false) {
+                    if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
                         return Some((bx, by));
                     }
                 }
