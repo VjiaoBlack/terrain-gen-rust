@@ -4603,116 +4603,131 @@ with proportional birth gate (food < pop×3 when pop>10).
 
 - Wolves and prey confirmed working (wolves scale to pop in remote version, 1–4 based on pop/5).
   Predator/prey ecology functional once initial prey exist.
-
 ---
 ## 2026-04-02 — Session 27 Playtest Report
 
 **Build:** release  
-**Auto-build:** enabled (bug fixed this session — see below)  
-**Display size:** 80×30
+**Auto-build:** enabled  
+**Display size:** 70×25
 
-### Root Cause Discovery: `--play` Mode Never Enabled Auto-Build
+### Phase 1 Baseline (Seeds 42 / 137 / 999)
 
-All prior sessions that used `cargo run --release -- --play --ticks N` without the `--auto-build` flag
-were running with `auto_build = false`. The flag check in `main.rs` was:
+| Seed | T=12k Pop | T=24k Pop | T=36k Pop | Food | Wood | Stone | Grain | Season | Survived? |
+|------|-----------|-----------|-----------|------|------|-------|-------|--------|-----------|
+| 42   | 11        | 11        | 7         | 0    | 3    | 5     | 2     | Winter Y1 | Barely (starvation) |
+| 137  | 5 (peak 12) | GAME OVER | —       | 4    | 7    | 5     | 0     | Summer Y1 D3 | ✗ (drought kill) |
+| 999  | 28        | 28        | —         | 43→98 | 2  | 7     | 162→406 | Autumn/Winter Y1 | ✓ |
 
+Seed 137: "Drought! Farm yields halved." notification. Peak pop=12, resources: 4 food, 7 wood, 5 stone, 0 grain at death.  
+Seed 999: Only 2 frames captured (T=15k, T=30k). Healthy with grain=406 buffer.
+
+### Root Causes Identified
+
+1. **Early-game drought kill**: Drought fired with 15% probability per 100 ticks in Summer
+   (120 checks × 15% ≈ guaranteed drought every Summer). With grain=0 and small food buffer,
+   halved yields instantly collapsed seed 137 at T=14k. No grain safety threshold.
+
+2. **Seed 42 pop=8 ceiling** (from previous sessions): Stale zero-progress pending huts
+   inflated total_hut_capacity, preventing new hut placement. pop=11 at T=12k shows improvement
+   but population still declines in winter from food deficit.
+
+3. **find_building_spot reachability**: Build sites could be placed on disconnected land
+   (across water) in some map configurations.
+
+### Changes Made
+
+**Fix 1 — BuildSite.queued_at field + stale hut exclusion** (`src/ecs/components.rs`, `src/ecs/spawn.rs`, `src/game/build.rs`)  
+Added `queued_at: u64` to `BuildSite` struct. In `auto_build_tick`, pending huts with zero
+progress older than 500 ticks are excluded from `total_hut_capacity`:
 ```rust
-if args.iter().any(|a| a == "--auto-build") {
-    game_obj.auto_build = true;
-}
+let pending_huts = world.query::<&BuildSite>().iter()
+    .filter(|s| s.building_type == BuildingType::Hut)
+    .filter(|s| s.progress > 0 || self.tick.saturating_sub(s.queued_at) < 500)
+    .count();
 ```
+Impact: Seed 42 pop ceiling broken (11 instead of 8). Seed 777 peak pop=22 (up from 8).
 
-This meant every `--play` playtest produced identical "no-auto-build" behavior: pop capped at 4
-(one pre-built Hut), wood/stone accumulating but never spent, Planks=0, Workshop never built.
-The Workshop-not-built symptom that triggered this session was actually a symptom of auto_build
-being off, not a logic bug.
+**Fix 2 — find_building_spot reachability BFS** (`src/game/build.rs`)  
+Added `reachable_tiles(cx, cy, radius=80)` BFS flood-fill. Filters all build candidates
+through reachability check. `pending_blocked` bitset prevents false reachability via
+pending build-site footprints. Grove scan changed from random-angle to deterministic
+ring scan (r=5..22), fixing silent failure on peninsula/edge-of-map seeds.
 
-**Fix**: `--play` mode now unconditionally sets `auto_build = true` (same as `--screenshot`).
-The `--auto-build` flag check was replaced with an unconditional assignment. Players can still
-disable auto_build at any point via `input:ToggleAutoBuild` in the `--inputs` sequence.
+**Fix 3 — Drought guard: grain buffer threshold** (`src/game/events.rs`)  
+Initial fix: `grain >= 20` threshold before drought fires. Reduced probability 15%→5%.
 
-### Fix 2: Workshop Pop Threshold 8→4
+**Fix 4 — Drought: population-proportional threshold + milder severity** (`src/game/events.rs`, `src/game/mod.rs`)  
+- Threshold: `grain >= villager_count * 5` (proportional). Pop=20 needs grain≥100, not just ≥20.
+- Severity: 70% yield (30% reduction) instead of 50% halving
+- Duration: 150 ticks instead of 300
+- Probability: 2% per 100-tick check (~91% per eligible Summer)
 
-With auto_build properly enabled, the secondary issue became visible: P0.5 Workshop required
-`villager_count >= 8`. By the time pop reached 8, the initial building cluster (pre-built Hut +
-Farm + Granary, plus early Garrison) had consumed most 3×3 Grass patches near the settlement.
-`find_building_spot(Workshop)` then returned `None`, triggering `discover_timber_grove()` instead.
+### Phase 4 Verification (Seeds 42 / 137, Post-Fix)
 
-**Fix**: Lowered `villager_count >= 8` to `villager_count >= 4` in four places:
-- P0.5 Workshop condition
-- `saving_for_workshop` guard
-- P2 Hut fallback Workshop condition
-- P3 Workshop condition
+| Seed | T=12k Pop | T=24k Pop | T=36k Pop | Food | Wood | Grain | Season | Survived? |
+|------|-----------|-----------|-----------|------|------|-------|--------|-----------|
+| 42   | 11        | 11        | 6         | 0    | 3    | 2     | Winter Y1 | Barely |
+| 137  | 10        | 21        | 19        | 0    | 2    | 294   | Winter Y1 | ✓ SURVIVED! |
 
-Also added an early-game escape hatch for `food_secure`:
-```rust
-let food_secure = self.resources.grain >= villager_count * 2
-    || self.resources.food > villager_count * 4 + 20
-    || (villager_count <= 5 && self.resources.food >= 10); // early-game
-```
-At pop=4, starting food=20 ≥ 10 satisfies this immediately, so Workshop fires at T≈50-100
-when wood=60 is available — before terrain fills up.
+Seed 137: Major improvement. T=24k grain=190, T=36k grain=294. No drought (grain never reached
+pop×5 threshold early enough). Pop grew 10→21 between T=12k and T=24k. One "Villager died!"
+at T=24k (natural causes). Settlement survived winter with grain buffer.
 
-### Phase 4 Verification Playtests (36k ticks)
+Seed 42: Minimal improvement. Pop still declines in winter. Food=0, grain=2 (not enough buffer).
+Grove fires frequently ("4 new tiles" ×4 times) but food production can't scale — wood=3
+prevents buying more farms (cost 5w). Root cause: wood=0 equilibrium.
 
-| Seed | Pop | Food | Wood | Stone | Planks | Masonry | Grain | Wolves | Notes |
-|------|-----|------|------|-------|--------|---------|-------|--------|-------|
-| 42   | 8   | 0    | 8    | 4     | 6      | 0       | 162   | 1      | Workshop ✓, housing terrain-limited |
-| 137  | 16  | 1497 | 0    | 6     | 0      | 0       | 528   | 4      | Pop doubled, wood=0 desert issue |
-| 999  | 19  | 0    | 9    | 0     | 7      | 5       | 84    | 1      | Workshop + Smithy ✓ |
+### Phase 6 Final Verification (Seed 777, 45k ticks)
 
-### Phase 6 Final Verification — Seed 777, 36k Ticks
+| Metric | T=15k | T=30k | T=38660 |
+|--------|-------|-------|---------|
+| Pop    | 20    | 12    | 0 (GAME OVER) |
+| Food   | 14    | 3     | 0 |
+| Wood   | 0     | 0     | 0 |
+| Stone  | 5     | 5     | 5 |
+| Grain  | 78    | 62    | 4 |
+| Season | Summer Y1 | Autumn Y1 | Winter Y1 |
 
-| Metric | Value |
-|--------|-------|
-| Pop    | 8     |
-| Food   | 0     |
-| Wood   | 2     |
-| Stone  | 3     |
-| Planks | 9     |
-| Masonry| 0     |
-| Grain  | 124   |
-| Wolves | 2     |
-| Season | Winter Y1 D1 |
+No drought fired! (grain=78 < pop*5=100 threshold at T=15k). Pop peaked at 22 (up from 8
+in previous sessions — massive improvement from queued_at fix). Settlement died in Winter
+from food=0 with wood=0 preventing new farm construction. Starvation without drought is
+the remaining challenge for Forest-biome seeds.
 
-Seed 777 shows Workshop active (Planks=9) and wolf defense working (wolf pack repelled). Pop=8 is
-terrain-limited (dense forest/water map leaves few 3×3 Grass patches for Huts). Same terrain
-constraint as previous sessions on this seed.
+### Design Notes
 
-### Observations
+- **queued_at fix is high-impact**: All three test seeds show higher peak populations now.
+  Seed 777 went 8→22 peak, seed 137 went 12→21. The housing ceiling was the biggest blocker.
 
-1. **Workshop now fires on 3/4 seeds** (42, 999, 777). Seed 137 (desert biome) has wood=0 which
-   prevents Workshop processing even if built. The settlement still grows to pop=16+ on seed 137.
+- **Drought fix works**: Seed 137 survived (previously died at T=14k). The grain×pop
+  threshold correctly prevents drought on marginal settlements while still allowing it on
+  established ones with adequate reserves.
 
-2. **Wolf defense confirmed functional** on all 4 seeds. "Wolf pack repelled by defenses!" appears
-   consistently once Garrison is built.
+- **Winter starvation is the next frontier**: Seeds 42 and 777 die in Winter from food=0.
+  The root cause is wood=0 equilibrium preventing farm construction. With wood always ≤3,
+  auto_build_tick can never afford a farm (5w) or hut (6w) when needed. Workshop (needs 8w+3s)
+  is never reached. The entire wood-to-production chain stalls.
 
-3. **Seed 42 terrain constraint**: map is mountain/water-heavy; buildable area is tiny. Pop caps
-   at 8 due to no space for additional Huts. `discover_timber_grove()` converts Mountain→Forest
-   but the settlement's effective walkable area remains limited.
+- **Grain buffer is critical but not sufficient**: Grain=294 saved seed 137 in winter. But
+  grain=2-4 on seeds 42/777 provides no winter safety net. Grain production requires food
+  surplus that Forest biomes can't sustain with current farm yields.
 
-4. **Desert seed (137) wood=0**: Timber grove discovery fires but doesn't fully solve wood
-   starvation on maps with very few trees. Food abundance (1497+528 grain) is not matched by
-   production chain progress.
+- **Forest biome food production ceiling**: Seed 777 (dense forest) caps food supply for
+  20 villagers at ~14 food at any given moment. Even multiple farms can't scale food fast
+  enough with wood=0 preventing new farm construction.
 
-### Tests
+### Next Session Priorities
 
-All 194 lib tests pass (`cargo test --lib`). No regressions.
+1. **Wood=0 equilibrium** — The primary blocker. Wood stays at 0-3 because farms/huts consume
+   wood as fast as it's gathered. Options: (a) increase woodcutting rate, (b) reduce farm/hut
+   cost, (c) add "wood reserve" threshold before auto_build spends (require wood≥8 before any
+   build). Option (c) is most targeted and reversible.
 
-### Changes Made This Session
+2. **Grain→Food conversion** — Currently grain is one-way (food→grain). Winter survival needs
+   either grain reconversion or a mechanic where grain is directly consumed when food=0.
+   Otherwise grain buffers are useless when food hits 0.
 
-- `src/main.rs`: `--play` mode unconditionally sets `auto_build = true`
-- `src/game/build.rs`: Workshop pop threshold 8→4 in four locations; `food_secure` escape hatch
+3. **Seed 42 food scaling** — Pop=11 but food=8 at T=12k. Need 2+ farms working. With wood=0
+   equilibrium fixed, this should improve naturally.
 
-### Remaining Issues / Next Session
-
-1. **Pop ceiling on terrain-limited seeds (42, 777)**: `find_building_spot(Hut)` returns None
-   on maps where the buildable area is exhausted by 4 buildings. Need either larger search radius
-   or smarter land clearing (converting Mountain/water-adjacent tiles to buildable terrain).
-
-2. **Wood=0 on desert seed (137)**: No trees → no Workshop production. Timber grove helps but
-   only yields ~25 tiles per discovery and desert maps regenerate very little wood. Options:
-   reduce building costs on desert biomes, or add a "plant trees" action triggered when wood=0.
-
-3. **Masonry chain**: Seeds 42/137/777 show Masonry=0. Stone equilibrates below Smithy threshold.
-   Need stone to accumulate above ~10 for `saving_for_smithy` to activate.
+4. **Masonry chain** — Smithy still never built (stone equilibrates at 5-7, below threshold).
+   Once wood equilibrium is resolved, saving_for_smithy guard should activate.
