@@ -429,7 +429,16 @@ impl super::Game {
             return;
         }
 
-        if villager_count < 2 || self.resources.food < 5 {
+        // Food-gated births: require food proportional to population.
+        // A flat `food < 5` gate allows population to spiral into starvation on food-poor maps
+        // (desert seeds) where 26 villagers can consume food faster than it's produced.
+        // Gate: if pop > 10, require food >= pop * 3 to allow births.
+        let food_floor = if villager_count > 10 {
+            villager_count * 3
+        } else {
+            5
+        };
+        if villager_count < 2 || self.resources.food < food_floor {
             return;
         }
 
