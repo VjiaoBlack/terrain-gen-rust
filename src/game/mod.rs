@@ -449,7 +449,35 @@ impl Game {
             }
         }
 
-        // No wildlife at game start — wolves arrive via wolf surge events only.
+        // Spawn 3 prey dens with 2 rabbits each in forest/grass tiles 8–50 tiles from start.
+        // Without initial prey, the breeding system has nothing to breed from and rabbits
+        // remain at 0 across all game-runs. Dens also serve as a secondary food source.
+        {
+            let mut rng_init = rand::rng();
+            let mut dens_placed = 0u32;
+            for _ in 0..200 {
+                if dens_placed >= 3 {
+                    break;
+                }
+                let angle = rng_init.random_range(0.0f64..std::f64::consts::TAU);
+                let d = rng_init.random_range(8.0f64..50.0);
+                let tx = start_cx as f64 + angle.cos() * d;
+                let ty = start_cy as f64 + angle.sin() * d;
+                if tx >= 0.0 && ty >= 0.0 {
+                    let ix = tx as usize;
+                    let iy = ty as usize;
+                    if matches!(map.get(ix, iy), Some(Terrain::Forest | Terrain::Grass)) {
+                        ecs::spawn_den(&mut world, tx, ty);
+                        for _ in 0..2 {
+                            let px = tx + rng_init.random_range(-2.0f64..2.0);
+                            let py = ty + rng_init.random_range(-2.0f64..2.0);
+                            ecs::spawn_prey(&mut world, px, py, tx, ty);
+                        }
+                        dens_placed += 1;
+                    }
+                }
+            }
+        }
 
         // Settlement: stockpile + villagers near found start position
         let scx = start_cx;

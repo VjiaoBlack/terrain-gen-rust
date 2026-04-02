@@ -516,16 +516,26 @@ impl super::Game {
 
         // Priority 2: Hut when population is growing and needs housing
         // (runs unconditionally — housing must never be blocked by pending_builds cap)
-        let hut_count = self
+        // Count BOTH completed huts (HutBuilding capacity) AND pending Hut build sites.
+        // Previously only pending BuildSites were counted; once huts completed their BuildSites
+        // were removed, count dropped to 0 and auto_build endlessly re-queued huts, consuming
+        // all stone on unnecessary construction.
+        let completed_hut_capacity: u32 = self
+            .world
+            .query::<&HutBuilding>()
+            .iter()
+            .map(|h| h.capacity)
+            .sum();
+        let pending_hut_count = self
             .world
             .query::<&BuildSite>()
             .iter()
             .filter(|s| s.building_type == BuildingType::Hut)
-            .count();
-        // Count completed huts by checking for Hut-shaped building floor clusters
-        // Simple heuristic: 1 hut per 3 villagers needed
-        let huts_needed = (villager_count as usize).div_ceil(3);
-        if hut_count < huts_needed && villager_count >= 3 {
+            .count() as u32;
+        let total_hut_capacity = completed_hut_capacity + pending_hut_count * 4;
+        // Queue a new hut only when current capacity is less than villager_count + 4
+        // (ensures at least 1 open slot for new births)
+        if total_hut_capacity < villager_count + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)
@@ -554,6 +564,54 @@ impl super::Game {
             .query::<&ProcessingBuilding>()
             .iter()
             .any(|pb| pb.recipe == Recipe::FoodToGrain);
+
+        // Priority 3: First Workshop when wood is accumulating and stone is available.
+        // Without this, the second-Workshop priority (3.5) never triggers since it requires
+        // has_workshop=true. The entire production chain is blocked until the first Workshop exists.
+        let pending_workshop_first = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Workshop);
+        if !has_workshop
+            && !pending_workshop_first
+            && self.resources.wood > 200
+            && self.resources.stone > 20
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 4: First Granary when population is large and food is stable.
+        // Without this, no grain or bread is ever produced since FoodToGrain recipe
+        // requires a Granary building.
+        let pending_granary_first = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Granary);
+        if !has_granary
+            && !pending_granary_first
+            && villager_count >= 20
+            && self.resources.food > 150
+        {
+            let cost = BuildingType::Granary.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Granary)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Granary);
+                self.notify("Auto-build: Granary queued".to_string());
+                return;
+            }
+        }
 
         // Priority 3.5: Second Workshop when wood is accumulating faster than one can process
         let workshop_count = self

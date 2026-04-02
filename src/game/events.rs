@@ -170,6 +170,30 @@ impl Game {
                         .event_log
                         .push("Wolf surge! Pack activity increases.".to_string());
                     self.notify("Wolf surge! Pack activity increases.".to_string());
+
+                    // Spawn 3–5 wolf entities in a ring 22–38 tiles from the settlement center.
+                    // Previously the event fired log text but created zero entities — wolves
+                    // never appeared on map despite the message. Fixed here.
+                    let (scx, scy) = self.settlement_center();
+                    let wolf_count = rng.random_range(3u32..=5);
+                    let mut spawned = 0u32;
+                    for _ in 0..60 {
+                        if spawned >= wolf_count {
+                            break;
+                        }
+                        let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                        let d = rng.random_range(22.0f64..38.0);
+                        let wx = scx as f64 + angle.cos() * d;
+                        let wy = scy as f64 + angle.sin() * d;
+                        if wx >= 0.0 && wy >= 0.0 && self.map.is_walkable(wx, wy) {
+                            ecs::spawn_predator(&mut self.world, wx, wy);
+                            spawned += 1;
+                        }
+                    }
+                    if spawned > 0 {
+                        self.notify(format!("{} wolves approach!", spawned));
+                    }
+
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
                 }
