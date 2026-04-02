@@ -1,5 +1,6 @@
 #!/bin/sh
 # Pre-push hook: run full test suite before pushing
+export PATH="$HOME/.cargo/bin:$PATH"
 echo "Running tests before push..."
 OUTPUT=$(cargo test 2>&1)
 EXIT_CODE=$?

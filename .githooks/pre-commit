@@ -1,5 +1,6 @@
 #!/bin/sh
 # Pre-commit hook: ensure cargo fmt is applied
+export PATH="$HOME/.cargo/bin:$PATH"
 if ! cargo fmt --check > /dev/null 2>&1; then
     echo "Error: code is not formatted. Run 'cargo fmt' before committing."
     exit 1
