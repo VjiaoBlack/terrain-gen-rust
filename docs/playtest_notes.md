@@ -4447,3 +4447,105 @@ Seed 777 (mountain-heavy terrain) shows modest pop growth (12→14) sustained by
 All 194 lib tests pass (`cargo test --lib`). No regressions introduced by the `saving_for_workshop` change.
 
 ---
+
+## 2026-04-02 — Automated Playtest Report (Session 25)
+
+**Build:** release  
+**Auto-build:** enabled  
+**Display size:** 70×25
+
+### Baseline Playtests (Pre-fix, 45k ticks)
+
+| Seed | T=15k pop | T=30k pop | T=45k pop | Winter food | Notes |
+|------|-----------|-----------|-----------|-------------|-------|
+| 42   | 17        | 20        | 18        | 0           | Housing stall at pop≈8; wood=0 equilibrium |
+| 137  | 28        | 28        | 28        | 1189        | Pop stalled at 28; Masonry=0 |
+| 999  | (not run) | —         | —         | —           | |
+
+### Root Causes Identified
+
+1. **P1 Farm housing deadlock**: When `total_hut_capacity <= villager_count` (pop=8, 2 huts, cap=8), P1 Farm kept consuming wood=5 every ~50 ticks (food always below threshold). P2 Hut needs 6w but wood never accumulated past 5, creating a permanent `wood≤1` equilibrium and blocking population growth.
+
+2. **Smithy stone threshold 25 unreachable**: Stone discovery events yield ~24 stone per cycle (2×12). Stone equilibrated at 7–9 on most seeds, never reaching the old threshold of 25. Smithy was never queued, Masonry production was permanently blocked.
+
+3. **WoodToPlanks threshold 8 prevents Smithy affordability**: Smithy costs 10w+15s. Workshop would process at wood≥8 (draining 2w), keeping wood at 6–8. Even if P1/P2 were suppressed, wood never reached 10 for Smithy. Combined with P2 Hut consuming wood=6 when active, Smithy (`can_afford`) failed on every tick.
+
+### Fixes Applied
+
+**Fix 1 — P1 Farm housing-saturation guard** (`src/game/build.rs`)  
+Pre-compute `total_hut_capacity = (completed_huts + pending_huts) * 4`. Add to P1 Farm condition:
+```rust
+let housing_at_cap = total_hut_capacity <= villager_count as usize;
+if self.resources.food < 8 + villager_count * 4
+    && farm_count < (villager_count as usize).div_ceil(3) + 1
+    && (!housing_at_cap || farm_count < 2)   // ← new guard
+```
+When housing is full and ≥2 farms exist, skip P1 Farm so wood can accumulate for P2 Hut (needs 6w).  
+_Impact: seed 42 winter food 0→432; seed 137 pop 28→32._
+
+**Fix 2 — Smithy stone threshold 25→10** (`src/game/build.rs`)  
+```rust
+// Before: self.resources.stone > 25
+if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 10 {
+```
+Stone discovery gives ~24 stone per cycle; this threshold is now reachable even on stone-scarce maps.
+
+**Fix 3 — WoodToPlanks threshold 8→12 + `saving_for_smithy` guard** (`src/ecs/systems.rs`, `src/game/build.rs`)  
+
+In `system_assign_workers` and `system_processing` (`src/ecs/systems.rs`):
+```rust
+// Before: resources.wood >= 8
+Recipe::WoodToPlanks => resources.wood >= 12,
+```
+Workshop now defers processing until wood=12, so wood can reach 10 for Smithy (cost: 10w+15s).
+
+In `auto_build_tick` P2 Hut condition (`src/game/build.rs`), pre-compute has_smithy/pending_smithy and add:
+```rust
+let at_housing_crisis = total_hut_capacity <= villager_count as usize;
+let saving_for_smithy =
+    has_workshop && !has_smithy && !pending_smithy && self.resources.stone > 10;
+let hut_ok = (!saving_for_workshop || self.resources.wood >= 10)
+    && (!saving_for_smithy || at_housing_crisis || self.resources.wood >= 14);
+```
+When Smithy conditions are met (Workshop exists, stone>10, no Smithy yet), defer P2 Hut until wood≥14. Workshop processes at 12→10; auto_build_tick then sees wood=10 with P2 suppressed, allowing P5 Smithy to fire. Housing crisis override prevents starvation of housing when capacity falls below count.
+
+### Verification Playtests (Post-fix, 45k ticks)
+
+| Seed | T=15k pop | T=30k pop | T=45k pop | Winter food | Wood | Masonry | Notes |
+|------|-----------|-----------|-----------|-------------|------|---------|-------|
+| 42   | 20        | 20        | 19        | 432         | 0    | 0       | Fix 1 major improvement; food=432 vs 0 pre-fix |
+| 137  | 32        | 32        | 32        | 1189        | 0    | 0       | +4 pop vs pre-fix; wood=0 on both seeds |
+
+Fix 1 confirmed effective: seed 42 winter food 0→432 (settlement now survives winter on grain buffer). Fix 2 lowers the threshold but Fix 3 is required to actually afford Smithy. On seeds 42/137, stone equilibrates at 7–8 so `saving_for_smithy` never activates (stone never exceeds 10 for long enough to coincide with wood=12). Masonry still 0 on both seeds.
+
+### Final Verification — Seed 777, 45k Ticks
+
+| Metric | T=15k | T=30k | T=45k |
+|--------|-------|-------|-------|
+| Pop    | 8     | 8     | 8     |
+| Food   | 23    | 92    | 0     |
+| Grain  | 118   | 294   | 238   |
+| Wood   | 10    | 10    | 6     |
+| Stone  | 6     | 6     | 7     |
+| Planks | 6     | 6     | 6     |
+| Wolves | 0     | 0     | 1     |
+| Season | Summer Y1 | Autumn Y1 | Winter Y1 |
+
+Seed 777 shows population stuck at 8 across all 45k ticks. Fix 3 is visible: wood=10 instead of 0 (threshold=12 prevents Workshop from draining wood immediately). However:
+- Stone never exceeds 10 → `saving_for_smithy` inactive → Masonry=0 as expected
+- Pop=8 ceiling persists: `find_building_spot(Hut)` appears to consistently return `None` on this dense-forest/edge-of-map seed, triggering `discover_timber_grove()` fallback without successfully placing Huts
+- Grain buffer (238) saves winter despite food=0
+
+### Tests
+
+All 194 lib tests pass (`cargo test --lib`). No regressions from any of the three fixes.
+
+### Remaining Issues / Next Session
+
+1. **Masonry chain still blocked on seeds 42/137**: Stone equilibrates at 7–9 (below Fix 2 threshold of >10). Stone deposit events yield 24 stone but workers mine it down quickly. Fix 3 (saving_for_smithy) only activates when stone>10; the window is very short. Options: lower Smithy stone threshold further to >6; or reduce stone mine rate to allow accumulation.
+
+2. **Seed 777 pop=8 ceiling**: Dense-forest/edge-of-map seeds where `find_building_spot(Hut 3×3)` consistently returns None. `discover_timber_grove()` fires but grove tiles may not be within the search radius used by `find_building_spot`. Consider: expand `find_building_spot` coarse-grid radius from r=2..8 to r=1..12 for Huts specifically, or plant groves closer to the settlement centroid.
+
+3. **Wood=0 equilibrium on seeds 42/137**: All wood consumed by construction (farms 5w, huts 10w) faster than woodcutters gather. Workshop threshold=12 helps but doesn't solve root cause. No Smithy affordable due to wood being spent on construction. Need either a wood reserve mechanism or reduced building costs.
+
+4. **Non-determinism**: RNG in `system_ai` is unseeded (thread-local). See previous session note.

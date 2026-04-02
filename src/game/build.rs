@@ -642,6 +642,19 @@ impl super::Game {
         let villager_count = villager_pos.len() as u32;
         let mut queued_critical = false;
 
+        // Hut capacity — pre-computed here (before P1 Farm) so P1 can check whether housing is
+        // already full. When housing is at capacity no new villagers can be born, so building
+        // extra farms is wasteful: it consumes 5w that P2 Hut needs (6w) and keeps wood stuck
+        // at ≤1 indefinitely. Defer farms when housing is saturated and at least 2 farms exist.
+        let completed_huts = self.world.query::<&HutBuilding>().iter().count();
+        let pending_huts = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Hut)
+            .count();
+        let total_hut_capacity = (completed_huts + pending_huts) * 4;
+
         // Pre-compute has_granary / pending_granary_any for use in P4 below.
         let has_granary = self
             .world
@@ -665,6 +678,18 @@ impl super::Game {
             .query::<&BuildSite>()
             .iter()
             .any(|s| s.building_type == BuildingType::Workshop);
+
+        // Pre-compute has_smithy / pending_smithy — used in saving_for_smithy guard (P2) and P5.
+        let has_smithy = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::StoneToMasonry);
+        let pending_smithy = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Smithy);
 
         // Priority 0.5: Workshop — pre-empts Farm when food security is proven.
         // Without this, P1 Farm always takes wood=5 first (Farm costs 5w, Workshop costs 5w),
@@ -724,8 +749,16 @@ impl super::Game {
         // threshold caused P1 to fire every 50 ticks until 6 farms existed, permanently
         // blocking P3 (Workshop) from ever running. Minimum of 2 ensures early-game (pop=3)
         // still queues a second farm before the threshold is satisfied.
+        //
+        // Housing-saturation guard: when total_hut_capacity <= villager_count the settlement
+        // is housing-capped and no new births can happen regardless of food. Building extra
+        // farms in this state consumes 5w per farm and prevents P2 Hut (6w) from ever firing,
+        // creating a permanent wood=1 equilibrium. Allow farms only when ≥1 housing slot is
+        // available OR when fewer than 2 farms exist (minimum food-security floor).
+        let housing_at_cap = total_hut_capacity <= villager_count as usize;
         if self.resources.food < 8 + villager_count * 4
             && farm_count < (villager_count as usize).div_ceil(3) + 1
+            && (!housing_at_cap || farm_count < 2)
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
@@ -740,16 +773,7 @@ impl super::Game {
 
         // Priority 2: Hut when population needs housing
         // Runs in the same tick as P1 so farm demand never permanently blocks housing.
-        let completed_huts = self.world.query::<&HutBuilding>().iter().count();
-        let pending_huts = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .filter(|s| s.building_type == BuildingType::Hut)
-            .count();
-        // Count total housing slots: 4 per completed hut + 4 per pending hut.
-        // Queue another hut when total capacity is below villager count plus a small buffer.
-        let total_hut_capacity = (completed_huts + pending_huts) * 4;
+        // (completed_huts, pending_huts, total_hut_capacity pre-computed above P1)
         // Defer hut construction only before the Workshop is built/queued: wood is depleted
         // by hut builds before it can accumulate to Workshop cost. Once a Workshop exists,
         // let hut builds proceed freely — the old (has_workshop && planks==0) guard was
@@ -760,7 +784,15 @@ impl super::Game {
             && villager_count >= 8
             && self.resources.stone >= 3
             && self.resources.grain >= villager_count * 4;
-        let hut_ok = !saving_for_workshop || self.resources.wood >= 10;
+        // Saving-for-smithy guard: when Workshop exists, stone > 10, and Smithy not yet built,
+        // defer huts until wood ≥ 14.  WoodToPlanks threshold is 12: Workshop processes at
+        // wood=12 → leaves wood=10 → auto_build_tick sees wood=10 and can afford Smithy (10w+15s)
+        // before any hut (6w) takes it.  Housing crisis (capacity ≤ count) overrides deferral.
+        let at_housing_crisis = total_hut_capacity <= villager_count as usize;
+        let saving_for_smithy =
+            has_workshop && !has_smithy && !pending_smithy && self.resources.stone > 10;
+        let hut_ok = (!saving_for_workshop || self.resources.wood >= 10)
+            && (!saving_for_smithy || at_housing_crisis || self.resources.wood >= 14);
         if hut_ok && total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
             if self.resources.can_afford(&cost)
@@ -891,17 +923,11 @@ impl super::Game {
         }
 
         // Priority 5: Smithy when we have a Workshop and a stone surplus
-        let has_smithy = self
-            .world
-            .query::<&ProcessingBuilding>()
-            .iter()
-            .any(|pb| pb.recipe == Recipe::StoneToMasonry);
-        let pending_smithy = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .any(|s| s.building_type == BuildingType::Smithy);
-        if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 25 {
+        // (has_smithy and pending_smithy pre-computed above P1)
+        // Threshold 10: stone discovery events give ~24 stone per cycle (2×12 yield); that
+        // temporarily pushes stone above 10 even on desert maps. Old threshold of 25 was never
+        // reached on most seeds (stone equilibrated at 7–9), blocking Masonry production.
+        if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 10 {
             let cost = BuildingType::Smithy.cost();
             if self.resources.can_afford(&cost)
                 && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Smithy)
