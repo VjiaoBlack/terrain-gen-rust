@@ -187,7 +187,7 @@ impl EventSystem {
     pub fn farm_yield_multiplier(&self) -> f64 {
         for event in &self.active_events {
             match event {
-                GameEvent::Drought { .. } => return 0.5,
+                GameEvent::Drought { .. } => return 0.7,
                 GameEvent::BountifulHarvest { .. } => return 2.0,
                 _ => {}
             }
@@ -2058,14 +2058,14 @@ mod tests {
     }
 
     #[test]
-    fn drought_halves_farm_yield() {
+    fn drought_reduces_farm_yield() {
         let mut events = EventSystem::default();
         assert_eq!(events.farm_yield_multiplier(), 1.0);
 
         events.active_events.push(GameEvent::Drought {
             ticks_remaining: 100,
         });
-        assert_eq!(events.farm_yield_multiplier(), 0.5);
+        assert_eq!(events.farm_yield_multiplier(), 0.7);
     }
 
     #[test]

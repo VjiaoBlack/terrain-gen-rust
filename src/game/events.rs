@@ -105,24 +105,33 @@ impl Game {
 
         match season {
             Season::Summer => {
-                // Only allow drought when the settlement has a grain buffer (grain ≥ 20).
-                // Without stored grain, a drought-halved farm yield immediately kills the
-                // settlement — there's no gameplay tension, just unavoidable death. Once grain
-                // is established, drought becomes a meaningful challenge to manage.
-                // Reduced probability: 5% per 100 ticks. Summer is 12000 ticks (120 checks),
-                // so expected ~1-2 droughts per Summer when a grain buffer exists.
-                let has_grain_buffer = self.resources.grain >= 20;
+                // Drought fires only when the settlement has a grain buffer proportional to
+                // its population (grain ≥ pop*5). This prevents early-game instant death:
+                // a drought with no reserves is just unavoidable starvation, not tension.
+                // Once grain is established, drought is a meaningful resource challenge.
+                //
+                // Severity: 70% yield (30% reduction) for 150 ticks — enough to strain
+                // an unprepared settlement but not auto-kill one with a healthy grain buffer.
+                // Probability: 2% per 100-tick check; Summer = 12000 ticks (120 checks)
+                // → ~91% chance of drought per eligible Summer, but only when grain is adequate.
+                let villager_count = self
+                    .world
+                    .query::<&Creature>()
+                    .iter()
+                    .filter(|c| c.species == Species::Villager)
+                    .count() as u32;
+                let has_grain_buffer = self.resources.grain >= villager_count * 5;
                 if has_grain_buffer
                     && !self.events.has_event_type("drought")
-                    && rng.random_range(0u32..100) < 5
+                    && rng.random_range(0u32..100) < 2
                 {
                     self.events.active_events.push(GameEvent::Drought {
-                        ticks_remaining: 300,
+                        ticks_remaining: 150,
                     });
                     self.events
                         .event_log
-                        .push("Drought! Farm yields halved.".to_string());
-                    self.notify("Drought! Farm yields halved.".to_string());
+                        .push("Drought! Farm yields reduced.".to_string());
+                    self.notify("Drought! Farm yields reduced.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("drought");
                 }
