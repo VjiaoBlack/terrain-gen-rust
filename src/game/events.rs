@@ -105,14 +105,33 @@ impl Game {
 
         match season {
             Season::Summer => {
-                if !self.events.has_event_type("drought") && rng.random_range(0u32..100) < 15 {
+                // Drought fires only when the settlement has a grain buffer proportional to
+                // its population (grain ≥ pop*5). This prevents early-game instant death:
+                // a drought with no reserves is just unavoidable starvation, not tension.
+                // Once grain is established, drought is a meaningful resource challenge.
+                //
+                // Severity: 70% yield (30% reduction) for 150 ticks — enough to strain
+                // an unprepared settlement but not auto-kill one with a healthy grain buffer.
+                // Probability: 2% per 100-tick check; Summer = 12000 ticks (120 checks)
+                // → ~91% chance of drought per eligible Summer, but only when grain is adequate.
+                let villager_count = self
+                    .world
+                    .query::<&Creature>()
+                    .iter()
+                    .filter(|c| c.species == Species::Villager)
+                    .count() as u32;
+                let has_grain_buffer = self.resources.grain >= villager_count * 5;
+                if has_grain_buffer
+                    && !self.events.has_event_type("drought")
+                    && rng.random_range(0u32..100) < 2
+                {
                     self.events.active_events.push(GameEvent::Drought {
-                        ticks_remaining: 300,
+                        ticks_remaining: 150,
                     });
                     self.events
                         .event_log
-                        .push("Drought! Farm yields halved.".to_string());
-                    self.notify("Drought! Farm yields halved.".to_string());
+                        .push("Drought! Farm yields reduced.".to_string());
+                    self.notify("Drought! Farm yields reduced.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("drought");
                 }
@@ -170,8 +189,40 @@ impl Game {
                         .event_log
                         .push("Wolf surge! Pack activity increases.".to_string());
                     self.notify("Wolf surge! Pack activity increases.".to_string());
+
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("wolf_surge");
+
+                    // Spawn wolves scaled to settlement size: small settlements get 1-2 wolves,
+                    // large settlements get up to 4. 4 wolves vs pop=8 was an instant wipe.
+                    let (scx, scy) = self.settlement_center();
+                    let villager_count = self
+                        .world
+                        .query::<&ecs::Creature>()
+                        .iter()
+                        .filter(|c| c.species == ecs::Species::Villager)
+                        .count() as u32;
+                    let max_wolves = (villager_count / 5 + 1).clamp(1, 4);
+                    let wolf_count = rng.random_range(1u32..=max_wolves);
+                    let mut spawned = 0u32;
+                    for _ in 0..60 {
+                        if spawned >= wolf_count {
+                            break;
+                        }
+                        let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                        let dist = rng.random_range(20.0f64..35.0);
+                        let wx = scx as f64 + angle.cos() * dist;
+                        let wy = scy as f64 + angle.sin() * dist;
+                        if self.map.is_walkable(wx, wy) {
+                            ecs::spawn_predator(&mut self.world, wx, wy);
+                            spawned += 1;
+                        }
+                    }
+                    if spawned > 0 {
+                        self.events
+                            .event_log
+                            .push(format!("{} wolves approach!", spawned));
+                    }
                 }
                 // Blizzard: winter-only, halves movement speed
                 if !self.events.has_event_type("blizzard") && rng.random_range(0u32..100) < 10 {

@@ -1,16 +1,27 @@
+use rand::RngExt;
+
 use super::{CELL_ASPECT, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
 #[allow(unused_imports)] // some used only in demolish_at
 use crate::ecs::{
     self, BuildSite, BuildingType, Creature, FarmPlot, GarrisonBuilding, HutBuilding, Position,
-    ProcessingBuilding, Recipe, Species, Stockpile,
+    ProcessingBuilding, Recipe, Species, Stockpile, TownHallBuilding,
 };
 use crate::renderer::Renderer;
 use crate::tilemap::Terrain;
 
 impl super::Game {
     pub fn can_place_building(&self, bx: i32, by: i32, building_type: BuildingType) -> bool {
+        self.can_place_building_impl(bx, by, building_type, true)
+    }
+
+    fn can_place_building_impl(
+        &self,
+        bx: i32,
+        by: i32,
+        building_type: BuildingType,
+        require_influence: bool,
+    ) -> bool {
         let (w, h) = building_type.size();
-        // Check footprint tiles are buildable terrain
         for dy in 0..h {
             for dx in 0..w {
                 let tx = bx + dx;
@@ -24,39 +35,11 @@ impl super::Game {
                 }
                 if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
                     match terrain {
-                        Terrain::Grass
-                        | Terrain::Sand
-                        | Terrain::Forest
-                        | Terrain::Scrubland
-                        | Terrain::Desert
-                        | Terrain::Tundra => {} // ok
-                        _ => return false, // water, mountain, snow, cliff, marsh, buildings
+                        Terrain::Grass | Terrain::Sand | Terrain::Forest => {} // ok
+                        _ => return false, // water, mountain, snow, existing buildings
                     }
                 } else {
                     return false;
-                }
-            }
-        }
-        // Ensure 1-tile gap: expanded footprint must not overlap existing buildings
-        for dy in -1..=h {
-            for dx in -1..=w {
-                let tx = bx + dx;
-                let ty = by + dy;
-                if tx < 0
-                    || ty < 0
-                    || tx as usize >= self.map.width
-                    || ty as usize >= self.map.height
-                {
-                    continue; // edge of map is ok
-                }
-                // Skip the actual footprint (already checked above)
-                if dx >= 0 && dx < w && dy >= 0 && dy < h {
-                    continue;
-                }
-                if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
-                    if matches!(terrain, Terrain::BuildingFloor | Terrain::BuildingWall) {
-                        return false; // too close to existing building
-                    }
                 }
             }
         }
@@ -71,20 +54,23 @@ impl super::Game {
             }
         }
 
-        // Must be within settlement influence (any tile of building footprint)
-        let in_territory = (0..h).any(|dy| {
-            (0..w).any(|dx| {
-                let tx = bx + dx;
-                let ty = by + dy;
-                if tx >= 0 && ty >= 0 {
-                    self.influence.get(tx as usize, ty as usize) > 0.1
-                } else {
-                    false
-                }
-            })
-        });
-        if !in_territory {
-            return false;
+        // For player-initiated placement, must be within settlement influence.
+        // Auto-build skips this check — it expands the settlement boundary.
+        if require_influence {
+            let in_territory = (0..h).any(|dy| {
+                (0..w).any(|dx| {
+                    let tx = bx + dx;
+                    let ty = by + dy;
+                    if tx >= 0 && ty >= 0 {
+                        self.influence.get(tx as usize, ty as usize) > 0.1
+                    } else {
+                        false
+                    }
+                })
+            });
+            if !in_territory {
+                return false;
+            }
         }
         true
     }
@@ -144,7 +130,7 @@ impl super::Game {
                 }
             }
         }
-        ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt);
+        ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt, self.tick);
     }
 
     /// Handle a mouse click at screen coordinates.
@@ -296,6 +282,9 @@ impl super::Game {
             if site.building_type == BuildingType::Garrison {
                 ecs::spawn_garrison(&mut self.world, pos.x, pos.y);
             }
+            if site.building_type == BuildingType::TownHall {
+                ecs::spawn_town_hall(&mut self.world, pos.x, pos.y);
+            }
             if site.building_type == BuildingType::Granary {
                 ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::FoodToGrain);
             }
@@ -303,51 +292,6 @@ impl super::Game {
                 ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::GrainToBread);
             }
             self.world.despawn(e).ok();
-        }
-
-        // Push any creatures stuck in walls to nearest walkable tile
-        if !completed.is_empty() {
-            let mut to_move: Vec<(hecs::Entity, f64, f64)> = Vec::new();
-            for (entity, (pos, _creature)) in self
-                .world
-                .query::<(hecs::Entity, (&Position, &Creature))>()
-                .iter()
-            {
-                let ix = pos.x.round() as usize;
-                let iy = pos.y.round() as usize;
-                if !self.map.get(ix, iy).map_or(false, |t| t.is_walkable()) {
-                    // Find nearest walkable tile
-                    for r in 1..10i32 {
-                        let mut found = false;
-                        for dy in -r..=r {
-                            for dx in -r..=r {
-                                if dx.abs() != r && dy.abs() != r {
-                                    continue;
-                                }
-                                let nx = pos.x + dx as f64;
-                                let ny = pos.y + dy as f64;
-                                if self.map.is_walkable(nx, ny) {
-                                    to_move.push((entity, nx, ny));
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if found {
-                                break;
-                            }
-                        }
-                        if found {
-                            break;
-                        }
-                    }
-                }
-            }
-            for (entity, nx, ny) in to_move {
-                if let Ok(mut pos) = self.world.get::<&mut Position>(entity) {
-                    pos.x = nx;
-                    pos.y = ny;
-                }
-            }
         }
         for &(_, _, site) in &completed {
             self.notify(format!("Building complete: {}", site.building_type.name()));
@@ -373,6 +317,11 @@ impl super::Game {
         // Garrisons project stronger influence (outpost expansion)
         for (pos, _) in self.world.query::<(&Position, &GarrisonBuilding)>().iter() {
             sources.push((pos.x, pos.y, 3.0));
+        }
+
+        // Town Hall projects the widest influence — the civic heart of the settlement
+        for (pos, _) in self.world.query::<(&Position, &TownHallBuilding)>().iter() {
+            sources.push((pos.x, pos.y, 5.0));
         }
 
         // Huts and stockpiles emit moderate influence
@@ -413,6 +362,161 @@ impl super::Game {
         }
     }
 
+    /// Spawn new stone deposits near the settlement center when stone stockpile is critically low.
+    /// Called every 2000 ticks when stone < 50; simulates "expanding settlement discovers new
+    /// deposits". Spawns 2 deposits at random walkable tiles 6–18 tiles away (within villager
+    /// sight_range=22 so they are actually visible and minable).
+    pub(super) fn discover_stone_deposits(&mut self) {
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if villager_pos.is_empty() {
+            return;
+        }
+        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
+        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
+
+        let mut rng = rand::rng();
+        let mut spawned = 0u32;
+        // Two passes: first prefer Grass/Sand/Forest (fast mining), then any walkable tile.
+        // On mountain-heavy seeds, deposits on mountain terrain (0.25× speed) mine far too
+        // slowly to accumulate enough stone for buildings. Grass/Sand deposits mine at full
+        // speed, so settlements receive usable stone much sooner.
+        for pass in 0..2u32 {
+            if spawned >= 2 {
+                break;
+            }
+            for _ in 0..60 {
+                if spawned >= 2 {
+                    break;
+                }
+                let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                let d = rng.random_range(5.0f64..18.0); // within villager sight_range (22 tiles)
+                let tx = cx + angle.cos() * d;
+                let ty = cy + angle.sin() * d;
+                if tx < 0.0 || ty < 0.0 || !self.map.is_walkable(tx, ty) {
+                    continue;
+                }
+                let on_easy_terrain = matches!(
+                    self.map.get(tx as usize, ty as usize),
+                    Some(Terrain::Grass | Terrain::Sand | Terrain::Forest)
+                );
+                if pass == 0 && !on_easy_terrain {
+                    continue; // first pass: easy terrain only
+                }
+                ecs::spawn_stone_deposit(&mut self.world, tx, ty);
+                spawned += 1;
+            }
+        }
+        if spawned > 0 {
+            self.notify(format!(
+                "New stone deposit discovered! (+{} deposits)",
+                spawned
+            ));
+        }
+    }
+
+    /// Discover a nearby timber grove / clearing when the settlement is land-locked.
+    /// Creates a 5×5 patch: the inner 3×3 core becomes Grass (a clean buildable clearing)
+    /// and the outer ring becomes Forest (wood resource). This guarantees that
+    /// `find_building_spot` succeeds on the next auto_build_tick even when the area is
+    /// already dense with Forest tiles (which previously blocked the old Forest-only planting).
+    pub(super) fn discover_timber_grove(&mut self) {
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if villager_pos.is_empty() {
+            return;
+        }
+        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
+        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
+
+        // Systematic ring scan rather than random angles — random approaches fail on maps
+        // where buildable land lies in a narrow sector (e.g. peninsulas, cliff edges).
+        // Scan outward ring-by-ring at 1-tile steps; first valid anchor wins.
+        let cxi = cx as i32;
+        let cyi = cy as i32;
+        let mut grove_planted = false;
+        'outer: for r in 5i32..22 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue; // perimeter only
+                    }
+                    let tx = cxi + dx;
+                    let ty = cyi + dy;
+                    if tx < 0 || ty < 0 {
+                        continue;
+                    }
+                    let tx = tx as usize;
+                    let ty = ty as usize;
+                    let anchor_terrain = self.map.get(tx, ty);
+                    // Skip out-of-bounds and built structures; accept all walkable terrain
+                    // including Forest (previously excluded, causing silent infinite failure).
+                    let is_built = matches!(
+                        anchor_terrain,
+                        Some(Terrain::BuildingFloor | Terrain::BuildingWall | Terrain::Road)
+                    );
+                    if is_built || anchor_terrain.is_none() {
+                        continue;
+                    }
+                    if !self.map.is_walkable(tx as f64, ty as f64)
+                        && !matches!(anchor_terrain, Some(Terrain::Mountain))
+                    {
+                        continue; // skip Water and other non-walkable non-Mountain
+                    }
+
+                    // Inner 3×3 core → Grass (clean buildable footprint for future hut/workshop).
+                    // Outer ring → Forest (wood resource for gatherers).
+                    let mut count = 0u32;
+                    for ody in -2i32..=2 {
+                        for odx in -2i32..=2 {
+                            let fx = tx as i32 + odx;
+                            let fy = ty as i32 + ody;
+                            if fx < 0 || fy < 0 {
+                                continue;
+                            }
+                            let fx = fx as usize;
+                            let fy = fy as usize;
+                            if matches!(
+                                self.map.get(fx, fy),
+                                Some(
+                                    Terrain::BuildingFloor | Terrain::BuildingWall | Terrain::Road
+                                )
+                            ) {
+                                continue;
+                            }
+                            let is_core = odx.abs() <= 1 && ody.abs() <= 1;
+                            if is_core {
+                                if !matches!(self.map.get(fx, fy), Some(Terrain::Grass)) {
+                                    self.map.set(fx, fy, Terrain::Grass);
+                                    count += 1;
+                                }
+                            } else if !matches!(self.map.get(fx, fy), Some(Terrain::Forest)) {
+                                self.map.set(fx, fy, Terrain::Forest);
+                                count += 1;
+                            }
+                        }
+                    }
+                    if count >= 3 {
+                        self.notify(format!("Timber grove discovered! ({count} new tiles)"));
+                        grove_planted = true;
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        let _ = grove_planted; // suppress unused warning
+    }
+
     /// Check conditions and spawn a new villager if met.
     /// Births require: 2+ villagers, food >= 5, and housing capacity.
     /// More surplus housing = shorter birth cooldown (min 200, max 800 ticks).
@@ -424,13 +528,20 @@ impl super::Game {
             .filter(|c| c.species == Species::Villager)
             .count() as u32;
 
-        // Count total hut capacity
-        let total_capacity: u32 = self
+        // Count total housing capacity: huts + any Town Hall bonus
+        let hut_capacity: u32 = self
             .world
             .query::<&HutBuilding>()
             .iter()
             .map(|h| h.capacity)
             .sum();
+        let town_hall_bonus: u32 = self
+            .world
+            .query::<&TownHallBuilding>()
+            .iter()
+            .map(|t| t.housing_bonus)
+            .sum();
+        let total_capacity = hut_capacity + town_hall_bonus;
 
         // Housing surplus determines birth rate
         let housing_surplus = total_capacity.saturating_sub(villager_count);
@@ -446,11 +557,36 @@ impl super::Game {
             return;
         }
 
-        if villager_count < 2 || self.resources.food < 5 {
+        // Count grain as food equivalent (1 grain = 0.5 food, since it takes ~2 food to make 1
+        // grain via granary). Bread counts as food directly. This prevents the deadlock where
+        // food=0 but grain=400+ blocks births — grain is food, just stored in a different form.
+        let effective_food = self.resources.food + self.resources.grain / 2 + self.resources.bread;
+
+        // Require minimum food proportional to population to prevent growing into starvation.
+        // 2× pop threshold (vs just food >= 5) prevents births during food crises on large
+        // populations, while remaining loose enough not to choke small settlements.
+        let min_food = if villager_count > 10 {
+            (villager_count * 2).max(5)
+        } else {
+            5
+        };
+        if villager_count < 2 || effective_food < min_food {
             return;
         }
 
-        self.resources.food -= 5;
+        // Food security gate: prevent breeding into starvation at larger populations
+        if villager_count > 10 && effective_food < villager_count * 3 {
+            return;
+        }
+
+        // Consume 5 food equivalent (use grain if food is short — grain counts 2:1)
+        if self.resources.food >= 5 {
+            self.resources.food -= 5;
+        } else {
+            let from_grain = (5 - self.resources.food) * 2;
+            self.resources.food = 0;
+            self.resources.grain = self.resources.grain.saturating_sub(from_grain);
+        }
 
         // Collect villager positions to find a spawn point nearby
         let villager_pos: Vec<(f64, f64)> = self
@@ -505,6 +641,29 @@ impl super::Game {
         let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
         let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
 
+        // Stone deposit discovery: every 2000 ticks, spawn 2 new deposits if stockpile
+        // stone is low or all existing deposits are depleted. This prevents stone starvation
+        // when the initial 2 deposits run out (~10 stone each).
+        if self.tick % 2000 == 0 {
+            let stone_deposit_count = self.world.query::<(&ecs::StoneDeposit,)>().iter().count();
+            if stone_deposit_count == 0 || self.resources.stone < 20 {
+                // Place new deposits at alternating angles around settlement center.
+                // Keep within villager sight_range (22 tiles) so they can be found and mined.
+                let cycle = (self.tick / 2000) as f64;
+                let base_angle = cycle * std::f64::consts::PI * 0.618; // golden-ratio rotation
+                let dist = 8.0 + (cycle % 4.0) * 3.0; // 8, 11, 14, 17 tiles — always in sight range
+                for i in 0..2 {
+                    let angle = base_angle + (i as f64) * std::f64::consts::PI;
+                    let tx = cx + angle.cos() * dist;
+                    let ty = cy + angle.sin() * dist;
+                    if let Some((nx, ny)) = self.find_nearby_walkable(tx, ty, 6) {
+                        ecs::spawn_stone_deposit(&mut self.world, nx, ny);
+                    }
+                }
+                self.notify("Stone deposit discovered nearby!".to_string());
+            }
+        }
+
         // Count existing farms (completed + in-progress)
         let farm_count = self.world.query::<&FarmPlot>().iter().count()
             + self
@@ -514,17 +673,137 @@ impl super::Game {
                 .filter(|s| s.building_type == BuildingType::Farm)
                 .count();
 
-        // Count existing build sites being worked on
-        let pending_builds = self.world.query::<&BuildSite>().iter().count();
-        // Don't queue too many builds at once
-        if pending_builds >= 3 {
-            return;
+        // Priority 1 & 2: Farm and Hut are both unconditional — they run together before any
+        // optional-build cap. Both may queue in the same tick (farm deducts first; hut checks
+        // can_afford on what remains). This prevents the scenario where food demand always fires
+        // P1 and returns before P2, starving housing construction and blocking population growth.
+        let villager_count = villager_pos.len() as u32;
+        let mut queued_critical = false;
+
+        // Hut capacity — pre-computed here (before P1 Farm) so P1 can check whether housing is
+        // already full. When housing is at capacity no new villagers can be born, so building
+        // extra farms is wasteful: it consumes 5w that P2 Hut needs (6w) and keeps wood stuck
+        // at ≤1 indefinitely. Defer farms when housing is saturated and at least 2 farms exist.
+        let completed_huts = self.world.query::<&HutBuilding>().iter().count();
+        // Only count pending huts that are "active": either have made progress or were placed
+        // recently (< 500 ticks ago). Stale zero-progress huts (stuck, unreachable) are excluded
+        // so they don't inflate total_hut_capacity and block new hut queuing.
+        let pending_huts = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Hut)
+            .filter(|s| s.progress > 0 || self.tick.saturating_sub(s.queued_at) < 500)
+            .count();
+        let total_hut_capacity = (completed_huts + pending_huts) * 4;
+
+        // Pre-compute has_granary / pending_granary_any for use in P4 below.
+        let has_granary = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::FoodToGrain);
+        let pending_granary_any = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Granary);
+
+        // Pre-compute has_workshop / pending_workshop_any — used in P0.5, P2 fallback, and P3.
+        let has_workshop = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::WoodToPlanks);
+        let pending_workshop_any = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Workshop);
+
+        // Pre-compute has_smithy / pending_smithy — used in saving_for_smithy guard (P2) and P5.
+        let has_smithy = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::StoneToMasonry);
+        let pending_smithy = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Smithy);
+
+        // Priority 0.5: Workshop — pre-empts Farm when food security is proven.
+        // Without this, P1 Farm always takes wood=5 first (Farm costs 5w, Workshop costs 5w),
+        // permanently preventing Workshop from ever being built.
+        // Two signals for food security:
+        //   (a) grain >= pop*4: Granary is running and accumulating a buffer, OR
+        //   (b) food > 60 + pop*6: raw food surplus is large enough that even if Granary
+        //       workers compete with farm workers, the settlement clearly has enough food.
+        // (a) is preferred but (b) prevents the deadlock when many farms fill all worker
+        // slots leaving no capacity for the Granary.
+        // food_secure: either grain buffer or surplus food, OR early-game (pop≤5) with any food
+        // present — at pop=4, food=20 satisfies this so Workshop fires immediately when affordable.
+        let food_secure = self.resources.grain >= villager_count * 2
+            || self.resources.food > villager_count * 4 + 20
+            || (villager_count <= 5 && self.resources.food >= 10);
+        if !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 4
+            && self.resources.stone >= 3
+            && food_secure
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return; // Don't queue Farm or Hut this tick — Workshop is the priority
+            }
         }
 
-        // Priority 1: Farm when food is low and we don't have many farms
-        let villager_count = villager_pos.len() as u32;
-        if self.resources.food < 8 + villager_count * 2
-            && farm_count < (villager_count as usize).div_ceil(2)
+        // Priority 0.9: Garrison — checked BEFORE P1 Farm so farm/hut stone spend doesn't
+        // prevent garrison from ever being placed.  P1 deducts 1s and P2 deducts 3s per cycle;
+        // if garrison fired at P1.5 it always saw a stone budget 1 below the garrison threshold.
+        // Moving it here ensures the full stone budget is visible to the garrison check.
+        // Cost is 6w+8s — achievable with 1-2 nearby deposits from the stone-range fix.
+        let has_garrison = self.world.query::<&GarrisonBuilding>().iter().count() > 0;
+        let pending_garrison = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Garrison);
+        if !has_garrison && !pending_garrison && villager_count >= 3 && self.resources.stone >= 8 {
+            let cost = BuildingType::Garrison.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Garrison);
+                self.notify("Auto-build: Garrison queued".to_string());
+                queued_critical = true;
+            }
+        }
+
+        // Priority 1: Farm when food is low and we don't have enough farms.
+        // Threshold: 1 farm per 3 villagers (div_ceil), minimum 2. The old "2/3 of pop"
+        // threshold (e.g. 6 farms for pop=8) was far too high — one farm already produces
+        // ~25 food/1000 ticks while 8 villagers consume only ~1.2 food/1000 ticks. The old
+        // threshold caused P1 to fire every 50 ticks until 6 farms existed, permanently
+        // blocking P3 (Workshop) from ever running. Minimum of 2 ensures early-game (pop=3)
+        // still queues a second farm before the threshold is satisfied.
+        //
+        // Housing-saturation guard: when total_hut_capacity <= villager_count the settlement
+        // is housing-capped and no new births can happen regardless of food. Building extra
+        // farms in this state consumes 5w per farm and prevents P2 Hut (6w) from ever firing,
+        // creating a permanent wood=1 equilibrium. Allow farms only when ≥1 housing slot is
+        // available OR when fewer than 2 farms exist (minimum food-security floor).
+        let housing_at_cap = total_hut_capacity <= villager_count as usize;
+        if self.resources.food < 8 + villager_count * 4
+            && farm_count < (villager_count as usize).div_ceil(3) + 1
+            && (!housing_at_cap || farm_count < 2)
         {
             let cost = BuildingType::Farm.cost();
             if self.resources.can_afford(&cost)
@@ -533,33 +812,372 @@ impl super::Game {
                 self.resources.deduct(&cost);
                 self.place_build_site(bx, by, BuildingType::Farm);
                 self.notify("Auto-build: Farm queued".to_string());
-                return;
+                queued_critical = true;
             }
         }
 
-        // Priority 2: Hut when population is growing and needs housing
-        let hut_count = self
-            .world
-            .query::<&BuildSite>()
-            .iter()
-            .filter(|s| s.building_type == BuildingType::Hut)
-            .count();
-        // Count completed huts by checking for Hut-shaped building floor clusters
-        // Simple heuristic: 1 hut per 3 villagers needed
-        let huts_needed = (villager_count as usize).div_ceil(3);
-        if hut_count < huts_needed && villager_count >= 3 {
+        // Priority 2: Hut when population needs housing
+        // Runs in the same tick as P1 so farm demand never permanently blocks housing.
+        // (completed_huts, pending_huts, total_hut_capacity pre-computed above P1)
+        // Defer hut construction only before the Workshop is built/queued: wood is depleted
+        // by hut builds before it can accumulate to Workshop cost. Once a Workshop exists,
+        // let hut builds proceed freely — the old (has_workshop && planks==0) guard was
+        // creating a deadlock where wood stayed at 0 (consumed by Workshop cycling), planks
+        // stayed at 0, and huts were permanently blocked, capping population at 16.
+        let saving_for_workshop = !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 4
+            && self.resources.stone >= 3
+            && self.resources.grain >= villager_count * 4;
+        // Saving-for-smithy guard: when Workshop exists, stone > 10, and Smithy not yet built,
+        // defer huts until wood ≥ 14.  WoodToPlanks threshold is 12: Workshop processes at
+        // wood=12 → leaves wood=10 → auto_build_tick sees wood=10 and can afford Smithy (10w+15s)
+        // before any hut (6w) takes it.  Housing crisis (capacity ≤ count) overrides deferral.
+        let at_housing_crisis = total_hut_capacity <= villager_count as usize;
+        let saving_for_smithy =
+            has_workshop && !has_smithy && !pending_smithy && self.resources.stone > 10;
+        let hut_ok = (!saving_for_workshop || self.resources.wood >= 10)
+            && (!saving_for_smithy || at_housing_crisis || self.resources.wood >= 14);
+        if hut_ok && total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
+            let spot = self.find_building_spot(cx, cy, BuildingType::Hut);
             if self.resources.can_afford(&cost)
-                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Hut)
+                && let Some((bx, by)) = spot
             {
                 self.resources.deduct(&cost);
                 self.place_build_site(bx, by, BuildingType::Hut);
                 self.notify("Auto-build: Hut queued".to_string());
+                queued_critical = true;
+            } else if !has_workshop
+                && !pending_workshop_any
+                && villager_count >= 4
+                && self.resources.stone >= 3
+            {
+                // Housing is needed but we can't afford a hut right now.
+                // Use the wood for Workshop instead — planks unlock Garrison which is
+                // critical for wolf defense and stops the entire settlement from being wiped.
+                let workshop_cost = BuildingType::Workshop.cost();
+                if self.resources.can_afford(&workshop_cost)
+                    && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+                {
+                    self.resources.deduct(&workshop_cost);
+                    self.place_build_site(bx, by, BuildingType::Workshop);
+                    self.notify("Auto-build: Workshop queued".to_string());
+                    queued_critical = true;
+                } else {
+                    // Workshop placement also failed — no valid 3×3 terrain anywhere.
+                    // Create a buildable clearing so the next tick can queue the hut/workshop.
+                    self.discover_timber_grove();
+                }
+            } else {
+                // Housing is needed but no valid terrain for a hut (and no workshop fallback).
+                // Plant a timber grove to convert Mountain/barren tiles into buildable Forest.
+                self.discover_timber_grove();
+            }
+        }
+
+        if queued_critical {
+            return;
+        }
+
+        // Count existing build sites being worked on
+        let pending_builds = self.world.query::<&BuildSite>().iter().count();
+        // Don't queue too many optional/processing builds at once
+        if pending_builds >= 3 {
+            return;
+        }
+
+        // Priority 3: First Workshop — also queued here when housing is satisfied
+        // (has_workshop and pending_workshop_any pre-computed before P2 above).
+        if !has_workshop
+            && !pending_workshop_any
+            && villager_count >= 4
+            && self.resources.stone >= 3
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
                 return;
             }
         }
 
-        // Priority 3: Walls when wolves are nearby settlement
+        // Priority 4: First Granary when population is established and food is adequate.
+        // (pending_granary_any and has_granary defined in P1.5 block above)
+        if !has_granary && !pending_granary_any && villager_count >= 12 && self.resources.food > 80
+        {
+            let cost = BuildingType::Granary.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Granary)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Granary);
+                self.notify("Auto-build: Granary queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 3.5: Second Workshop when wood is accumulating faster than one can process
+        let workshop_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::WoodToPlanks)
+            .count();
+        let pending_workshop_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Workshop)
+            .count();
+        if has_workshop
+            && workshop_count + pending_workshop_count < 2
+            && self.resources.wood > 1000
+            && self.resources.stone > 20
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 3.7: Third Workshop when wood is still piling up despite two workshops
+        let pending_workshop_count_all = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Workshop)
+            .count();
+        if workshop_count >= 2
+            && workshop_count + pending_workshop_count_all < 3
+            && self.resources.wood > 4000
+            && self.resources.stone > 10
+        {
+            let cost = BuildingType::Workshop.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Workshop)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Workshop);
+                self.notify("Auto-build: Workshop queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5: Smithy when we have a Workshop and a stone surplus
+        // (has_smithy and pending_smithy pre-computed above P1)
+        // Threshold 10: stone discovery events give ~24 stone per cycle (2×12 yield); that
+        // temporarily pushes stone above 10 even on desert maps. Old threshold of 25 was never
+        // reached on most seeds (stone equilibrated at 7–9), blocking Masonry production.
+        if !has_smithy && !pending_smithy && has_workshop && self.resources.stone > 10 {
+            let cost = BuildingType::Smithy.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Smithy)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Smithy);
+                self.notify("Auto-build: Smithy queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.1: Second Smithy when stone is over-abundant (e.g. grassland maps mining mountains)
+        // One Smithy can't absorb 3000+ stone; a second doubles masonry output and sinks stone.
+        let smithy_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::StoneToMasonry)
+            .count();
+        let pending_smithy_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Smithy)
+            .count();
+        if has_smithy && smithy_count + pending_smithy_count < 2 && self.resources.stone > 300 {
+            let cost = BuildingType::Smithy.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Smithy)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Smithy);
+                self.notify("Auto-build: Smithy queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.2: Garrison fallback — in case P1.5 never triggered (stone stayed below 8
+        // due to heavy farm/hut demand during the opening phase).  Same logic as P1.5 but fires
+        // here as a safety net.  Garrison costs 6w+8s.
+        let wolves_present = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .any(|(_, c)| c.species == Species::Predator);
+        if !has_garrison && !pending_garrison && villager_count >= 3 && self.resources.stone >= 8 {
+            let cost = BuildingType::Garrison.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Garrison);
+                self.notify("Auto-build: Garrison queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.3: Second Garrison when masonry is abundant and Year 2+ threats grow.
+        // Two garrisons provide doubled defense and expand settlement influence.
+        let garrison_count = self.world.query::<&GarrisonBuilding>().iter().count();
+        let pending_garrison_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Garrison)
+            .count();
+        if has_garrison
+            && garrison_count + pending_garrison_count < 2
+            && self.resources.masonry >= 150
+            && (wolves_present || villager_count >= 80)
+        {
+            let cost = BuildingType::Garrison.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Garrison)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Garrison);
+                self.notify("Auto-build: Garrison queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.45: Town Hall when masonry is abundant and settlement is well-established.
+        // Town Hall (20w+30s+80m) is the largest masonry sink — provides 20 housing slots and
+        // expands settlement influence (5.0 strength, highest of any building). Only 1 allowed.
+        let has_town_hall = self.world.query::<&TownHallBuilding>().iter().count() > 0;
+        let pending_town_hall = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::TownHall);
+        if !has_town_hall
+            && !pending_town_hall
+            && self.resources.masonry >= 80
+            && self.resources.stone >= 30
+            && villager_count >= 80
+        {
+            let cost = BuildingType::TownHall.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::TownHall)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::TownHall);
+                self.notify("Auto-build: Town Hall queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.5: Bakery when we have a Granary (grain available) and planks
+        let has_bakery = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::GrainToBread);
+        let pending_bakery = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .any(|s| s.building_type == BuildingType::Bakery);
+        if !has_bakery
+            && !pending_bakery
+            && has_granary
+            && self.resources.planks >= 8
+            && self.resources.grain > 30
+        {
+            let cost = BuildingType::Bakery.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Bakery)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Bakery);
+                self.notify("Auto-build: Bakery queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.6: Second Granary when planks are available and grain supply is low.
+        // With Bakery now using planks instead of wood, planks flow: Workshop->Bakery.
+        // A second Granary (food->grain) ensures grain supply keeps up with two bakeries.
+        let granary_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::FoodToGrain)
+            .count();
+        let pending_granary_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Granary)
+            .count();
+        if has_granary
+            && has_bakery
+            && granary_count + pending_granary_count < 2
+            && self.resources.planks > 100
+            && self.resources.food > villager_count * 3
+        {
+            let cost = BuildingType::Granary.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Granary)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Granary);
+                self.notify("Auto-build: Granary queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 5.7: Second Bakery when planks are abundant and grain supply can support it.
+        // Two bakeries double bread output, feeding larger populations, and drain planks faster.
+        let bakery_count = self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .filter(|pb| pb.recipe == Recipe::GrainToBread)
+            .count();
+        let pending_bakery_count = self
+            .world
+            .query::<&BuildSite>()
+            .iter()
+            .filter(|s| s.building_type == BuildingType::Bakery)
+            .count();
+        if has_bakery
+            && granary_count >= 2
+            && bakery_count + pending_bakery_count < 2
+            && self.resources.planks > 200
+            && self.resources.grain > 80
+        {
+            let cost = BuildingType::Bakery.cost();
+            if self.resources.can_afford(&cost)
+                && let Some((bx, by)) = self.find_building_spot(cx, cy, BuildingType::Bakery)
+            {
+                self.resources.deduct(&cost);
+                self.place_build_site(bx, by, BuildingType::Bakery);
+                self.notify("Auto-build: Bakery queued".to_string());
+                return;
+            }
+        }
+
+        // Priority 6: Walls when wolves are nearby settlement
         let wolf_near = self
             .world
             .query::<(&Position, &Creature)>()
@@ -583,7 +1201,67 @@ impl super::Game {
         }
     }
 
+    /// BFS flood-fill to find all walkable tiles reachable from (cx, cy) within `radius` tiles.
+    /// Used by `find_building_spot` to filter out terrain-valid but unreachable spots (e.g.
+    /// land across a water body). Returns a flat bitset indexed by y*width+x.
+    ///
+    /// Pending build-site footprints are treated as SOLID during the BFS even though their tiles
+    /// are currently BuildingFloor (walkable). This prevents placing new buildings behind a
+    /// pending build site that will later wall off access when it completes.
+    fn reachable_tiles(&self, cx: f64, cy: f64, radius: i32) -> Vec<bool> {
+        let w = self.map.width;
+        let h = self.map.height;
+        let mut visited = vec![false; w * h];
+        let si = cx.round() as i32;
+        let sj = cy.round() as i32;
+        if si < 0 || sj < 0 || si >= w as i32 || sj >= h as i32 {
+            return visited;
+        }
+
+        // Mark all pending build-site footprint tiles as blocked (they will become walls).
+        let mut pending_blocked = vec![false; w * h];
+        for (pos, site) in self.world.query::<(&Position, &BuildSite)>().iter() {
+            let (bw, bh) = site.building_type.size();
+            let bx = pos.x as i32;
+            let by = pos.y as i32;
+            for dy in 0..bh {
+                for dx in 0..bw {
+                    let fx = bx + dx;
+                    let fy = by + dy;
+                    if fx >= 0 && fy >= 0 && (fx as usize) < w && (fy as usize) < h {
+                        pending_blocked[fy as usize * w + fx as usize] = true;
+                    }
+                }
+            }
+        }
+
+        let mut queue = std::collections::VecDeque::new();
+        let start_idx = sj as usize * w + si as usize;
+        visited[start_idx] = true;
+        queue.push_back((si, sj));
+        while let Some((x, y)) = queue.pop_front() {
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                    continue;
+                }
+                let idx = ny as usize * w + nx as usize;
+                if visited[idx] || pending_blocked[idx] {
+                    continue;
+                }
+                if (nx - si).abs() > radius || (ny - sj).abs() > radius {
+                    continue;
+                }
+                if self.map.is_walkable(nx as f64, ny as f64) {
+                    visited[idx] = true;
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        visited
+    }
+
     /// Find a valid spot for a building near (cx, cy), searching outward in rings.
+    /// Only returns spots reachable from the centroid (connected land, not across water).
     pub(super) fn find_building_spot(
         &self,
         cx: f64,
@@ -591,10 +1269,21 @@ impl super::Game {
         bt: BuildingType,
     ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
-        let is_farm = bt == BuildingType::Farm;
-        let mut best: Option<(i32, i32, f64)> = None;
-
-        for r in 2i32..20 {
+        // Pre-compute which tiles are reachable from the settlement centroid.
+        // This filters out terrain-valid spots on disconnected land (e.g. across a river).
+        let reachable = self.reachable_tiles(cx, cy, 80);
+        let is_reachable = |bx: i32, by: i32| -> bool {
+            // Check the center tile of the building footprint is reachable.
+            let cx = bx + bw / 2;
+            let cy = by + bh / 2;
+            if cx < 0 || cy < 0 {
+                return false;
+            }
+            let idx = cy as usize * self.map.width + cx as usize;
+            idx < reachable.len() && reachable[idx]
+        };
+        // Primary search: coarse grid (building-size steps), close to settlement
+        for r in 2i32..8 {
             for dy in -r..=r {
                 for dx in -r..=r {
                     if dx.abs() != r && dy.abs() != r {
@@ -602,28 +1291,28 @@ impl super::Game {
                     }
                     let bx = cx as i32 + dx * bw;
                     let by = cy as i32 + dy * bh;
-                    if self.can_place_building(bx, by, bt) {
-                        // Score by soil fertility
-                        let soil_idx = by as usize * self.map.width + bx as usize;
-                        let fertility = if soil_idx < self.soil.len() {
-                            self.soil[soil_idx].yield_multiplier()
-                        } else {
-                            1.0
-                        };
-                        // Farms prefer high fertility, others prefer low
-                        let score = if is_farm { fertility } else { 2.0 - fertility };
-                        if best.is_none() || score > best.unwrap().2 {
-                            best = Some((bx, by, score));
-                        }
+                    if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
+                        return Some((bx, by));
                     }
                 }
             }
-            // If we found any candidate in this ring, use the best one
-            if best.is_some() {
-                break;
+        }
+        // Fallback: fine-grid scan for narrow terrain corridors where coarse grid misses valid spots
+        for r in 4i32..64 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let bx = cx as i32 + dx;
+                    let by = cy as i32 + dy;
+                    if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
+                        return Some((bx, by));
+                    }
+                }
             }
         }
-        best.map(|(bx, by, _)| (bx, by))
+        None
     }
 
     /// Find a spot for a defensive wall between settlement center and nearest wolf.
@@ -712,6 +1401,24 @@ impl super::Game {
                 .iter()
             {
                 let (w, h) = BuildingType::Garrison.size();
+                let ex = pos.x as i32 - w / 2;
+                let ey = pos.y as i32 - h / 2;
+                if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
+                    to_demolish = Some(entity);
+                    building_size = (w, h);
+                    break;
+                }
+            }
+        }
+
+        // Check for town hall
+        if to_demolish.is_none() {
+            for (entity, (pos, _)) in self
+                .world
+                .query::<(hecs::Entity, (&Position, &TownHallBuilding))>()
+                .iter()
+            {
+                let (w, h) = BuildingType::TownHall.size();
                 let ex = pos.x as i32 - w / 2;
                 let ey = pos.y as i32 - h / 2;
                 if bx >= ex && bx < ex + w && by >= ey && by < ey + h {

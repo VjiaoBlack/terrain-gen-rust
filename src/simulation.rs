@@ -1035,7 +1035,6 @@ impl TrafficMap {
                     && *terrain != crate::tilemap::Terrain::Road
                     && *terrain != crate::tilemap::Terrain::BuildingFloor
                     && *terrain != crate::tilemap::Terrain::BuildingWall
-                    && *terrain != crate::tilemap::Terrain::Water
                 {
                     result.push((x, y));
                 }
@@ -1758,14 +1757,14 @@ mod tests {
     #[test]
     fn traffic_road_candidates_only_walkable() {
         let mut map = TileMap::new(10, 10, Terrain::Grass);
-        map.set(2, 2, Terrain::Water); // unwalkable
+        map.set(2, 2, Terrain::BuildingWall); // unwalkable
         map.set(3, 3, Terrain::Road); // already road
 
         let mut tm = TrafficMap::new(10, 10);
-        // Accumulate traffic on grass, water, and road tiles
+        // Accumulate traffic on grass, wall, and road tiles
         for _ in 0..200 {
             tm.step_on(1, 1); // grass — should be candidate
-            tm.step_on(2, 2); // water — should NOT
+            tm.step_on(2, 2); // wall — should NOT
             tm.step_on(3, 3); // road — should NOT
         }
 
@@ -1776,7 +1775,7 @@ mod tests {
         );
         assert!(
             !candidates.contains(&(2, 2)),
-            "water tile should not be candidate"
+            "wall tile should not be candidate"
         );
         assert!(
             !candidates.contains(&(3, 3)),

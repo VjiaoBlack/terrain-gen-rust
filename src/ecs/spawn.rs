@@ -136,7 +136,13 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
-pub fn spawn_build_site(world: &mut World, x: f64, y: f64, building_type: BuildingType) -> Entity {
+pub fn spawn_build_site(
+    world: &mut World,
+    x: f64,
+    y: f64,
+    building_type: BuildingType,
+    queued_at: u64,
+) -> Entity {
     world.spawn((
         Position { x, y },
         Sprite {
@@ -148,6 +154,7 @@ pub fn spawn_build_site(world: &mut World, x: f64, y: f64, building_type: Buildi
             progress: 0,
             required: building_type.build_time(),
             assigned: false,
+            queued_at,
         },
     ))
 }
@@ -187,6 +194,17 @@ pub fn spawn_garrison(world: &mut World, x: f64, y: f64) -> Entity {
             fg: Color(180, 50, 50),
         },
         GarrisonBuilding { defense_bonus: 5.0 },
+    ))
+}
+
+pub fn spawn_town_hall(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite {
+            ch: 'H',
+            fg: Color(255, 220, 60),
+        },
+        TownHallBuilding { housing_bonus: 20 },
     ))
 }
 

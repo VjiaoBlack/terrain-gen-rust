@@ -2,7 +2,7 @@ use super::{CELL_ASPECT, GameEvent, OverlayMode, PANEL_WIDTH, ROAD_TRAFFIC_THRES
 use crate::ecs::{
     self, Behavior, BehaviorState, BuildingType, Creature, Den, FarmPlot, FoodSource,
     GarrisonBuilding, Position, ProcessingBuilding, ResourceType, Species, Sprite, Stockpile,
-    StoneDeposit,
+    StoneDeposit, TownHallBuilding,
 };
 use crate::renderer::{Color, Renderer};
 use crate::simulation::Season;
@@ -349,7 +349,6 @@ impl super::Game {
             OverlayMode::Threats => "THREATS",
             OverlayMode::Traffic => "TRAFFIC",
             OverlayMode::Territory => "TERRITORY",
-            OverlayMode::Elevation => "ELEVATION",
         };
         draw_line(
             renderer,
@@ -683,8 +682,7 @@ impl super::Game {
                                 Some(BehaviorState::Building { .. }) => Color(255, 220, 50), // yellow
                                 Some(BehaviorState::Farming { .. }) => Color(80, 200, 80), // farm green
                                 Some(BehaviorState::Working { .. }) => Color(200, 120, 50), // workshop orange
-                                Some(BehaviorState::Exploring { .. }) => Color(150, 50, 255), // purple - exploring
-                                Some(BehaviorState::Eating { .. }) => Color(50, 200, 50), // green
+                                Some(BehaviorState::Eating { .. }) => Color(50, 200, 50),   // green
                                 Some(BehaviorState::Sleeping { .. }) => Color(100, 100, 200), // blue
                                 Some(BehaviorState::FleeHome { .. }) => Color(255, 50, 50),   // red
                                 Some(BehaviorState::Idle { .. })
@@ -725,8 +723,6 @@ impl super::Game {
             self.draw_threat_overlay(renderer);
         } else if self.overlay == OverlayMode::Traffic {
             self.draw_traffic_overlay(renderer);
-        } else if self.overlay == OverlayMode::Elevation {
-            self.draw_elevation_overlay(renderer);
         }
 
         if self.query_mode {
@@ -1040,24 +1036,22 @@ impl super::Game {
                             timer,
                         } => format!("Building ({:.0},{:.0}) ({})", target_x, target_y, timer),
                         BehaviorState::Farming {
-                            target_x,
-                            target_y,
-                            lease,
+                            target_x, target_y, ..
                         } => {
-                            format!("Farming ({:.0},{:.0}) [{}]", target_x, target_y, lease)
+                            format!("Farming ({:.0},{:.0})", target_x, target_y)
                         }
                         BehaviorState::Working {
-                            target_x,
-                            target_y,
-                            lease,
+                            target_x, target_y, ..
                         } => {
-                            format!("Working ({:.0},{:.0}) [{}]", target_x, target_y, lease)
+                            format!("Working ({:.0},{:.0})", target_x, target_y)
                         }
                         BehaviorState::Exploring {
                             target_x,
                             target_y,
                             timer,
-                        } => format!("Exploring ({:.0},{:.0}) [{}]", target_x, target_y, timer),
+                        } => {
+                            format!("Exploring ({:.0},{:.0}) ({})", target_x, target_y, timer)
+                        }
                     };
                     lines.push(format!("state: {}", state_str));
                     lines.push(format!("speed: {:.2}", behavior.speed));
@@ -1432,6 +1426,15 @@ impl super::Game {
                 renderer.draw(sx as u16, sy as u16, 'G', Color(50, 255, 50), None);
             }
         }
+
+        // Draw town halls as bright yellow
+        for (pos, _) in self.world.query::<(&Position, &TownHallBuilding)>().iter() {
+            let sx = (pos.x as i32 - self.camera.x) * aspect + panel_w;
+            let sy = pos.y as i32 - self.camera.y;
+            if sx >= panel_w && sx < w as i32 && sy >= 0 && sy < (h - status_h) as i32 {
+                renderer.draw(sx as u16, sy as u16, 'H', Color(255, 220, 60), None);
+            }
+        }
     }
 
     fn draw_traffic_overlay(&self, renderer: &mut dyn Renderer) {
@@ -1508,11 +1511,6 @@ impl super::Game {
                         Color(140, 120, 80)
                     }
                     Some(Terrain::Road) => Color(100, 90, 70),
-                    Some(Terrain::Cliff) => Color(80, 75, 65),
-                    Some(Terrain::Marsh) => Color(30, 70, 50),
-                    Some(Terrain::Desert) => Color(190, 170, 110),
-                    Some(Terrain::Tundra) => Color(150, 160, 170),
-                    Some(Terrain::Scrubland) => Color(120, 110, 55),
                     _ => Color(60, 60, 60),
                 };
 
@@ -1553,42 +1551,6 @@ impl super::Game {
         }
     }
 
-    /// Elevation overlay: brightness = height, white = high, black = low.
-    fn draw_elevation_overlay(&self, renderer: &mut dyn Renderer) {
-        let (w, h) = renderer.size();
-        let status_h = 1u16;
-        let aspect = CELL_ASPECT;
-        let panel_w = PANEL_WIDTH;
-
-        for sy in 0..h.saturating_sub(status_h) {
-            for sx in panel_w..w {
-                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
-                let wy = self.camera.y + sy as i32;
-                if wx < 0 || wy < 0 {
-                    continue;
-                }
-                let ux = wx as usize;
-                let uy = wy as usize;
-                if ux >= self.map.width || uy >= self.map.height {
-                    continue;
-                }
-                if !self.exploration.is_revealed(ux, uy) {
-                    continue;
-                }
-                let i = uy * self.map.width + ux;
-                let hv = self.heights[i];
-                let brightness = (hv * 255.0).clamp(0.0, 255.0) as u8;
-                renderer.draw(
-                    sx,
-                    sy,
-                    ' ',
-                    Color(brightness, brightness, brightness),
-                    Some(Color(brightness, brightness, brightness)),
-                );
-            }
-        }
-    }
-
     /// Debug view: high-contrast, no lighting, single letter per terrain type.
     /// Shows terrain, water depth, entity positions, and collision-relevant info.
     pub fn draw_debug(&self, renderer: &mut dyn Renderer) {
@@ -1618,10 +1580,10 @@ impl super::Game {
                         Terrain::BuildingWall => ('X', Color(160, 140, 110)),
                         Terrain::Road => ('R', Color(160, 130, 80)),
                         Terrain::Cliff => ('C', Color(100, 90, 80)),
-                        Terrain::Marsh => ('H', Color(40, 90, 60)),
-                        Terrain::Desert => ('D', Color(200, 180, 120)),
-                        Terrain::Tundra => ('T', Color(160, 170, 180)),
-                        Terrain::Scrubland => ('U', Color(130, 120, 60)),
+                        Terrain::Marsh => ('H', Color(60, 120, 80)),
+                        Terrain::Desert => ('D', Color(210, 190, 120)),
+                        Terrain::Tundra => ('T', Color(180, 190, 200)),
+                        Terrain::Scrubland => ('U', Color(140, 150, 80)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }

@@ -183,6 +183,7 @@ pub enum BuildingType {
     Road,
     Granary,
     Bakery,
+    TownHall,
 }
 
 /// Tile layout pattern for a building footprint.
@@ -216,8 +217,8 @@ impl BuildingType {
             BuildingType::Hut => BuildingDef {
                 name: "Hut",
                 cost: Resources {
-                    wood: 10,
-                    stone: 4,
+                    wood: 6,
+                    stone: 3,
                     ..DEF_RES
                 },
                 build_time: 180,
@@ -256,8 +257,8 @@ impl BuildingType {
             BuildingType::Workshop => BuildingDef {
                 name: "Workshop",
                 cost: Resources {
-                    wood: 15,
-                    stone: 8,
+                    wood: 5,
+                    stone: 3,
                     ..DEF_RES
                 },
                 build_time: 220,
@@ -278,8 +279,8 @@ impl BuildingType {
             BuildingType::Garrison => BuildingDef {
                 name: "Garrison",
                 cost: Resources {
-                    planks: 10,
-                    masonry: 10,
+                    wood: 6,
+                    stone: 8,
                     ..DEF_RES
                 },
                 build_time: 180,
@@ -299,9 +300,8 @@ impl BuildingType {
             BuildingType::Granary => BuildingDef {
                 name: "Granary",
                 cost: Resources {
-                    wood: 12,
-                    stone: 8,
-                    planks: 4,
+                    wood: 6,
+                    stone: 4,
                     ..DEF_RES
                 },
                 build_time: 240,
@@ -319,6 +319,18 @@ impl BuildingType {
                 build_time: 210,
                 size: (3, 3),
                 layout: TileLayout::WallsDoorNorth,
+            },
+            BuildingType::TownHall => BuildingDef {
+                name: "Town Hall",
+                cost: Resources {
+                    wood: 20,
+                    stone: 30,
+                    masonry: 80,
+                    ..DEF_RES
+                },
+                build_time: 400,
+                size: (3, 3),
+                layout: TileLayout::WallsNoDoor,
             },
         }
     }
@@ -409,6 +421,7 @@ impl BuildingType {
             BuildingType::Road,
             BuildingType::Granary,
             BuildingType::Bakery,
+            BuildingType::TownHall,
         ]
     }
 }
@@ -431,6 +444,9 @@ pub struct BuildSite {
     pub progress: u32,
     pub required: u32,
     pub assigned: bool,
+    /// Game tick when this site was placed. Used to detect stuck sites.
+    #[serde(default)]
+    pub queued_at: u64,
 }
 
 /// Marker for a completed farm plot — grows crops and produces food.
@@ -452,6 +468,14 @@ pub struct FoodSource;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GarrisonBuilding {
     pub defense_bonus: f64,
+}
+
+/// Marker component for Town Hall — provides housing bonus and extends settlement influence.
+/// The Town Hall is a late-game prestige building that sinks accumulated masonry/stone and
+/// allows the settlement to house more villagers without building more huts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TownHallBuilding {
+    pub housing_bonus: u32,
 }
 
 /// Marker component for completed huts — provides shelter for villagers at night.

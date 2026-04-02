@@ -115,18 +115,15 @@ mod tests {
         let mut world = World::new();
         let mut map = walkable_map(10, 10);
         map.set(5, 5, Terrain::Water);
-        // Entity starting ON water tile
+        // Start ON the water tile — speed multiplier applies to current tile
         let e = spawn_entity(&mut world, 5.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
 
         system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
-        // Water speed is 0.15x, so movement is very slow
-        assert!(
-            pos.x > 5.0 && pos.x < 5.5,
-            "water should slow movement, got {}",
-            pos.x
-        );
+        // Water is swimmable but very slow (0.15x), so 5.0 + 1.0*0.15 = 5.15
+        assert!(pos.x > 5.0, "should move in water (slowly)");
+        assert!(pos.x < 5.5, "should be very slow in water");
     }
 
     #[test]
@@ -247,7 +244,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -284,7 +281,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -323,7 +320,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -361,7 +358,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -427,7 +424,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -465,7 +462,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -498,7 +495,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -534,7 +531,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -570,7 +567,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -610,7 +607,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -675,7 +672,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -742,7 +739,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -775,7 +772,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -814,7 +811,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -853,7 +850,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -896,7 +893,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -950,7 +947,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -1003,7 +1000,7 @@ mod tests {
         let map = walkable_map(30, 30);
         let villager = spawn_villager(&mut world, 10.0, 10.0);
         spawn_stockpile(&mut world, 5.0, 5.0);
-        let _site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall);
+        let _site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall, 0);
 
         {
             let mut c = world.get::<&mut Creature>(villager).unwrap();
@@ -1017,10 +1014,10 @@ mod tests {
             &map,
             0.4,
             0,
+            10, // stockpile_wood (unused for building decision in this test)
             0,
             0,
             0,
-            0, // bread
             &SkillMults::default(),
             false,
             false,
@@ -1040,7 +1037,7 @@ mod tests {
         let map = walkable_map(30, 30);
         let villager = spawn_villager(&mut world, 10.0, 10.0);
         spawn_stockpile(&mut world, 5.0, 5.0);
-        let site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall);
+        let site = spawn_build_site(&mut world, 10.0, 10.0, BuildingType::Wall, 0);
 
         {
             let mut s = world.get::<&mut BuildSite>(site).unwrap();
@@ -1066,7 +1063,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -1086,8 +1083,8 @@ mod tests {
         assert_eq!(
             BuildingType::Hut.cost(),
             Resources {
-                wood: 10,
-                stone: 4,
+                wood: 6,
+                stone: 3,
                 ..Default::default()
             }
         );
@@ -1183,7 +1180,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -1456,7 +1453,7 @@ mod tests {
                 0,
                 0,
                 0,
-                0, // bread
+                0,
                 &SkillMults::default(),
                 false,
                 false,
@@ -1514,7 +1511,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -1556,7 +1553,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -1587,7 +1584,7 @@ mod tests {
         spawn_stone_deposit(&mut world, 7.0, 7.0);
         spawn_den(&mut world, 15.0, 15.0);
         spawn_stockpile(&mut world, 12.0, 12.0);
-        spawn_build_site(&mut world, 8.0, 8.0, BuildingType::Hut);
+        spawn_build_site(&mut world, 8.0, 8.0, BuildingType::Hut, 0);
         spawn_farm_plot(&mut world, 9.0, 9.0);
 
         let serialized = serialize_world(&world);
@@ -1673,8 +1670,8 @@ mod tests {
         assert_eq!(
             BuildingType::Workshop.cost(),
             Resources {
-                wood: 15,
-                stone: 8,
+                wood: 5,
+                stone: 3,
                 ..Default::default()
             }
         );
@@ -1703,7 +1700,7 @@ mod tests {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
         let mut resources = Resources {
-            wood: 10,
+            wood: 14,
             ..Default::default()
         };
 
@@ -1714,7 +1711,7 @@ mod tests {
             system_processing(&mut world, &mut resources, 1.0);
         }
 
-        assert_eq!(resources.wood, 8, "should have consumed 2 wood");
+        assert_eq!(resources.wood, 12, "should have consumed 2 wood");
         assert_eq!(resources.planks, 1, "should have produced 1 planks");
     }
 
@@ -1742,8 +1739,10 @@ mod tests {
     fn system_processing_converts_food_to_grain() {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::FoodToGrain);
+        // Granary only converts when food > 15 (starvation guard). Start with 19 so one
+        // conversion (food-=3 → 16 > 15) fires on tick 120, leaving 16 food and 2 grain.
         let mut resources = Resources {
-            food: 6,
+            food: 19,
             ..Default::default()
         };
 
@@ -1754,7 +1753,10 @@ mod tests {
             system_processing(&mut world, &mut resources, 1.0);
         }
 
-        assert_eq!(resources.food, 3, "should have consumed 3 food");
+        assert_eq!(
+            resources.food, 16,
+            "should have consumed 3 food (one conversion at 19→16)"
+        );
         assert_eq!(resources.grain, 2, "should have produced 2 grain");
     }
 
@@ -1805,7 +1807,7 @@ mod tests {
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::GrainToBread);
         let mut resources = Resources {
             grain: 4,
-            wood: 2,
+            planks: 2,
             ..Default::default()
         };
 
@@ -1818,6 +1820,7 @@ mod tests {
 
         assert!(resources.bread > 0, "bakery should produce bread");
         assert!(resources.grain < 4, "bakery should consume grain");
+        assert!(resources.planks < 2, "bakery should consume planks");
     }
 
     #[test]
@@ -1826,7 +1829,7 @@ mod tests {
         assert_eq!(BuildingType::Bakery.size(), (3, 3));
         assert_eq!(BuildingType::Granary.name(), "Granary");
         assert_eq!(BuildingType::Bakery.name(), "Bakery");
-        assert!(BuildingType::Granary.cost().planks > 0);
+        assert!(BuildingType::Granary.cost().wood > 0);
         assert!(BuildingType::Bakery.cost().planks > 0);
     }
 
@@ -1849,7 +1852,7 @@ mod tests {
         let mut world = World::new();
         spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
         let mut resources = Resources {
-            wood: 10,
+            wood: 14,
             ..Default::default()
         };
 
@@ -1861,7 +1864,7 @@ mod tests {
         }
 
         assert_eq!(
-            resources.wood, 8,
+            resources.wood, 12,
             "should have consumed 2 wood at double speed"
         );
         assert_eq!(
@@ -1876,11 +1879,11 @@ mod tests {
         assert_eq!(
             garrison.cost(),
             Resources {
-                planks: 10,
-                masonry: 10,
+                wood: 6,
+                stone: 8,
                 ..Default::default()
             },
-            "garrison cost should be 10 planks, 10 masonry"
+            "garrison cost should be 6 wood, 8 stone"
         );
         assert_eq!(garrison.size(), (3, 3), "garrison size should be 3x3");
         assert_eq!(
@@ -1952,7 +1955,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             true,
             false,
@@ -1996,7 +1999,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -2039,30 +2042,32 @@ mod tests {
     }
 
     #[test]
-    fn garrison_requires_refined_resources() {
+    fn garrison_cost_is_wood_and_stone_only() {
         let cost = BuildingType::Garrison.cost();
-        assert_eq!(cost.planks, 10);
-        assert_eq!(cost.masonry, 10);
-        assert_eq!(cost.wood, 0, "garrison should not require raw wood");
-        assert_eq!(cost.stone, 0, "garrison should not require raw stone");
+        assert_eq!(cost.wood, 6, "garrison should require 6 wood");
+        assert_eq!(cost.stone, 8, "garrison should require 8 stone");
+        assert_eq!(cost.masonry, 0, "garrison should not require masonry");
+        assert_eq!(cost.planks, 0, "garrison should not require planks");
 
-        let raw_only = Resources {
-            food: 100,
-            wood: 100,
-            stone: 100,
+        let sufficient = Resources {
+            wood: 6,
+            stone: 8,
             ..Default::default()
         };
         assert!(
-            !raw_only.can_afford(&cost),
-            "raw resources alone should not afford garrison"
+            sufficient.can_afford(&cost),
+            "wood+stone should be sufficient to afford garrison"
         );
 
-        let refined = Resources {
-            planks: 10,
-            masonry: 10,
+        let insufficient = Resources {
+            wood: 5,
+            stone: 8,
             ..Default::default()
         };
-        assert!(refined.can_afford(&cost));
+        assert!(
+            !insufficient.can_afford(&cost),
+            "insufficient wood should not afford garrison"
+        );
     }
 
     #[test]
@@ -2071,7 +2076,7 @@ mod tests {
         let pb = spawn_processing_building(&mut world, 5.0, 5.0, Recipe::WoodToPlanks);
 
         let mut resources = Resources {
-            wood: 10,
+            wood: 14, // >= 12 threshold so has_input=true when worker present
             ..Default::default()
         };
         system_processing(&mut world, &mut resources, 1.0);
@@ -2115,7 +2120,7 @@ mod tests {
     }
 
     #[test]
-    fn villager_prefers_bread_over_food() {
+    fn villager_prefers_grain_over_food() {
         let mut world = World::new();
         let map = walkable_map(30, 30);
 
@@ -2127,26 +2132,28 @@ mod tests {
             c.hunger = 0.6;
         }
 
-        // Provide bread, food, and grain
         let result = system_ai(
             &mut world,
             &map,
             0.4,
-            5, // food
+            5,
             0,
             0,
-            5, // grain
-            5, // bread
+            5,
+            0,
             &SkillMults::default(),
             false,
             false,
         );
 
-        // Bread > food > grain priority
-        if result.bread_consumed > 0 || result.food_consumed > 0 || result.grain_consumed > 0 {
+        if result.grain_consumed > 0 || result.food_consumed > 0 {
             assert!(
-                result.bread_consumed > 0,
-                "should prefer bread over food/grain"
+                result.grain_consumed > 0,
+                "should prefer grain over raw food"
+            );
+            assert_eq!(
+                result.food_consumed, 0,
+                "should not consume food when grain available"
             );
         }
     }
@@ -2251,7 +2258,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,
@@ -2294,7 +2301,7 @@ mod tests {
             0,
             0,
             0,
-            0, // bread
+            0,
             &SkillMults::default(),
             false,
             false,

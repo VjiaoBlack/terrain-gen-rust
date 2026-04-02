@@ -322,6 +322,10 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
+        // auto_build is always enabled in --play mode (it's the headless testing mode).
+        // Use input:ToggleAutoBuild in --inputs to disable it if needed.
+        game_obj.auto_build = true;
+        // auto_build can also be toggled via `input:ToggleAutoBuild` in the command sequence.
 
         let inputs_str = args
             .iter()
@@ -344,8 +348,10 @@ fn main() -> Result<()> {
             print!("{}", r.frame_as_string());
         } else {
             // Parse commands: tick:N runs N ticks, then named inputs
+            let mut last_cmd_was_frame = false;
             for cmd in inputs_str.split(',') {
                 let cmd = cmd.trim();
+                last_cmd_was_frame = false;
                 if let Some(n) = cmd.strip_prefix("tick:") {
                     let ticks: u64 = n.parse().unwrap_or(1);
                     for _ in 0..ticks {
@@ -375,17 +381,27 @@ fn main() -> Result<()> {
                         _ => GameInput::None,
                     };
                     game_obj.step(input, &mut r)?;
+                } else if cmd.starts_with("seed:") {
+                    // Seed must be passed via --seed CLI arg; this token is a no-op
+                    // (kept for command readability)
+                } else if cmd == "auto-build" {
+                    // Directly enable auto-build (not a toggle, so safe to use at start)
+                    game_obj.auto_build = true;
                 } else if cmd == "frame" {
                     // Dump current frame
                     println!("{}", r.frame_as_string());
                     println!("--- tick {} ---", game_obj.tick);
+                    last_cmd_was_frame = true;
                 } else if cmd == "ansi" {
                     print!("{}", r.frame_as_ansi());
                     println!("--- tick {} ---", game_obj.tick);
+                    last_cmd_was_frame = true;
                 }
             }
-            // Always dump final frame
-            println!("{}", r.frame_as_string());
+            // Dump final frame only if the last command wasn't already a frame dump
+            if !last_cmd_was_frame {
+                println!("{}", r.frame_as_string());
+            }
         }
         return Ok(());
     }
