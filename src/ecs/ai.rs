@@ -717,6 +717,17 @@ pub(super) fn ai_villager(
             target_y,
             lease,
         } => {
+            // Lease expired — return to idle so villager can be reassigned
+            if *lease == 0 {
+                return (
+                    BehaviorState::Idle { timer: 5 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
+            }
             if predator_nearby {
                 return (
                     BehaviorState::FleeHome { timer: 120 },
@@ -727,11 +738,6 @@ pub(super) fn ai_villager(
                     None,
                 );
             }
-            // Stop farming to gather resources only when BOTH are critically low.
-            // Using only wood (||) was too aggressive: stone deposits keep stone at 5-9,
-            // so the OR condition fires whenever wood drops below 5, which happens often
-            // when Workshop is running (consumes 2w per cycle). This interrupted farming
-            // on every wood dip, collapsing food production heading into winter.
             if stockpile_wood < 5 && stockpile_stone < 5 {
                 return (
                     BehaviorState::Idle { timer: 5 },
@@ -743,7 +749,6 @@ pub(super) fn ai_villager(
                 );
             }
             if hunger > 0.6 {
-                // Too hungry to farm — go eat
                 return (
                     BehaviorState::Idle { timer: 5 },
                     0.0,
@@ -790,6 +795,17 @@ pub(super) fn ai_villager(
             target_y,
             lease,
         } => {
+            // Lease expired — return to idle so villager can be reassigned
+            if *lease == 0 {
+                return (
+                    BehaviorState::Idle { timer: 5 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
+            }
             if predator_nearby {
                 return (
                     BehaviorState::FleeHome { timer: 120 },
