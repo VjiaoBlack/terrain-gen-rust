@@ -750,17 +750,16 @@ impl super::Game {
         // Count total housing slots: 4 per completed hut + 4 per pending hut.
         // Queue another hut when total capacity is below villager count plus a small buffer.
         let total_hut_capacity = (completed_huts + pending_huts) * 4;
-        // Defer hut construction in two Workshop-related scenarios:
-        // (a) Workshop conditions are met but not yet built/queued: wood is depleted by hut
-        //     builds before it can accumulate to Workshop cost — defer huts until wood=10.
-        // (b) Workshop exists but hasn't produced the first plank yet: huts would drain wood
-        //     below the processing threshold — defer until wood=10 or first plank arrives.
-        let saving_for_workshop = (!has_workshop
+        // Defer hut construction only before the Workshop is built/queued: wood is depleted
+        // by hut builds before it can accumulate to Workshop cost. Once a Workshop exists,
+        // let hut builds proceed freely — the old (has_workshop && planks==0) guard was
+        // creating a deadlock where wood stayed at 0 (consumed by Workshop cycling), planks
+        // stayed at 0, and huts were permanently blocked, capping population at 16.
+        let saving_for_workshop = !has_workshop
             && !pending_workshop_any
             && villager_count >= 8
             && self.resources.stone >= 3
-            && self.resources.grain >= villager_count * 4)
-            || (has_workshop && self.resources.planks == 0);
+            && self.resources.grain >= villager_count * 4;
         let hut_ok = !saving_for_workshop || self.resources.wood >= 10;
         if hut_ok && total_hut_capacity < villager_count as usize + 4 && villager_count >= 3 {
             let cost = BuildingType::Hut.cost();
