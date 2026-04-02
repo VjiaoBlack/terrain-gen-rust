@@ -4731,3 +4731,148 @@ the remaining challenge for Forest-biome seeds.
 
 4. **Masonry chain** — Smithy still never built (stone equilibrates at 5-7, below threshold).
    Once wood equilibrium is resolved, saving_for_smithy guard should activate.
+
+---
+
+# Session 28 — 2026-04-02
+
+## Summary
+
+Single critical bug fixed: `ToggleAutoBuild` inversion in `--play` mode. All prior sessions post-Session 21 were suffering from this bug returning. Phase 5 attempted a FoodToGrain threshold change (food>15→food>10) for lean-map winter survival but it was reverted after causing an earlier death spiral on seed 777 (granary worker reduces farming output when food is marginal).
+
+## Phase 1 — Pre-Fix Baseline (Seeds 42 / 137 / 999, 36k ticks)
+
+| Seed | T=12k Pop | T=24k Pop | T=36k Pop | Food | Wood | Stone | Planks | Grain | Survived? |
+|------|-----------|-----------|-----------|------|------|-------|--------|-------|-----------|
+| 42   | 8         | 8         | 8         | 0    | 48   | 7     | 0      | 196   | Stalled   |
+| 137  | 8         | 8         | 8         | 0    | 48   | 1     | 0      | 79    | Stalled   |
+| 999  | 8         | 8         | 8         | 0    | 48   | 7     | 0      | 196   | Stalled   |
+
+Pattern: ALL seeds frozen at pop=8 for 36k ticks. Wood static at 48 (no buildings built, no wood
+gathered). Stone deposit notifications appeared but no buildings were placed. Grain accumulated
+from pre-built Granary only.
+
+## Root Cause Analysis
+
+In `src/main.rs` (play mode setup), line 327 unconditionally set `game_obj.auto_build = true`.
+The standard test commands include `input:ToggleAutoBuild` at tick 100, which toggled
+auto_build `TRUE → FALSE`, permanently disabling the auto-build system.
+
+Stone deposit notifications still appeared because `discover_stone_deposits()` is called
+unconditionally from `game/mod.rs` (not from within `auto_build_tick`). This made the bug
+hard to detect — some systems appeared active.
+
+This same bug had appeared in Sessions 18, 21, 24, and 26 and been "fixed" each time, only to
+be reintroduced. The comment at that line was actively misleading ("Use input:ToggleAutoBuild
+in --inputs to disable it if needed").
+
+## Fix Applied
+
+**`src/main.rs`** — Removed `game_obj.auto_build = true;` from the `--play` mode block.
+Replaced with a comment explaining the correct semantics:
+
+```rust
+// auto_build starts disabled; enable it via --auto-build flag or
+// input:ToggleAutoBuild in the --inputs sequence (at tick 100 by convention).
+// Do NOT set it true here — that inverts the ToggleAutoBuild semantics.
+```
+
+One line removed. `cargo fmt && cargo test --lib` → 194 tests pass.
+
+## Phase 4 Verification (Seeds 42 / 137, Post-Fix, 36k ticks)
+
+| Seed | T=12k Pop | T=24k Pop | T=36k Pop | Food          | Wood | Stone | Planks | Grain         | Survived? |
+|------|-----------|-----------|-----------|---------------|------|-------|--------|---------------|-----------|
+| 42   | 8         | 14        | 16        | 24 / 154 / 55 | 4    | 7     | 0      | 92 / 288 / 482| ✓ SURVIVED |
+| 137  | 8         | 8         | 11        | 15 / 14 / 0   | 4    | 1     | 0      | 42 / 136 / 168| ✓ SURVIVED |
+
+Seed 42: Population doubled (8→16). Grain buffer of 482 by Winter. Garrison repelled wolves.
+Multiple timber groves discovered. Settlement viable.
+
+Seed 137: Modest growth (8→11). Stone-poor map (stone=1 mid-game). Grain buffer of 168
+sustained winter survival.
+
+Both seeds survived Y1 Winter — strong improvement from the complete stall before the fix.
+
+Residual issues:
+- Wood equilibrates at ~4 (Workshop costs 5w, never affordable)
+- No Planks (no Workshop → no Bakery)
+- Pop ceiling at 16 (seed 42) / 11 (seed 137) from housing cap
+
+## Phase 5 Attempted Fix — FoodToGrain Threshold (REVERTED)
+
+Observed that seed 777 (Phase 6 pre-check) had food=12 equilibrium, which kept the Granary
+idle (`food > 15` threshold not met). Attempted to lower both `FoodToGrain` thresholds in
+`src/ecs/systems.rs` from `food > 15` to `food > 10`.
+
+**Result: Worse.** Settlement died at tick 19627 (Y1 Summer) instead of tick 30k+.
+Root cause: at food=11, the granary assigns a worker. That worker is now unavailable for
+farming. With lean-map food production already at the margin (~12 food), losing one farmer
+sends food to 0 faster than farms can recover. Classic death spiral.
+
+**Reverted.** Both thresholds restored to `food > 15`. 194 tests still pass.
+
+The correct fix likely requires either: (a) seasonal threshold adjustment (lower only in
+Autumn to build winter buffer), (b) passive granary conversion without a dedicated worker,
+or (c) AI prioritization to ensure granary workers are only assigned when farms are fully
+staffed. Deferred to next session.
+
+## Phase 6 Final Verification (Seed 777, 45k ticks, post-revert)
+
+| Metric | T=15k    | T=30k      | T=45k      |
+|--------|----------|------------|------------|
+| Pop    | 12       | 11         | 1          |
+| Food   | 12       | 7          | 0          |
+| Wood   | 2        | 2          | 0          |
+| Stone  | 5        | 5          | 6          |
+| Planks | 0        | 0          | 0          |
+| Grain  | 38       | 22         | 2          |
+| Season | Summer Y1| Autumn Y1  | Winter Y1  |
+
+Seed 777: Settlement survived to late-Winter but ultimately collapsed (pop 12→11→1).
+"Wolf surge! Pack activity increases." + "Blizzard! Movement slowed." at tick 30k→45k
+with no garrison (stone never reached 8) devastated the settlement. Grain=38 at Summer
+was insufficient for winter with 12 villagers.
+
+This is a hard-map failure (sparse stone, lean food production) rather than a regression.
+The settlement lasted significantly longer than in the bug state (when pop was frozen at 8).
+
+## Design Notes
+
+- **ToggleAutoBuild bug keeps recurring**: This is the FOURTH time this session pattern
+  has appeared (Sessions 18, 21, 24, 26, 28). The root cause is the misleading comment
+  and no automated test for the `--play` mode auto_build initialization. Consider adding
+  an integration test that verifies auto_build is enabled after `ToggleAutoBuild` input.
+
+- **Wood=4 equilibrium**: Both seeds 42 and 137 show wood stalling at ~4 across all
+  snapshots. Workshop costs 5w, so auto_build's P0.5 always fails. Something is consuming
+  wood exactly when it would hit 5. Likely: P1 Farm fires at the same tick (same 5w cost)
+  when food is below threshold, draining wood before Workshop can be placed. Saving-for-
+  workshop guards P2 Hut but not P1 Farm.
+
+- **Stone=5 ceiling on lean maps**: Seed 777 never exceeded stone=5. Stone deposits are
+  discovered (notifications appear) but villagers with high farm workload don't mine them.
+  Garrison needs 8s (P0.9 guard). This is unreachable when stone equilibrates at 5.
+
+- **Granary worker vs. farming trade-off**: FoodToGrain at food>15 is conservative (leaves
+  grain=0 on food=12 maps). Lowering threshold ties up a worker and reduces farming output.
+  This tension needs a structural fix, not just a threshold change.
+
+## Next Session Priorities
+
+1. **Wood=4 equilibrium / P1 Farm vs. Workshop race**: Add `saving_for_workshop` guard to
+   P1 Farm (similar to how P2 Hut is guarded). When saving_for_workshop=TRUE and farm_count
+   >= 2, skip P1 Farm so wood accumulates to Workshop cost. Move `saving_for_workshop`
+   computation before P1 Farm block.
+
+2. **FoodToGrain seasonal threshold**: Implement season-aware granary threshold. In Autumn
+   (pre-winter buildup), use `food > 10`; other seasons keep `food > 15`. This builds grain
+   buffer when it matters without starving summer workers.
+
+3. **Stone mining AI priority**: When stone < 8 (garrison threshold unmet) and a stone
+   deposit is visible within range, bias villager AI toward mining over farming. Currently
+   farm_skill dominates and stone never accumulates.
+
+4. **Automated test for ToggleAutoBuild semantics**: Add an integration test that runs
+   `--play --inputs "tick:100,input:ToggleAutoBuild,tick:50,frame"` and asserts
+   `game.auto_build == true` after tick 150. Prevents the 4th recurrence.

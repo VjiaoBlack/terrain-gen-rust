@@ -322,10 +322,11 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
-        // auto_build is always enabled in --play mode (it's the headless testing mode).
-        // Use input:ToggleAutoBuild in --inputs to disable it if needed.
-        game_obj.auto_build = true;
-        // auto_build can also be toggled via `input:ToggleAutoBuild` in the command sequence.
+        // auto_build starts disabled; enable it via --auto-build flag or
+        // input:ToggleAutoBuild in the --inputs sequence (at tick 100 by convention).
+        // Do NOT set it true here — that inverts the ToggleAutoBuild semantics.
+        // IMPORTANT: setting game_obj.auto_build = true here causes ToggleAutoBuild
+        // input to DISABLE auto_build (true→false). This is the recurring Session 18/21/24/26/28 bug.
 
         let inputs_str = args
             .iter()
