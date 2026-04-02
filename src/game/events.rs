@@ -171,31 +171,39 @@ impl Game {
                         .push("Wolf surge! Pack activity increases.".to_string());
                     self.notify("Wolf surge! Pack activity increases.".to_string());
 
-                    // Spawn 3–5 wolf entities in a ring 22–38 tiles from the settlement center.
-                    // Previously the event fired log text but created zero entities — wolves
-                    // never appeared on map despite the message. Fixed here.
+                    #[cfg(feature = "lua")]
+                    self.fire_event_hook("wolf_surge");
+
+                    // Spawn wolves scaled to settlement size: small settlements get 1-2 wolves,
+                    // large settlements get up to 4. 4 wolves vs pop=8 was an instant wipe.
                     let (scx, scy) = self.settlement_center();
-                    let wolf_count = rng.random_range(3u32..=5);
+                    let villager_count = self
+                        .world
+                        .query::<&ecs::Creature>()
+                        .iter()
+                        .filter(|c| c.species == ecs::Species::Villager)
+                        .count() as u32;
+                    let max_wolves = (villager_count / 5 + 1).clamp(1, 4);
+                    let wolf_count = rng.random_range(1u32..=max_wolves);
                     let mut spawned = 0u32;
                     for _ in 0..60 {
                         if spawned >= wolf_count {
                             break;
                         }
                         let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
-                        let d = rng.random_range(22.0f64..38.0);
-                        let wx = scx as f64 + angle.cos() * d;
-                        let wy = scy as f64 + angle.sin() * d;
-                        if wx >= 0.0 && wy >= 0.0 && self.map.is_walkable(wx, wy) {
+                        let dist = rng.random_range(20.0f64..35.0);
+                        let wx = scx as f64 + angle.cos() * dist;
+                        let wy = scy as f64 + angle.sin() * dist;
+                        if self.map.is_walkable(wx, wy) {
                             ecs::spawn_predator(&mut self.world, wx, wy);
                             spawned += 1;
                         }
                     }
                     if spawned > 0 {
-                        self.notify(format!("{} wolves approach!", spawned));
+                        self.events
+                            .event_log
+                            .push(format!("{} wolves approach!", spawned));
                     }
-
-                    #[cfg(feature = "lua")]
-                    self.fire_event_hook("wolf_surge");
                 }
                 // Blizzard: winter-only, halves movement speed
                 if !self.events.has_event_type("blizzard") && rng.random_range(0u32..100) < 10 {

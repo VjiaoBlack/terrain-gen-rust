@@ -108,8 +108,8 @@ pub fn spawn_stone_deposit(world: &mut World, x: f64, y: f64) -> Entity {
         }, // grey stone
         StoneDeposit,
         ResourceYield {
-            remaining: 12,
-            max: 12,
+            remaining: 20,
+            max: 20,
         },
     ))
 }
