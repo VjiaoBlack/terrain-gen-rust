@@ -62,6 +62,10 @@ pub enum MemoryKind {
     DangerZone,
     BuildSite,
     ResourceDepleted,
+    /// "The garrison reported predators near (x, y)" -- learned from garrison board.
+    ThreatReport,
+    /// "The workshop needs a specific resource" -- learned from workshop board.
+    MaterialRequest,
 }
 
 impl MemoryKind {
@@ -83,6 +87,8 @@ impl MemoryKind {
             MemoryKind::DangerZone => 0.0028,      // half-life ~250 ticks
             MemoryKind::BuildSite => 0.0005,       // half-life ~1400 ticks
             MemoryKind::ResourceDepleted => 0.001, // half-life ~700 ticks
+            MemoryKind::ThreatReport => 0.00023, // half-life ~3000 ticks (threat corridors persist)
+            MemoryKind::MaterialRequest => 0.002, // half-life ~350 ticks (stale fast, re-learn on visit)
         }
     }
 }
@@ -455,6 +461,134 @@ impl BulletinBoard {
             // Sort by tick_posted descending, keep newest
             self.posts.sort_by(|a, b| b.tick_posted.cmp(&a.tick_posted));
             self.posts.truncate(BULLETIN_BOARD_CAPACITY);
+        }
+    }
+}
+
+// --- Garrison Board ---
+
+/// Maximum posts on a garrison board.
+pub const GARRISON_BOARD_CAPACITY: usize = 32;
+/// PredatorSighting posts expire after this many ticks (wolves move).
+pub const GARRISON_SIGHTING_STALE_TICKS: u64 = 3000;
+/// AttackReport posts persist longer (attack corridors are stable).
+pub const GARRISON_ATTACK_STALE_TICKS: u64 = 8000;
+
+/// Severity of a predator attack.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AttackSeverity {
+    Scout, // 1-2 predators
+    Pack,  // 3-5 predators
+    Surge, // 6+ predators
+}
+
+/// The kind of post on a garrison board.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GarrisonPostKind {
+    /// "I saw predators near (x, y)"
+    PredatorSighting { count: u8 },
+    /// "Predators attacked from (x, y)"
+    AttackReport { severity: AttackSeverity },
+}
+
+/// A single post on a garrison board.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GarrisonPost {
+    pub kind: GarrisonPostKind,
+    pub x: f64,
+    pub y: f64,
+    pub posted_tick: u64,
+}
+
+impl GarrisonPost {
+    /// Staleness threshold depends on post kind.
+    pub fn stale_ticks(&self) -> u64 {
+        match self.kind {
+            GarrisonPostKind::PredatorSighting { .. } => GARRISON_SIGHTING_STALE_TICKS,
+            GarrisonPostKind::AttackReport { .. } => GARRISON_ATTACK_STALE_TICKS,
+        }
+    }
+}
+
+/// Threat-intelligence board attached to garrison buildings.
+/// Villagers fleeing from predators write sightings here; soldiers and
+/// gatherers read it to learn about danger zones.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GarrisonBoard {
+    pub posts: Vec<GarrisonPost>,
+}
+
+impl GarrisonBoard {
+    /// Check if a sighting already exists near (x, y).
+    pub fn has_post_near(&self, x: f64, y: f64) -> bool {
+        self.posts.iter().any(|p| {
+            let dx = p.x - x;
+            let dy = p.y - y;
+            (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+        })
+    }
+
+    /// Write a predator sighting from a villager's DangerZone memories.
+    pub fn write_danger_from_memory(&mut self, memory: &VillagerMemory, current_tick: u64) {
+        for entry in &memory.entries {
+            if entry.kind != MemoryKind::DangerZone {
+                continue;
+            }
+            if !entry.firsthand {
+                continue;
+            }
+            if entry.confidence < BULLETIN_POST_MIN_CONFIDENCE {
+                continue;
+            }
+            if self.has_post_near(entry.x, entry.y) {
+                continue;
+            }
+            self.posts.push(GarrisonPost {
+                kind: GarrisonPostKind::PredatorSighting { count: 1 },
+                x: entry.x,
+                y: entry.y,
+                posted_tick: current_tick,
+            });
+        }
+        self.prune(current_tick);
+    }
+
+    /// Read garrison posts into a villager's personal memory as ThreatReport entries.
+    pub fn read_into_memory(&self, memory: &mut VillagerMemory, current_tick: u64) {
+        for post in &self.posts {
+            // Skip if villager already knows about this location as a threat
+            let already_known = memory.entries.iter().any(|e| {
+                (e.kind == MemoryKind::ThreatReport || e.kind == MemoryKind::DangerZone) && {
+                    let dx = e.x - post.x;
+                    let dy = e.y - post.y;
+                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                }
+            });
+            if already_known {
+                continue;
+            }
+            memory.upsert(MemoryKind::ThreatReport, post.x, post.y, current_tick);
+            // Mark as secondhand
+            if let Some(entry) = memory.entries.iter_mut().rev().find(|e| {
+                e.kind == MemoryKind::ThreatReport && {
+                    let dx = e.x - post.x;
+                    let dy = e.y - post.y;
+                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                }
+            }) {
+                entry.confidence = BULLETIN_SECONDHAND_FACTOR;
+                entry.firsthand = false;
+            }
+        }
+    }
+
+    /// Remove stale posts and enforce capacity limit.
+    pub fn prune(&mut self, current_tick: u64) {
+        self.posts
+            .retain(|p| current_tick.saturating_sub(p.posted_tick) < p.stale_ticks());
+        if self.posts.len() > GARRISON_BOARD_CAPACITY {
+            self.posts.sort_by(|a, b| b.posted_tick.cmp(&a.posted_tick));
+            self.posts.truncate(GARRISON_BOARD_CAPACITY);
         }
     }
 }
@@ -1069,6 +1203,10 @@ pub struct ProcessingBuilding {
     pub required: u32, // ticks per processing cycle
     #[serde(default)]
     pub worker_present: bool, // must have villager operating for progress
+    /// Set when the workshop cannot process because it lacks input material.
+    /// Villagers near the workshop read this and prioritize gathering that resource.
+    #[serde(default)]
+    pub material_needed: Option<ResourceType>,
 }
 
 // --- Resources ---

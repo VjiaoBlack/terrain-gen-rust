@@ -6470,4 +6470,286 @@ mod tests {
             low_green
         );
     }
+
+    // ---- Garrison Board Tests ----
+
+    #[test]
+    fn garrison_board_write_predator_sighting() {
+        let mut board = GarrisonBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 20.0, 100);
+        board.write_danger_from_memory(&mem, 100);
+        assert_eq!(board.posts.len(), 1);
+        assert_eq!(
+            board.posts[0].kind,
+            GarrisonPostKind::PredatorSighting { count: 1 }
+        );
+        assert!((board.posts[0].x - 10.0).abs() < 0.01);
+        assert!((board.posts[0].y - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn garrison_board_dedup_same_location() {
+        let mut board = GarrisonBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 20.0, 100);
+        board.write_danger_from_memory(&mem, 100);
+        // Second write at same location should not add duplicate
+        board.write_danger_from_memory(&mem, 200);
+        assert_eq!(board.posts.len(), 1);
+    }
+
+    #[test]
+    fn garrison_board_different_locations() {
+        let mut board = GarrisonBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 20.0, 100);
+        mem.upsert(MemoryKind::DangerZone, 50.0, 60.0, 100);
+        board.write_danger_from_memory(&mem, 100);
+        assert_eq!(board.posts.len(), 2);
+    }
+
+    #[test]
+    fn garrison_board_staleness_sighting() {
+        let mut board = GarrisonBoard::default();
+        board.posts.push(GarrisonPost {
+            kind: GarrisonPostKind::PredatorSighting { count: 1 },
+            x: 10.0,
+            y: 20.0,
+            posted_tick: 100,
+        });
+        // At tick 3000 it should still exist (< 3000 stale threshold)
+        board.prune(3099);
+        assert_eq!(board.posts.len(), 1);
+        // At tick 3101 it should be gone (> 3000 ticks old)
+        board.prune(3101);
+        assert_eq!(board.posts.len(), 0);
+    }
+
+    #[test]
+    fn garrison_board_staleness_attack_report() {
+        let mut board = GarrisonBoard::default();
+        board.posts.push(GarrisonPost {
+            kind: GarrisonPostKind::AttackReport {
+                severity: AttackSeverity::Pack,
+            },
+            x: 10.0,
+            y: 20.0,
+            posted_tick: 100,
+        });
+        // Attack reports last 8000 ticks
+        board.prune(8099);
+        assert_eq!(board.posts.len(), 1);
+        board.prune(8101);
+        assert_eq!(board.posts.len(), 0);
+    }
+
+    #[test]
+    fn garrison_board_read_into_memory() {
+        let mut board = GarrisonBoard::default();
+        board.posts.push(GarrisonPost {
+            kind: GarrisonPostKind::PredatorSighting { count: 2 },
+            x: 30.0,
+            y: 40.0,
+            posted_tick: 100,
+        });
+        let mut mem = VillagerMemory::new();
+        board.read_into_memory(&mut mem, 200);
+        assert_eq!(mem.entries.len(), 1);
+        assert_eq!(mem.entries[0].kind, MemoryKind::ThreatReport);
+        assert!((mem.entries[0].x - 30.0).abs() < 0.01);
+        assert!(!mem.entries[0].firsthand, "should be secondhand");
+    }
+
+    #[test]
+    fn garrison_board_read_skips_already_known() {
+        let mut board = GarrisonBoard::default();
+        board.posts.push(GarrisonPost {
+            kind: GarrisonPostKind::PredatorSighting { count: 1 },
+            x: 30.0,
+            y: 40.0,
+            posted_tick: 100,
+        });
+        let mut mem = VillagerMemory::new();
+        // Villager already knows about this danger zone from firsthand experience
+        mem.upsert(MemoryKind::DangerZone, 30.0, 40.0, 50);
+        board.read_into_memory(&mut mem, 200);
+        // Should NOT add a ThreatReport since DangerZone at same spot already known
+        assert!(
+            !mem.entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::ThreatReport),
+            "should skip ThreatReport when DangerZone already known at same location"
+        );
+    }
+
+    #[test]
+    fn garrison_board_capacity_enforced() {
+        let mut board = GarrisonBoard::default();
+        for i in 0..40 {
+            board.posts.push(GarrisonPost {
+                kind: GarrisonPostKind::PredatorSighting { count: 1 },
+                x: i as f64 * 10.0,
+                y: 0.0,
+                posted_tick: i as u64,
+            });
+        }
+        board.prune(50);
+        assert!(
+            board.posts.len() <= GARRISON_BOARD_CAPACITY,
+            "board should be pruned to capacity: {}",
+            board.posts.len()
+        );
+    }
+
+    #[test]
+    fn garrison_board_ignores_secondhand_danger() {
+        let mut board = GarrisonBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 20.0, 100);
+        // Mark as secondhand (learned from encounter, not firsthand)
+        mem.entries[0].firsthand = false;
+        board.write_danger_from_memory(&mem, 100);
+        assert_eq!(
+            board.posts.len(),
+            0,
+            "secondhand DangerZone should not be posted to garrison board"
+        );
+    }
+
+    #[test]
+    fn garrison_board_attached_to_garrison() {
+        let mut world = World::new();
+        let garrison = spawn_garrison(&mut world, 10.0, 10.0);
+        assert!(
+            world.get::<&GarrisonBoard>(garrison).is_ok(),
+            "garrison should have GarrisonBoard component"
+        );
+    }
+
+    #[test]
+    fn garrison_board_serialization_round_trip() {
+        let mut world = World::new();
+        let garrison = spawn_garrison(&mut world, 10.0, 10.0);
+        {
+            let mut board = world.get::<&mut GarrisonBoard>(garrison).unwrap();
+            board.posts.push(GarrisonPost {
+                kind: GarrisonPostKind::PredatorSighting { count: 3 },
+                x: 25.0,
+                y: 35.0,
+                posted_tick: 500,
+            });
+        }
+        let serialized = serialize_world(&world);
+        let world2 = deserialize_world(&serialized);
+        for (_, board) in world2.query::<(&GarrisonBuilding, &GarrisonBoard)>().iter() {
+            assert_eq!(board.posts.len(), 1);
+            assert_eq!(
+                board.posts[0].kind,
+                GarrisonPostKind::PredatorSighting { count: 3 }
+            );
+        }
+    }
+
+    // ---- Workshop material_needed Tests ----
+
+    #[test]
+    fn workshop_material_needed_set_when_no_input() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 10.0, 10.0, Recipe::WoodToPlanks);
+        let mut resources = Resources {
+            wood: 0,
+            ..Default::default()
+        };
+        system_processing(&mut world, &mut resources, 1.0);
+        for building in world.query::<&ProcessingBuilding>().iter() {
+            assert_eq!(
+                building.material_needed,
+                Some(ResourceType::Wood),
+                "workshop should need wood when wood is 0"
+            );
+        }
+    }
+
+    #[test]
+    fn workshop_material_needed_cleared_when_input_available() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 10.0, 10.0, Recipe::WoodToPlanks);
+        let mut resources = Resources {
+            wood: 20,
+            ..Default::default()
+        };
+        system_processing(&mut world, &mut resources, 1.0);
+        for building in world.query::<&ProcessingBuilding>().iter() {
+            assert_eq!(
+                building.material_needed, None,
+                "workshop should not need material when input is available"
+            );
+        }
+    }
+
+    #[test]
+    fn workshop_material_needed_stone_for_smithy() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 10.0, 10.0, Recipe::StoneToMasonry);
+        let mut resources = Resources {
+            stone: 0,
+            ..Default::default()
+        };
+        system_processing(&mut world, &mut resources, 1.0);
+        for building in world.query::<&ProcessingBuilding>().iter() {
+            assert_eq!(
+                building.material_needed,
+                Some(ResourceType::Stone),
+                "smithy should need stone when stone is 0"
+            );
+        }
+    }
+
+    #[test]
+    fn workshop_material_needed_grain_for_bakery() {
+        let mut world = World::new();
+        spawn_processing_building(&mut world, 10.0, 10.0, Recipe::GrainToBread);
+        let mut resources = Resources {
+            grain: 0,
+            planks: 5,
+            ..Default::default()
+        };
+        system_processing(&mut world, &mut resources, 1.0);
+        for building in world.query::<&ProcessingBuilding>().iter() {
+            assert_eq!(
+                building.material_needed,
+                Some(ResourceType::Grain),
+                "bakery should need grain when grain is 0"
+            );
+        }
+    }
+
+    #[test]
+    fn garrison_board_fleeing_villager_writes_then_reads() {
+        // Integration-style: spawn garrison + fleeing villager with DangerZone memory.
+        // After system_ai, garrison board should have a sighting and villager should
+        // have a ThreatReport (if they were near the garrison).
+        let mut board = GarrisonBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+
+        // Simulate the write phase
+        board.write_danger_from_memory(&mem, 200);
+        assert_eq!(
+            board.posts.len(),
+            1,
+            "fleeing villager should write sighting"
+        );
+
+        // Simulate a different villager reading
+        let mut reader_mem = VillagerMemory::new();
+        board.read_into_memory(&mut reader_mem, 300);
+        assert_eq!(
+            reader_mem.entries.len(),
+            1,
+            "reader should learn about threat"
+        );
+        assert_eq!(reader_mem.entries[0].kind, MemoryKind::ThreatReport);
+    }
 }

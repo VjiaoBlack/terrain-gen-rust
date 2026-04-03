@@ -169,6 +169,20 @@ pub fn system_ai(
         .map(|(e, pos, _)| (e, pos.x, pos.y))
         .collect();
 
+    // Garrison entities for garrison board read/write
+    let garrison_entities: Vec<(Entity, f64, f64)> = world
+        .query::<(Entity, &Position, &GarrisonBuilding)>()
+        .iter()
+        .map(|(e, pos, _)| (e, pos.x, pos.y))
+        .collect();
+
+    // Processing building entities for workshop material_needed reads
+    let workshop_entities: Vec<(Entity, f64, f64)> = world
+        .query::<(Entity, &Position, &ProcessingBuilding)>()
+        .iter()
+        .map(|(e, pos, _)| (e, pos.x, pos.y))
+        .collect();
+
     // Phase 0 (local awareness): compute StockpileFullness from global resource counts.
     // This is the data-path change — villager AI reads fullness tiers instead of raw u32.
     // For now the raw counts are still passed through; Phase 2 will remove them.
@@ -425,6 +439,102 @@ pub fn system_ai(
                         drop(board);
                         if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
                             board_snapshot.read_into_memory(&mut memory, current_tick);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Garrison board: villagers near a garrison interact with the threat board.
+        // Fleeing villagers (or those who just stopped fleeing) write DangerZone memories.
+        // All villagers within 2 tiles read threat intel from the board.
+        if creature.species == Species::Villager {
+            let near_garrison = garrison_entities
+                .iter()
+                .filter_map(|&(ge, gx, gy)| {
+                    let dx = pos.x - gx;
+                    let dy = pos.y - gy;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d < 2.5 { Some((ge, d)) } else { None }
+                })
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(ge, _)| ge);
+
+            if let Some(garrison_e) = near_garrison {
+                // Fleeing villagers (or just-arrived-from-flee) write danger info
+                let was_fleeing = matches!(behavior_state, BehaviorState::FleeHome { .. });
+                if was_fleeing {
+                    if let Ok(memory) = world.get::<&VillagerMemory>(e) {
+                        let mem_snapshot = memory.clone();
+                        drop(memory);
+                        if let Ok(mut board) = world.get::<&mut GarrisonBoard>(garrison_e) {
+                            board.write_danger_from_memory(&mem_snapshot, current_tick);
+                        }
+                    }
+                }
+                // All villagers near the garrison read the board
+                if let Ok(board) = world.get::<&GarrisonBoard>(garrison_e) {
+                    let board_snapshot = board.clone();
+                    drop(board);
+                    if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
+                        board_snapshot.read_into_memory(&mut memory, current_tick);
+                    }
+                }
+            }
+
+            // Workshop board: villagers near a workshop read material_needed.
+            // If a workshop needs a resource, the villager gains a MaterialRequest memory.
+            let near_workshop = workshop_entities
+                .iter()
+                .filter_map(|&(we, wx, wy)| {
+                    let dx = pos.x - wx;
+                    let dy = pos.y - wy;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d < 2.5 { Some((we, d)) } else { None }
+                })
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(we, _)| we);
+
+            if let Some(workshop_e) = near_workshop {
+                if let Ok(building) = world.get::<&ProcessingBuilding>(workshop_e) {
+                    if let Some(needed) = building.material_needed {
+                        let wx = world
+                            .get::<&Position>(workshop_e)
+                            .map(|p| p.x)
+                            .unwrap_or(pos.x);
+                        let wy = world
+                            .get::<&Position>(workshop_e)
+                            .map(|p| p.y)
+                            .unwrap_or(pos.y);
+                        drop(building);
+                        // Write MaterialRequest to villager memory at the workshop location.
+                        // The villager uses their existing resource memories to find the needed resource.
+                        if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
+                            // Only add if they don't already have this request
+                            let already_has = memory.entries.iter().any(|entry| {
+                                entry.kind == MemoryKind::MaterialRequest && {
+                                    let dx = entry.x - wx;
+                                    let dy = entry.y - wy;
+                                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                                }
+                            });
+                            if !already_has {
+                                memory.upsert(MemoryKind::MaterialRequest, wx, wy, current_tick);
+                                // Mark as secondhand (learned from building, not firsthand)
+                                if let Some(entry) = memory.entries.iter_mut().rev().find(|entry| {
+                                    entry.kind == MemoryKind::MaterialRequest && {
+                                        let dx = entry.x - wx;
+                                        let dy = entry.y - wy;
+                                        (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                                    }
+                                }) {
+                                    entry.firsthand = false;
+                                    // Store the needed resource type in the confidence field encoding:
+                                    // We use a convention: confidence remains 0.8 (secondhand factor)
+                                    // and the actual resource type is looked up from the workshop.
+                                    let _ = needed; // resource type stored in building, not in memory
+                                }
+                            }
                         }
                     }
                 }
@@ -1172,6 +1282,25 @@ pub fn system_processing(world: &mut World, resources: &mut Resources, skill_mul
             Recipe::FoodToGrain => resources.food > 15,
             Recipe::GrainToBread => resources.grain >= 2 && resources.planks >= 1,
         };
+
+        // Workshop board: set material_needed when worker is present but input is missing.
+        if has_input {
+            building.material_needed = None;
+        } else {
+            building.material_needed = match building.recipe {
+                Recipe::WoodToPlanks => Some(ResourceType::Wood),
+                Recipe::StoneToMasonry => Some(ResourceType::Stone),
+                Recipe::FoodToGrain => Some(ResourceType::Food),
+                Recipe::GrainToBread => {
+                    if resources.grain < 2 {
+                        Some(ResourceType::Grain)
+                    } else {
+                        Some(ResourceType::Planks)
+                    }
+                }
+            };
+        }
+
         if has_input && building.worker_present {
             building.progress += 1;
             sprite.fg = Color(255, 200, 50); // bright yellow when active
@@ -1599,7 +1728,9 @@ fn is_shareable_kind(kind: MemoryKind) -> bool {
             | MemoryKind::DangerZone
             | MemoryKind::BuildSite
             | MemoryKind::ResourceDepleted
+            | MemoryKind::ThreatReport
     )
+    // MaterialRequest is NOT shared person-to-person; only learned at workshops.
 }
 
 /// Entity-to-u64 key for encounter cooldown tracking.

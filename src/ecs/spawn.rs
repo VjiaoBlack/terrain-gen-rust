@@ -216,6 +216,7 @@ pub fn spawn_garrison(world: &mut World, x: f64, y: f64) -> Entity {
             fg: Color(180, 50, 50),
         },
         GarrisonBuilding { defense_bonus: 5.0 },
+        GarrisonBoard::default(),
     ))
 }
 
@@ -256,6 +257,7 @@ pub fn spawn_processing_building(world: &mut World, x: f64, y: f64, recipe: Reci
             progress: 0,
             required: 120,
             worker_present: false,
+            material_needed: None,
         },
     ))
 }

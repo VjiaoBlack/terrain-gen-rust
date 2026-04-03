@@ -3493,6 +3493,7 @@ mod tests {
                 progress: 0,
                 required: 100,
                 worker_present: true,
+                material_needed: None,
             },
         ));
         assert!(game.particles.is_empty(), "no particles before step");
