@@ -3,6 +3,7 @@ use rand::RngExt;
 
 use super::ai::*;
 use super::components::*;
+use super::spatial::{SpatialHashGrid, category};
 use super::spawn::*;
 use crate::renderer::{Color, Renderer};
 use crate::simulation::{MoistureMap, Season};
@@ -75,6 +76,7 @@ pub fn system_death(world: &mut World) -> Vec<Entity> {
 pub fn system_ai(
     world: &mut World,
     map: &TileMap,
+    grid: &SpatialHashGrid,
     wolf_aggression: f64,
     stockpile_food: u32,
     stockpile_wood: u32,
@@ -96,13 +98,8 @@ pub fn system_ai(
     let mut woodcutting_ticks: u32 = 0;
     let mut building_ticks: u32 = 0;
 
-    // Phase 1: snapshot world state (positions of food, prey, predators, stockpiles)
-    let food_positions: Vec<(f64, f64)> = world
-        .query::<(&Position, &FoodSource)>()
-        .iter()
-        .map(|(pos, _)| (pos.x, pos.y))
-        .collect();
-
+    // Phase 1: snapshot world state — prey/villager need extra fields (entity, at_home/captured)
+    // so we still query those from the World. Everything else uses the spatial grid.
     let prey_positions: Vec<(Entity, f64, f64, bool)> = world
         .query::<(Entity, &Position, &Creature, &Behavior)>()
         .iter()
@@ -127,35 +124,10 @@ pub fn system_ai(
         .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::Captured)))
         .collect();
 
-    let predator_positions: Vec<(f64, f64)> = world
-        .query::<(&Position, &Creature)>()
-        .iter()
-        .filter(|(_, c)| c.species == Species::Predator)
-        .map(|(p, _)| (p.x, p.y))
-        .collect();
-
-    let stockpile_positions: Vec<(f64, f64)> = world
-        .query::<(&Position, &Stockpile)>()
-        .iter()
-        .map(|(pos, _)| (pos.x, pos.y))
-        .collect();
-
     let build_site_positions: Vec<(Entity, f64, f64, bool)> = world
         .query::<(Entity, &Position, &BuildSite)>()
         .iter()
         .map(|(e, pos, site)| (e, pos.x, pos.y, site.assigned))
-        .collect();
-
-    let stone_deposit_positions: Vec<(f64, f64)> = world
-        .query::<(&Position, &StoneDeposit)>()
-        .iter()
-        .map(|(pos, _)| (pos.x, pos.y))
-        .collect();
-
-    let hut_positions: Vec<(f64, f64)> = world
-        .query::<(&Position, &HutBuilding)>()
-        .iter()
-        .map(|(pos, _)| (pos.x, pos.y))
         .collect();
 
     // Phase 2: collect entity IDs with Behavior
@@ -202,9 +174,8 @@ pub fn system_ai(
         // Decide the new state and velocity
         let (new_state, new_vx, new_vy, new_hunger, kill, deposited) = match creature.species {
             Species::Prey => {
-                let predator_nearby = predator_positions
-                    .iter()
-                    .any(|&(px, py)| dist(pos.x, pos.y, px, py) < creature.sight_range);
+                let predator_nearby =
+                    grid.any_within(pos.x, pos.y, creature.sight_range, category::PREDATOR);
 
                 let (s, vx, vy, h) = ai_prey(
                     &pos,
@@ -212,7 +183,7 @@ pub fn system_ai(
                     &behavior_state,
                     speed,
                     predator_nearby,
-                    &food_positions,
+                    grid,
                     map,
                     &mut rng,
                 );
@@ -240,18 +211,15 @@ pub fn system_ai(
             Species::Villager => {
                 // Villagers only flee wolves within close threat range (not full sight range)
                 let threat_range = 8.0_f64.min(creature.sight_range);
-                let predator_nearby = predator_positions
-                    .iter()
-                    .any(|&(px, py)| dist(pos.x, pos.y, px, py) < threat_range);
+                let predator_nearby =
+                    grid.any_within(pos.x, pos.y, threat_range, category::PREDATOR);
 
                 let remaining_grain = stockpile_grain.saturating_sub(grain_consumed);
                 let remaining_food = stockpile_food.saturating_sub(food_consumed);
                 let remaining_bread = stockpile_bread.saturating_sub(bread_consumed);
                 let has_food = remaining_grain > 0 || remaining_food > 0 || remaining_bread > 0;
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
-                let near_food_source = food_positions
-                    .iter()
-                    .any(|&(fx, fy)| dist(pos.x, pos.y, fx, fy) < 2.0);
+                let near_food_source = grid.any_within(pos.x, pos.y, 2.0, category::FOOD_SOURCE);
 
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos,
@@ -259,10 +227,8 @@ pub fn system_ai(
                     &behavior_state,
                     speed,
                     predator_nearby,
-                    &food_positions,
-                    &stockpile_positions,
+                    grid,
                     &build_site_positions,
-                    &stone_deposit_positions,
                     has_food,
                     remaining_food + remaining_grain + remaining_bread,
                     stockpile_wood,
@@ -270,7 +236,6 @@ pub fn system_ai(
                     map,
                     skill_mults,
                     &mut rng,
-                    &hut_positions,
                     is_night,
                     frontier,
                 );

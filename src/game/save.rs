@@ -79,6 +79,7 @@ impl Game {
             soil: vec![crate::terrain_pipeline::SoilType::Loam; map_w * map_h],
             river_mask: vec![false; map_w * map_h],
             knowledge: super::SettlementKnowledge::default(),
+            spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_w, map_h, 16),
             difficulty: super::DifficultyState::default(),
             milestone_banner: None,
             raid_survived_clean: false,

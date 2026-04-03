@@ -1,6 +1,7 @@
 use hecs::Entity;
 
 use super::components::*;
+use super::spatial::{SpatialHashGrid, category};
 use crate::tilemap::{Terrain, TileMap};
 
 pub(super) fn dist(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
@@ -222,7 +223,7 @@ pub(super) fn ai_prey(
     state: &BehaviorState,
     speed: f64,
     predator_nearby: bool,
-    food: &[(f64, f64)],
+    grid: &SpatialHashGrid,
     map: &TileMap,
     rng: &mut impl rand::RngExt,
 ) -> (BehaviorState, f64, f64, f64) {
@@ -285,11 +286,9 @@ pub(super) fn ai_prey(
                 return (BehaviorState::FleeHome { timer: 120 }, 0.0, 0.0, hunger);
             }
             if hunger > 0.5 {
-                let nearest = food
-                    .iter()
-                    .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
-                if let Some((fx, fy, d)) = nearest {
+                if let Some((entry, d)) =
+                    grid.nearest(pos.x, pos.y, creature.sight_range, category::FOOD_SOURCE)
+                {
                     if d < 1.5 {
                         return (
                             BehaviorState::Eating {
@@ -301,11 +300,11 @@ pub(super) fn ai_prey(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward(pos, fx, fy, speed, &mut vel);
+                        move_toward(pos, entry.x, entry.y, speed, &mut vel);
                         return (
                             BehaviorState::Seek {
-                                target_x: fx,
-                                target_y: fy,
+                                target_x: entry.x,
+                                target_y: entry.y,
                                 reason: SeekReason::Food,
                             },
                             vel.dx,
@@ -461,10 +460,8 @@ pub(super) fn ai_villager(
     state: &BehaviorState,
     speed: f64,
     predator_nearby: bool,
-    food: &[(f64, f64)],
-    stockpile: &[(f64, f64)],
+    grid: &SpatialHashGrid,
     build_sites: &[(Entity, f64, f64, bool)],
-    stone_deposits: &[(f64, f64)],
     has_stockpile_food: bool,
     stockpile_food: u32,
     stockpile_wood: u32,
@@ -472,7 +469,6 @@ pub(super) fn ai_villager(
     map: &TileMap,
     skill_mults: &SkillMults,
     rng: &mut impl rand::RngExt,
-    hut_positions: &[(f64, f64)],
     is_night: bool,
     frontier: &[(usize, usize)],
 ) -> (
@@ -535,11 +531,9 @@ pub(super) fn ai_villager(
                 );
             }
             // Flee toward nearest stockpile (or home)
-            let (hx, hy) = stockpile
-                .iter()
-                .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
-                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
-                .map(|(sx, sy, _)| (sx, sy))
+            let (hx, hy) = grid
+                .nearest(pos.x, pos.y, 200.0, category::STOCKPILE)
+                .map(|(e, _)| (e.x, e.y))
                 .unwrap_or((creature.home_x, creature.home_y));
 
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
@@ -582,11 +576,9 @@ pub(super) fn ai_villager(
             }
             if *timer == 0 {
                 // Done gathering — haul to nearest stockpile
-                let (hx, hy) = stockpile
-                    .iter()
-                    .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
-                    .map(|(sx, sy, _)| (sx, sy))
+                let (hx, hy) = grid
+                    .nearest(pos.x, pos.y, 200.0, category::STOCKPILE)
+                    .map(|(e, _)| (e.x, e.y))
                     .unwrap_or((creature.home_x, creature.home_y));
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                 move_toward_astar(pos, hx, hy, speed, &mut vel, map);
@@ -885,11 +877,9 @@ pub(super) fn ai_villager(
                 );
             }
             let wood_nearby = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range);
-            let stone_nearby = stone_deposits
-                .iter()
-                .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
-                .filter(|(_, _, d)| *d < creature.sight_range)
-                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+            let stone_nearby = grid
+                .nearest(pos.x, pos.y, creature.sight_range, category::STONE_DEPOSIT)
+                .map(|(e, d)| (e.x, e.y, d));
 
             if stockpile_wood < 10 {
                 if let Some((fx, fy)) = wood_nearby {
@@ -1004,10 +994,9 @@ pub(super) fn ai_villager(
             // Night shelter-seeking: villagers look for huts to sleep in at night.
             // Exception: critically hungry villagers eat before sleeping (starvation override).
             if is_night && hunger <= 0.6 {
-                let nearest_hut = hut_positions
-                    .iter()
-                    .map(|&(hx, hy)| (hx, hy, dist(pos.x, pos.y, hx, hy)))
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                let nearest_hut = grid
+                    .nearest(pos.x, pos.y, creature.sight_range * 2.0, category::HUT)
+                    .map(|(e, d)| (e.x, e.y, d));
                 if let Some((hx, hy, d)) = nearest_hut {
                     if d < 1.5 {
                         return (
@@ -1061,11 +1050,9 @@ pub(super) fn ai_villager(
 
             // Eat: if hungry and near food (eat early to avoid starvation)
             if hunger > 0.4 {
-                let nearest_food = food
-                    .iter()
-                    .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
-                    .filter(|(_, _, d)| *d < creature.sight_range)
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                let nearest_food = grid
+                    .nearest(pos.x, pos.y, creature.sight_range, category::FOOD_SOURCE)
+                    .map(|(e, d)| (e.x, e.y, d));
                 if let Some((fx, fy, d)) = nearest_food {
                     if d < 1.5 {
                         return (
@@ -1097,10 +1084,9 @@ pub(super) fn ai_villager(
                 }
                 // No berry bush reachable — eat from stockpile if food available
                 if has_stockpile_food {
-                    let nearest_stockpile = stockpile
-                        .iter()
-                        .map(|&(sx, sy)| (sx, sy, dist(pos.x, pos.y, sx, sy)))
-                        .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                    let nearest_stockpile = grid
+                        .nearest(pos.x, pos.y, 200.0, category::STOCKPILE)
+                        .map(|(e, d)| (e.x, e.y, d));
                     if let Some((sx, sy, d)) = nearest_stockpile {
                         if d < 1.5 {
                             return (
@@ -1145,17 +1131,12 @@ pub(super) fn ai_villager(
                     ..
                 }
             );
-            let stone_deposit_visible = !stone_deposits.is_empty()
-                && stone_deposits
-                    .iter()
-                    .any(|&(dx, dy)| dist(pos.x, pos.y, dx, dy) < creature.sight_range);
+            let stone_deposit_nearest =
+                grid.nearest(pos.x, pos.y, creature.sight_range, category::STONE_DEPOSIT);
+            let stone_deposit_visible = stone_deposit_nearest.is_some();
             if stockpile_stone < 5 && !committed_to_build && stone_deposit_visible && hunger < 0.4 {
-                let nearest = stone_deposits
-                    .iter()
-                    .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
-                    .filter(|(_, _, d)| *d < creature.sight_range)
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
-                if let Some((dx, dy, d)) = nearest {
+                if let Some((entry, d)) = stone_deposit_nearest {
+                    let (dx, dy) = (entry.x, entry.y);
                     if d < 1.5 {
                         return (
                             BehaviorState::Gathering {
@@ -1254,11 +1235,9 @@ pub(super) fn ai_villager(
 
             // When food stockpile is critically low, seek food sources even if not personally hungry
             if food_urgent && hunger < 0.3 {
-                let nearest_food = food
-                    .iter()
-                    .map(|&(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)))
-                    .filter(|(_, _, d)| *d < creature.sight_range)
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                let nearest_food = grid
+                    .nearest(pos.x, pos.y, creature.sight_range, category::FOOD_SOURCE)
+                    .map(|(e, d)| (e.x, e.y, d));
                 if let Some((fx, fy, d)) = nearest_food {
                     if d < 1.5 {
                         return (
@@ -1305,11 +1284,9 @@ pub(super) fn ai_villager(
                     find_nearest_terrain(pos, map, Terrain::Forest, wood_search_range)
                         .map(|(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)));
 
-                let nearest_deposit = stone_deposits
-                    .iter()
-                    .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
-                    .filter(|(_, _, d)| *d < creature.sight_range)
-                    .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                let nearest_deposit = grid
+                    .nearest(pos.x, pos.y, creature.sight_range, category::STONE_DEPOSIT)
+                    .map(|(e, d)| (e.x, e.y, d));
                 let stone_target = nearest_deposit.or_else(|| {
                     find_nearest_terrain(pos, map, Terrain::Mountain, creature.sight_range)
                         .map(|(mx, my)| (mx, my, dist(pos.x, pos.y, mx, my)))

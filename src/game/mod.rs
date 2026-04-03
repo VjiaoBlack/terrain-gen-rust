@@ -357,6 +357,7 @@ pub struct Game {
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub river_mask: Vec<bool>,
     pub knowledge: SettlementKnowledge,
+    pub spatial_grid: crate::ecs::spatial::SpatialHashGrid,
     pub difficulty: DifficultyState,
     pub milestone_banner: Option<MilestoneBanner>,
     /// Transient flag: set when a raid/wolf surge is repelled with zero deaths.
@@ -827,6 +828,7 @@ impl Game {
             soil: result.soil,
             river_mask: result.river_mask,
             knowledge: SettlementKnowledge::default(),
+            spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_width, map_height, 16),
             difficulty: DifficultyState::default(),
             milestone_banner: None,
             raid_survived_clean: false,
@@ -1163,9 +1165,11 @@ impl Game {
                     gather_stone_speed: 1.0 + self.skills.mining / 50.0,
                     build_speed: (self.skills.building / 50.0).floor() as u32,
                 };
+                self.spatial_grid.populate(&self.world);
                 let ai_result = ecs::system_ai(
                     &mut self.world,
                     &self.map,
+                    &self.spatial_grid,
                     mods.wolf_aggression,
                     self.resources.food,
                     self.resources.wood,
@@ -2213,9 +2217,12 @@ mod tests {
         ecs::spawn_hut(&mut world, 10.0, 10.0);
 
         // Run AI with is_night=true
+        let mut grid = crate::ecs::spatial::SpatialHashGrid::new(30, 30, 16);
+        grid.populate(&world);
         let result = ecs::system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             10,
             0,

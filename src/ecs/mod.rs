@@ -14,6 +14,7 @@ pub use systems::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::spatial::SpatialHashGrid;
     use crate::headless_renderer::HeadlessRenderer;
     use crate::renderer::Color;
     use crate::simulation::{MoistureMap, Season};
@@ -22,6 +23,13 @@ mod tests {
 
     fn walkable_map(w: usize, h: usize) -> TileMap {
         TileMap::new(w, h, Terrain::Grass)
+    }
+
+    /// Build and populate a spatial grid from the current world state.
+    fn make_grid(world: &World, map: &TileMap) -> SpatialHashGrid {
+        let mut grid = SpatialHashGrid::new(map.width, map.height, 16);
+        grid.populate(world);
+        grid
     }
 
     /// Create a MoistureMap with uniform high moisture (0.6) so moisture_ramp returns 1.0.
@@ -250,9 +258,11 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..500 {
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -288,9 +298,11 @@ mod tests {
         let e = spawn_npc(&mut world, 10.0, 10.0, 0.3, '☺', Color(200, 100, 50));
 
         for _ in 0..500 {
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -328,9 +340,11 @@ mod tests {
         let start_pos = *world.get::<&Position>(e).unwrap();
 
         for _ in 0..50 {
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -367,9 +381,11 @@ mod tests {
 
         let mut min_dist = f64::INFINITY;
         for _ in 0..200 {
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -434,9 +450,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -473,9 +491,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -507,9 +527,11 @@ mod tests {
             b.state = BehaviorState::FleeHome { timer: 120 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -544,9 +566,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -581,9 +605,11 @@ mod tests {
             b.state = BehaviorState::AtHome { timer: 100 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -622,9 +648,11 @@ mod tests {
         let mut rabbit_alive = true;
 
         for tick in 0..300 {
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -688,9 +716,11 @@ mod tests {
 
         for tick in 0..1000 {
             system_hunger(&mut world, 1.0);
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -756,9 +786,11 @@ mod tests {
             b.state = BehaviorState::Eating { timer: 30 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -790,9 +822,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -830,9 +864,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -870,9 +906,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -914,9 +952,11 @@ mod tests {
             };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -969,9 +1009,11 @@ mod tests {
             };
         }
 
+        let grid = make_grid(&world, &map);
         let result = system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -1040,9 +1082,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             10, // stockpile_wood (unused for building decision in this test)
@@ -1087,9 +1131,11 @@ mod tests {
             };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -1205,9 +1251,11 @@ mod tests {
         world.get::<&mut Creature>(wolf).unwrap().hunger = 0.9;
 
         for _ in 0..5 {
+            let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.8,
                 0,
                 0,
@@ -1546,9 +1594,11 @@ mod tests {
 
         for tick in 0..3000 {
             system_hunger(&mut world, 1.0);
+            let grid = make_grid(&world, &map);
             let r = system_ai(
                 &mut world,
                 &map,
+                &grid,
                 0.4,
                 0,
                 0,
@@ -1605,9 +1655,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         let result = system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             10,
             0,
@@ -1648,9 +1700,11 @@ mod tests {
             b.state = BehaviorState::Wander { timer: 0 };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -2051,9 +2105,11 @@ mod tests {
             c.hunger = 0.1;
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -2096,9 +2152,11 @@ mod tests {
             c.hunger = 0.7;
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -2238,9 +2296,11 @@ mod tests {
             c.hunger = 0.6;
         }
 
+        let grid = make_grid(&world, &map);
         let result = system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             5,
             0,
@@ -2357,9 +2417,11 @@ mod tests {
         }
 
         let initial = world.get::<&ResourceYield>(bush).unwrap().remaining;
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -2401,9 +2463,11 @@ mod tests {
             };
         }
 
+        let grid = make_grid(&world, &map);
         system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -2457,9 +2521,11 @@ mod tests {
             };
         }
 
+        let grid = make_grid(&world, &map);
         let result = system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
@@ -2852,9 +2918,11 @@ mod tests {
             };
         }
 
+        let grid = make_grid(&world, &map);
         let result = system_ai(
             &mut world,
             &map,
+            &grid,
             0.4,
             0,
             0,
