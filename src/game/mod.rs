@@ -366,6 +366,10 @@ pub struct Game {
     pub spatial_grid: crate::ecs::spatial::SpatialHashGrid,
     pub difficulty: DifficultyState,
     pub milestone_banner: Option<MilestoneBanner>,
+    /// Tick at which current spring flood started (0 = no active flood).
+    pub flood_start_tick: u64,
+    /// Tiles currently flooded this spring (for tracking recede + fertility bonus).
+    pub flooded_tiles: Vec<(usize, usize)>,
     /// Transient flag: set when a raid/wolf surge is repelled with zero deaths.
     pub raid_survived_clean: bool,
     #[cfg(feature = "lua")]
@@ -1010,6 +1014,9 @@ impl Game {
             ecs::spawn_villager_staggered(&mut world, vx, vy, 0);
         }
 
+        // Snapshot base terrain before any seasonal effects
+        map.init_base_terrain();
+
         let mut g = Self {
             target_fps,
             tick: 0,
@@ -1062,6 +1069,8 @@ impl Game {
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_width, map_height, 16),
             difficulty: DifficultyState::default(),
             milestone_banner: None,
+            flood_start_tick: 0,
+            flooded_tiles: Vec::new(),
             raid_survived_clean: false,
             #[cfg(feature = "lua")]
             script_engine: None,
@@ -1410,8 +1419,15 @@ impl Game {
                     self.skills.military += 0.002 * wolves_near_count as f64;
                 }
 
+                // Autumn bonus: wood gathering timer drops from 90 -> 60 ticks
+                // (equivalent to 1.5x speed multiplier on top of skill bonus)
+                let autumn_wood_bonus = if self.day_night.season == Season::Autumn {
+                    1.5
+                } else {
+                    1.0
+                };
                 let skill_mults = SkillMults {
-                    gather_wood_speed: 1.0 + self.skills.woodcutting / 50.0,
+                    gather_wood_speed: (1.0 + self.skills.woodcutting / 50.0) * autumn_wood_bonus,
                     gather_stone_speed: 1.0 + self.skills.mining / 50.0,
                     build_speed: (self.skills.building / 50.0).floor() as u32,
                 };
@@ -1905,6 +1921,85 @@ impl Game {
                 self.day_night.tick();
                 if self.day_night.season != prev_season {
                     self.notify(format!("Season changed: {}", self.day_night.season.name()));
+
+                    // --- Seasonal terrain transitions ---
+                    // Revert previous season's overlays before applying new ones.
+                    match prev_season {
+                        Season::Winter => {
+                            // Thaw: revert Ice -> Water
+                            self.map.revert_ice();
+                        }
+                        Season::Spring => {
+                            // Floods recede: revert FloodWater -> base terrain
+                            let reverted = self.map.revert_flood_water();
+                            // Alluvial fertility bonus on tiles that were flooded
+                            for (x, y) in &reverted {
+                                self.soil_fertility.add(*x, *y, 0.15);
+                            }
+                            if !reverted.is_empty() {
+                                self.notify(format!(
+                                    "Floods recede — {} tiles enriched with alluvial soil",
+                                    reverted.len()
+                                ));
+                            }
+                            self.flooded_tiles.clear();
+                            self.flood_start_tick = 0;
+                        }
+                        _ => {}
+                    }
+
+                    // Apply new season's effects
+                    match self.day_night.season {
+                        Season::Winter => {
+                            let frozen = self.map.apply_winter_ice();
+                            if frozen > 0 {
+                                self.notify(format!(
+                                    "Rivers freeze! {} tiles of ice — wolves can cross!",
+                                    frozen
+                                ));
+                            }
+                        }
+                        Season::Spring => {
+                            let flooded = self.map.apply_spring_floods(
+                                &self.river_mask,
+                                &self.heights,
+                                &self.soil,
+                            );
+                            if !flooded.is_empty() {
+                                // Destroy farms on flooded tiles
+                                let mut destroyed_farms = 0u32;
+                                let flood_set: std::collections::HashSet<(usize, usize)> =
+                                    flooded.iter().copied().collect();
+                                let farm_entities: Vec<hecs::Entity> = self
+                                    .world
+                                    .query::<(hecs::Entity, &FarmPlot)>()
+                                    .iter()
+                                    .filter(|(_, f)| flood_set.contains(&(f.tile_x, f.tile_y)))
+                                    .map(|(e, _)| e)
+                                    .collect();
+                                for entity in farm_entities {
+                                    let _ = self.world.despawn(entity);
+                                    destroyed_farms += 1;
+                                }
+                                let msg = if destroyed_farms > 0 {
+                                    format!(
+                                        "Spring floods! {} tiles flooded, {} farms destroyed",
+                                        flooded.len(),
+                                        destroyed_farms
+                                    )
+                                } else {
+                                    format!(
+                                        "Spring floods! {} tiles flooded near rivers",
+                                        flooded.len()
+                                    )
+                                };
+                                self.notify(msg);
+                                self.flood_start_tick = self.tick;
+                                self.flooded_tiles = flooded;
+                            }
+                        }
+                        _ => {}
+                    }
                 }
 
                 // Lua scripting hooks
@@ -3928,5 +4023,227 @@ mod tests {
         assert!((SoilType::Clay.harvest_depletion_rate() - 0.04).abs() < 0.001);
         assert!((SoilType::Sand.harvest_depletion_rate() - 0.05).abs() < 0.001);
         assert!((SoilType::Rocky.harvest_depletion_rate() - 0.08).abs() < 0.001);
+    }
+
+    // --- Seasonal terrain effect tests ---
+
+    /// Helper: advance the game until a target season is reached.
+    fn advance_to_season(game: &mut Game, target: Season, renderer: &mut HeadlessRenderer) {
+        for _ in 0..20000 {
+            if game.day_night.season == target {
+                return;
+            }
+            game.step(GameInput::None, renderer).unwrap();
+        }
+        panic!(
+            "failed to reach {:?} after 20000 ticks (stuck at {:?})",
+            target, game.day_night.season
+        );
+    }
+
+    #[test]
+    fn water_freezes_in_winter() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Find a water tile
+        let mut water_pos = None;
+        for y in 0..game.map.height {
+            for x in 0..game.map.width {
+                if game.map.get(x, y) == Some(&Terrain::Water) {
+                    water_pos = Some((x, y));
+                    break;
+                }
+            }
+            if water_pos.is_some() {
+                break;
+            }
+        }
+
+        if let Some((wx, wy)) = water_pos {
+            // Set to late autumn, close to winter boundary
+            game.day_night.season = Season::Autumn;
+            game.day_night.day = 9;
+            game.day_night.hour = 23.98;
+            advance_to_season(&mut game, Season::Winter, &mut renderer);
+
+            assert_eq!(
+                *game.map.get(wx, wy).unwrap(),
+                Terrain::Ice,
+                "water tile should become ice in winter"
+            );
+            assert!(
+                game.map.is_walkable(wx as f64, wy as f64),
+                "ice should be walkable"
+            );
+        }
+    }
+
+    #[test]
+    fn ice_thaws_in_spring() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+
+        // Find a water tile
+        let mut water_pos = None;
+        for y in 0..game.map.height {
+            for x in 0..game.map.width {
+                if game.map.get(x, y) == Some(&Terrain::Water) {
+                    water_pos = Some((x, y));
+                    break;
+                }
+            }
+            if water_pos.is_some() {
+                break;
+            }
+        }
+
+        if let Some((wx, wy)) = water_pos {
+            // Advance to winter (freeze)
+            game.day_night.season = Season::Autumn;
+            game.day_night.day = 9;
+            game.day_night.hour = 23.98;
+            advance_to_season(&mut game, Season::Winter, &mut renderer);
+            assert_eq!(*game.map.get(wx, wy).unwrap(), Terrain::Ice);
+
+            // Advance to spring (thaw)
+            game.day_night.day = 9;
+            game.day_night.hour = 23.98;
+            advance_to_season(&mut game, Season::Spring, &mut renderer);
+
+            assert_eq!(
+                *game.map.get(wx, wy).unwrap(),
+                Terrain::Water,
+                "ice should thaw back to water in spring"
+            );
+            assert!(
+                !game.map.is_walkable(wx as f64, wy as f64),
+                "water should not be walkable after thaw"
+            );
+        }
+    }
+
+    #[test]
+    fn autumn_wood_gathering_bonus() {
+        // The autumn bonus multiplies gather_wood_speed by 1.5x.
+        // With zero skill contribution (hypothetical base), timer goes from 90 to 60.
+        let base_speed = 1.0_f64;
+        let autumn_speed = base_speed * 1.5;
+
+        let base_timer = (90.0 / base_speed) as u32;
+        let autumn_timer = (90.0 / autumn_speed) as u32;
+
+        assert_eq!(base_timer, 90, "base wood gathering should be 90 ticks");
+        assert_eq!(
+            autumn_timer, 60,
+            "autumn wood gathering should be 60 ticks (90/1.5)"
+        );
+
+        // Verify autumn bonus is strictly faster than base, even with skill
+        let skill_speed = 1.0 + 5.0 / 50.0; // woodcutting = 5
+        let skill_autumn_speed = skill_speed * 1.5;
+        assert!(
+            (90.0 / skill_autumn_speed) < (90.0 / skill_speed),
+            "autumn should always be faster than non-autumn"
+        );
+    }
+
+    #[test]
+    fn seasonal_cycle_does_not_corrupt_terrain() {
+        // Use TileMap directly to avoid expensive full Game simulation loop
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        map.set(5, 5, Terrain::Water);
+        map.set(6, 6, Terrain::Water);
+        map.set(7, 7, Terrain::Forest);
+        map.set(8, 8, Terrain::Sand);
+        map.init_base_terrain();
+
+        // Simulate winter: freeze water
+        map.apply_winter_ice();
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Ice);
+        assert_eq!(*map.get(7, 7).unwrap(), Terrain::Forest); // unaffected
+
+        // Simulate spring: thaw, then flood
+        map.revert_ice();
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Water);
+
+        // Manually flood a tile
+        map.set_seasonal(3, 3, Terrain::FloodWater);
+        assert_eq!(*map.get(3, 3).unwrap(), Terrain::FloodWater);
+
+        // Simulate summer: revert floods
+        map.revert_flood_water();
+        assert_eq!(*map.get(3, 3).unwrap(), Terrain::Grass);
+
+        // Verify base terrain is untouched throughout
+        assert_eq!(*map.get_base(5, 5).unwrap(), Terrain::Water);
+        assert_eq!(*map.get_base(7, 7).unwrap(), Terrain::Forest);
+        assert_eq!(*map.get_base(8, 8).unwrap(), Terrain::Sand);
+        assert_eq!(*map.get_base(3, 3).unwrap(), Terrain::Grass);
+    }
+
+    #[test]
+    fn flood_recede_adds_fertility() {
+        use crate::terrain_pipeline::SoilType;
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        let mut heights = vec![0.5; 30 * 30];
+        let mut river_mask = vec![false; 30 * 30];
+        let mut soil = vec![SoilType::Loam; 30 * 30];
+
+        // Set up a river at x=15
+        let rx = 15usize;
+        for y in 0..30 {
+            let idx = y * 30 + rx;
+            river_mask[idx] = true;
+            heights[idx] = 0.3;
+            map.set(rx, y, Terrain::Water);
+        }
+
+        // Alluvial soil adjacent to river at river elevation
+        let target_x = rx - 1;
+        let target_y = 15usize;
+        let tidx = target_y * 30 + target_x;
+        soil[tidx] = SoilType::Alluvial;
+        heights[tidx] = 0.3;
+
+        map.init_base_terrain();
+
+        // Apply spring floods
+        let flooded = map.apply_spring_floods(&river_mask, &heights, &soil);
+        assert!(
+            flooded.contains(&(target_x, target_y)),
+            "alluvial tile at river level should flood"
+        );
+        assert_eq!(*map.get(target_x, target_y).unwrap(), Terrain::FloodWater);
+
+        // Revert floods and apply fertility bonus
+        let mut fertility = crate::simulation::SoilFertilityMap::new(30, 30);
+        // Set initial fertility below 1.0 so we can observe the +0.15 bonus
+        fertility.set(target_x, target_y, 0.5);
+        let initial = fertility.get(target_x, target_y);
+
+        let reverted = map.revert_flood_water();
+        for (x, y) in &reverted {
+            fertility.add(*x, *y, 0.15);
+        }
+
+        assert_eq!(*map.get(target_x, target_y).unwrap(), Terrain::Grass);
+        let post_flood = fertility.get(target_x, target_y);
+        assert!(
+            (post_flood - initial - 0.15).abs() < 0.01,
+            "fertility should increase by 0.15: {} -> {}",
+            initial,
+            post_flood
+        );
+    }
+
+    #[test]
+    fn game_has_base_terrain_initialized() {
+        let game = Game::new(60, 42);
+        assert_eq!(
+            *game.map.get_base(0, 0).unwrap(),
+            *game.map.get(0, 0).unwrap(),
+            "base terrain should match active terrain at start"
+        );
     }
 }

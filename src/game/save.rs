@@ -87,6 +87,8 @@ impl Game {
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_w, map_h, 16),
             difficulty: super::DifficultyState::default(),
             milestone_banner: None,
+            flood_start_tick: 0,
+            flooded_tiles: Vec::new(),
             raid_survived_clean: false,
             #[cfg(feature = "lua")]
             script_engine: None,

@@ -1678,6 +1678,8 @@ impl super::Game {
                         Terrain::ScarredGround => ('s', Color(145, 135, 120)),
                         Terrain::Ford => ('~', Color(80, 140, 220)),
                         Terrain::Bridge => ('#', Color(140, 100, 50)),
+                        Terrain::Ice => ('=', Color(180, 210, 240)),
+                        Terrain::FloodWater => ('~', Color(100, 150, 200)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }

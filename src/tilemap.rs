@@ -28,12 +28,16 @@ pub enum Terrain {
     Ford,
     /// Player-built bridge over water — enables crossing rivers.
     Bridge,
+    /// Frozen water — walkable winter crossing, reverts to Water in spring.
+    Ice,
+    /// Temporary spring flood — impassable, sediment-laden water near rivers.
+    FloodWater,
 }
 
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
-            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => false,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff | Terrain::FloodWater => false,
             _ => true,
         }
     }
@@ -63,6 +67,8 @@ impl Terrain {
             Terrain::Road => '=',
             Terrain::Ford => '~',
             Terrain::Bridge => '#',
+            Terrain::Ice => '=',
+            Terrain::FloodWater => '~',
         }
     }
 
@@ -91,6 +97,8 @@ impl Terrain {
             Terrain::Road => Color(160, 130, 80),
             Terrain::Ford => Color(80, 140, 220),
             Terrain::Bridge => Color(140, 100, 50),
+            Terrain::Ice => Color(180, 210, 240),
+            Terrain::FloodWater => Color(100, 150, 200),
         }
     }
 
@@ -119,6 +127,8 @@ impl Terrain {
             Terrain::Road => Some(Color(130, 105, 65)),
             Terrain::Ford => Some(Color(40, 70, 120)),
             Terrain::Bridge => Some(Color(80, 60, 30)),
+            Terrain::Ice => Some(Color(120, 150, 180)),
+            Terrain::FloodWater => Some(Color(40, 70, 110)),
         }
     }
 
@@ -139,7 +149,8 @@ impl Terrain {
             Terrain::Ford => 0.3,
             Terrain::Marsh => 0.3,
             Terrain::Mountain => 0.25,
-            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => 0.0,
+            Terrain::Ice => 0.5,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff | Terrain::FloodWater => 0.0,
         }
     }
 
@@ -159,7 +170,10 @@ impl Terrain {
             Terrain::Ford => 3.0,
             Terrain::Marsh => 3.0,
             Terrain::Mountain => 4.0,
-            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => f64::INFINITY,
+            Terrain::Ice => 2.0,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff | Terrain::FloodWater => {
+                f64::INFINITY
+            }
         }
     }
 }
@@ -173,6 +187,11 @@ pub struct TileMap {
     /// Tracks how many times each tile has been mined.
     #[serde(default)]
     mine_counts: Vec<u8>,
+    /// Base terrain grid — stores the "real" terrain under seasonal overlays.
+    /// Seasonal effects (Ice, FloodWater) write to `tiles`; when a season ends
+    /// the affected tiles revert to their `base_terrain` value.
+    #[serde(default)]
+    base_terrain: Vec<Terrain>,
 }
 
 impl TileMap {
@@ -182,6 +201,7 @@ impl TileMap {
             height,
             tiles: vec![fill; width * height],
             mine_counts: vec![0u8; width * height],
+            base_terrain: Vec::new(), // lazily initialized
         }
     }
 
@@ -197,6 +217,160 @@ impl TileMap {
         if x < self.width && y < self.height {
             self.tiles[y * self.width + x] = terrain;
         }
+    }
+
+    /// Initialize base_terrain as a snapshot of the current tile grid.
+    /// Called once after terrain generation, before any seasonal effects.
+    pub fn init_base_terrain(&mut self) {
+        self.base_terrain = self.tiles.clone();
+    }
+
+    /// Get the base (non-seasonal) terrain at a position.
+    pub fn get_base(&self, x: usize, y: usize) -> Option<&Terrain> {
+        if x < self.width && y < self.height && !self.base_terrain.is_empty() {
+            Some(&self.base_terrain[y * self.width + x])
+        } else {
+            self.get(x, y) // fallback to active tiles
+        }
+    }
+
+    /// Apply a seasonal overlay: set the active tile but keep base_terrain unchanged.
+    pub fn set_seasonal(&mut self, x: usize, y: usize, terrain: Terrain) {
+        if x < self.width && y < self.height {
+            // Initialize base_terrain lazily (for old saves without it)
+            if self.base_terrain.is_empty() {
+                self.base_terrain = self.tiles.clone();
+            }
+            self.tiles[y * self.width + x] = terrain;
+        }
+    }
+
+    /// Revert a tile to its base terrain (undo seasonal overlay).
+    pub fn revert_seasonal(&mut self, x: usize, y: usize) {
+        if x < self.width && y < self.height && !self.base_terrain.is_empty() {
+            self.tiles[y * self.width + x] = self.base_terrain[y * self.width + x];
+        }
+    }
+
+    /// Revert all Ice tiles back to their base terrain.
+    pub fn revert_ice(&mut self) {
+        if self.base_terrain.is_empty() {
+            return;
+        }
+        for i in 0..self.tiles.len() {
+            if self.tiles[i] == Terrain::Ice {
+                self.tiles[i] = self.base_terrain[i];
+            }
+        }
+    }
+
+    /// Revert all FloodWater tiles back to their base terrain.
+    /// Returns the list of (x, y) positions that were reverted.
+    pub fn revert_flood_water(&mut self) -> Vec<(usize, usize)> {
+        let mut reverted = Vec::new();
+        if self.base_terrain.is_empty() {
+            return reverted;
+        }
+        for i in 0..self.tiles.len() {
+            if self.tiles[i] == Terrain::FloodWater {
+                self.tiles[i] = self.base_terrain[i];
+                let x = i % self.width;
+                let y = i / self.width;
+                reverted.push((x, y));
+            }
+        }
+        reverted
+    }
+
+    /// Apply winter ice: convert all Water tiles to Ice.
+    /// Returns the count of tiles frozen.
+    pub fn apply_winter_ice(&mut self) -> usize {
+        if self.base_terrain.is_empty() {
+            self.base_terrain = self.tiles.clone();
+        }
+        let mut count = 0;
+        for i in 0..self.tiles.len() {
+            if self.tiles[i] == Terrain::Water {
+                self.tiles[i] = Terrain::Ice;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Apply spring floods near rivers on low-elevation alluvial tiles.
+    /// `river_mask` marks river tiles, `heights` is the elevation grid.
+    /// Returns the list of (x, y) positions that were flooded.
+    pub fn apply_spring_floods(
+        &mut self,
+        river_mask: &[bool],
+        heights: &[f64],
+        soil: &[crate::terrain_pipeline::SoilType],
+    ) -> Vec<(usize, usize)> {
+        use crate::terrain_pipeline::SoilType;
+
+        if self.base_terrain.is_empty() {
+            self.base_terrain = self.tiles.clone();
+        }
+        let w = self.width;
+        let h = self.height;
+        let mut flooded = Vec::new();
+
+        for y in 0..h {
+            for x in 0..w {
+                let idx = y * w + x;
+                let tile = self.tiles[idx];
+
+                // Only flood walkable natural terrain near rivers
+                // Don't flood buildings, roads, mountains, water, etc.
+                if !matches!(
+                    tile,
+                    Terrain::Grass
+                        | Terrain::Sand
+                        | Terrain::Bare
+                        | Terrain::Marsh
+                        | Terrain::Scrubland
+                ) {
+                    continue;
+                }
+
+                // Must be within 2 tiles of a river
+                let mut near_river = false;
+                let mut min_river_height = f64::INFINITY;
+                for dy in -2i32..=2 {
+                    for dx in -2i32..=2 {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h {
+                            let ni = ny as usize * w + nx as usize;
+                            if ni < river_mask.len() && river_mask[ni] {
+                                near_river = true;
+                                min_river_height = min_river_height.min(heights[ni]);
+                            }
+                        }
+                    }
+                }
+                if !near_river {
+                    continue;
+                }
+
+                // Must be low elevation (at or below nearby river + small margin)
+                if heights[idx] > min_river_height + 0.02 {
+                    continue;
+                }
+
+                // Prefer alluvial soil, but also flood marsh near rivers
+                let is_alluvial = idx < soil.len() && soil[idx] == SoilType::Alluvial;
+                let is_marsh = tile == Terrain::Marsh;
+                if !is_alluvial && !is_marsh {
+                    continue;
+                }
+
+                self.tiles[idx] = Terrain::FloodWater;
+                flooded.push((x, y));
+            }
+        }
+        flooded
     }
 
     /// Get the mining counter for a tile.
@@ -1289,6 +1463,286 @@ mod tests {
         assert!(
             !map.is_walkable(100.0, 5.0),
             "out of bounds should not be walkable"
+        );
+    }
+
+    // --- Seasonal terrain tests ---
+
+    #[test]
+    fn ice_terrain_properties() {
+        assert!(Terrain::Ice.is_walkable());
+        assert_eq!(Terrain::Ice.ch(), '=');
+        assert_eq!(Terrain::Ice.speed_multiplier(), 0.5);
+        assert_eq!(Terrain::Ice.move_cost(), 2.0);
+        assert!(Terrain::Ice.bg().is_some());
+    }
+
+    #[test]
+    fn flood_water_terrain_properties() {
+        assert!(!Terrain::FloodWater.is_walkable());
+        assert_eq!(Terrain::FloodWater.ch(), '~');
+        assert_eq!(Terrain::FloodWater.speed_multiplier(), 0.0);
+        assert_eq!(Terrain::FloodWater.move_cost(), f64::INFINITY);
+        assert!(Terrain::FloodWater.bg().is_some());
+    }
+
+    #[test]
+    fn base_terrain_snapshot() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(3, 3, Terrain::Water);
+        map.init_base_terrain();
+
+        // Base should match current tiles
+        assert_eq!(*map.get_base(3, 3).unwrap(), Terrain::Water);
+        assert_eq!(*map.get_base(0, 0).unwrap(), Terrain::Grass);
+    }
+
+    #[test]
+    fn seasonal_overlay_preserves_base() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(5, 5, Terrain::Water);
+        map.init_base_terrain();
+
+        // Apply seasonal overlay
+        map.set_seasonal(5, 5, Terrain::Ice);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Ice);
+        assert_eq!(*map.get_base(5, 5).unwrap(), Terrain::Water);
+    }
+
+    #[test]
+    fn revert_seasonal_restores_base() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(5, 5, Terrain::Water);
+        map.init_base_terrain();
+
+        map.set_seasonal(5, 5, Terrain::Ice);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Ice);
+
+        map.revert_seasonal(5, 5);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Water);
+    }
+
+    #[test]
+    fn apply_winter_ice_freezes_water() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(2, 2, Terrain::Water);
+        map.set(3, 3, Terrain::Water);
+        map.set(4, 4, Terrain::Water);
+        map.init_base_terrain();
+
+        let frozen = map.apply_winter_ice();
+        assert_eq!(frozen, 3);
+        assert_eq!(*map.get(2, 2).unwrap(), Terrain::Ice);
+        assert_eq!(*map.get(3, 3).unwrap(), Terrain::Ice);
+        assert_eq!(*map.get(4, 4).unwrap(), Terrain::Ice);
+        // Non-water tiles unaffected
+        assert_eq!(*map.get(0, 0).unwrap(), Terrain::Grass);
+    }
+
+    #[test]
+    fn revert_ice_thaws_to_water() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(2, 2, Terrain::Water);
+        map.set(3, 3, Terrain::Water);
+        map.init_base_terrain();
+
+        map.apply_winter_ice();
+        assert_eq!(*map.get(2, 2).unwrap(), Terrain::Ice);
+
+        map.revert_ice();
+        assert_eq!(*map.get(2, 2).unwrap(), Terrain::Water);
+        assert_eq!(*map.get(3, 3).unwrap(), Terrain::Water);
+    }
+
+    #[test]
+    fn revert_flood_water_returns_positions() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.init_base_terrain();
+
+        map.set_seasonal(1, 1, Terrain::FloodWater);
+        map.set_seasonal(2, 2, Terrain::FloodWater);
+
+        let reverted = map.revert_flood_water();
+        assert_eq!(reverted.len(), 2);
+        assert_eq!(*map.get(1, 1).unwrap(), Terrain::Grass);
+        assert_eq!(*map.get(2, 2).unwrap(), Terrain::Grass);
+    }
+
+    #[test]
+    fn astar_paths_across_ice() {
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        // River wall from (5,0) to (5,19) — impassable water
+        for y in 0..20 {
+            map.set(5, y, Terrain::Water);
+        }
+        map.init_base_terrain();
+
+        // Without ice, no path across
+        let no_path = map.astar_next(3.0, 10.0, 7.0, 10.0, 2000);
+        assert!(no_path.is_none(), "should not find path across water");
+
+        // Freeze the river
+        map.apply_winter_ice();
+
+        // With ice, should find path
+        let path = map.astar_next(3.0, 10.0, 7.0, 10.0, 500);
+        assert!(path.is_some(), "should find path across ice");
+        let (nx, _ny) = path.unwrap();
+        assert!(nx > 3.0, "should move toward target across ice");
+    }
+
+    #[test]
+    fn flood_water_blocks_astar() {
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        map.init_base_terrain();
+
+        // Wall of FloodWater
+        for y in 0..20 {
+            map.set_seasonal(10, y, Terrain::FloodWater);
+        }
+
+        let path = map.astar_next(5.0, 10.0, 15.0, 10.0, 2000);
+        assert!(
+            path.is_none(),
+            "FloodWater wall should block A* pathfinding"
+        );
+    }
+
+    #[test]
+    fn apply_spring_floods_on_alluvial_near_river() {
+        use crate::terrain_pipeline::SoilType;
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        let mut heights = vec![0.5; 20 * 20];
+        let mut river_mask = vec![false; 20 * 20];
+        let mut soil = vec![SoilType::Loam; 20 * 20];
+
+        // River at x=10
+        for y in 0..20 {
+            let idx = y * 20 + 10;
+            river_mask[idx] = true;
+            heights[idx] = 0.3;
+            map.set(10, y, Terrain::Water);
+        }
+
+        // Alluvial soil at (9, 5) — within 2 tiles of river, low elevation
+        let target_idx = 5 * 20 + 9;
+        soil[target_idx] = SoilType::Alluvial;
+        heights[target_idx] = 0.3; // at river level
+
+        map.init_base_terrain();
+
+        let flooded = map.apply_spring_floods(&river_mask, &heights, &soil);
+        assert!(
+            flooded.contains(&(9, 5)),
+            "alluvial tile near river at river elevation should flood"
+        );
+        assert_eq!(
+            *map.get(9, 5).unwrap(),
+            Terrain::FloodWater,
+            "flooded tile should be FloodWater"
+        );
+    }
+
+    #[test]
+    fn spring_floods_skip_high_elevation() {
+        use crate::terrain_pipeline::SoilType;
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        let mut heights = vec![0.5; 20 * 20];
+        let mut river_mask = vec![false; 20 * 20];
+        let mut soil = vec![SoilType::Alluvial; 20 * 20]; // all alluvial
+
+        // River at x=10 with low elevation
+        for y in 0..20 {
+            let idx = y * 20 + 10;
+            river_mask[idx] = true;
+            heights[idx] = 0.3;
+        }
+
+        // Tile at (9, 5) is high elevation — should NOT flood
+        heights[5 * 20 + 9] = 0.6; // well above river
+
+        map.init_base_terrain();
+
+        let flooded = map.apply_spring_floods(&river_mask, &heights, &soil);
+        assert!(
+            !flooded.contains(&(9, 5)),
+            "high elevation tile should not flood even if alluvial"
+        );
+    }
+
+    #[test]
+    fn spring_floods_skip_non_alluvial() {
+        use crate::terrain_pipeline::SoilType;
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        let mut heights = vec![0.3; 20 * 20]; // all low
+        let mut river_mask = vec![false; 20 * 20];
+        let soil = vec![SoilType::Rocky; 20 * 20]; // no alluvial
+
+        // River at x=10
+        for y in 0..20 {
+            river_mask[y * 20 + 10] = true;
+        }
+
+        map.init_base_terrain();
+
+        let flooded = map.apply_spring_floods(&river_mask, &heights, &soil);
+        assert!(flooded.is_empty(), "rocky soil near river should not flood");
+    }
+
+    #[test]
+    fn spring_floods_skip_buildings() {
+        use crate::terrain_pipeline::SoilType;
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        let heights = vec![0.3; 20 * 20];
+        let mut river_mask = vec![false; 20 * 20];
+        let mut soil = vec![SoilType::Alluvial; 20 * 20];
+
+        for y in 0..20 {
+            river_mask[y * 20 + 10] = true;
+        }
+
+        // Place a building near the river
+        map.set(9, 5, Terrain::BuildingFloor);
+        map.init_base_terrain();
+
+        let flooded = map.apply_spring_floods(&river_mask, &heights, &soil);
+        assert!(
+            !flooded.contains(&(9, 5)),
+            "building tiles should not be flooded"
+        );
+    }
+
+    #[test]
+    fn ice_freeze_thaw_cycle() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(5, 5, Terrain::Water);
+        map.init_base_terrain();
+
+        // Freeze
+        map.apply_winter_ice();
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Ice);
+        assert!(map.is_walkable(5.0, 5.0), "ice should be walkable");
+
+        // Thaw
+        map.revert_ice();
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Water);
+        assert!(!map.is_walkable(5.0, 5.0), "water should not be walkable");
+    }
+
+    #[test]
+    fn flood_water_reverts_to_original_terrain() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(3, 3, Terrain::Marsh);
+        map.init_base_terrain();
+
+        map.set_seasonal(3, 3, Terrain::FloodWater);
+        assert_eq!(*map.get(3, 3).unwrap(), Terrain::FloodWater);
+
+        map.revert_seasonal(3, 3);
+        assert_eq!(
+            *map.get(3, 3).unwrap(),
+            Terrain::Marsh,
+            "should revert to original Marsh, not Grass"
         );
     }
 }
