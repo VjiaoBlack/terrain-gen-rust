@@ -100,7 +100,7 @@ pub fn chokepoint_score(min_width: u16) -> f64 {
 /// pairs (axis-aligned + diagonal) and taking the minimum width across all pairs.
 fn compute_min_width(map: &TileMap, x: usize, y: usize) -> u16 {
     // 4 perpendicular pairs: E+W, N+S, NE+SW, NW+SE
-    let pairs: [(usize, usize); 4] = [
+    let _pairs: [(usize, usize); 4] = [
         (0, 1), // E + W
         (2, 3), // S + N
         (4, 7), // NE + NW... no, let's pair opposites:

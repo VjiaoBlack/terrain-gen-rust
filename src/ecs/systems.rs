@@ -112,8 +112,8 @@ pub fn system_ai(
     fire_tiles: &[(usize, usize, u32)],
     danger_scent: &crate::simulation::ScentMap,
     home_scent: &crate::simulation::ScentMap,
-    _nav_graph: &crate::pathfinding::NavGraph,
-    group_manager: &super::groups::GroupManager,
+    nav_graph: &crate::pathfinding::NavGraph,
+    _group_manager: &crate::ecs::groups::GroupManager,
 ) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
@@ -243,11 +243,6 @@ pub fn system_ai(
                     continue;
                 }
             }
-            // Group skip: grouped villagers defer AI to their group leader.
-            // Movement, hunger, and death still run per-individual.
-            if group_manager.is_grouped(e) {
-                continue;
-            }
         }
 
         // Decide the new state and velocity
@@ -345,6 +340,7 @@ pub fn system_ai(
                     danger_scent,
                     home_scent,
                     &danger_zones,
+                    nav_graph,
                 );
 
                 // Write back PathCache

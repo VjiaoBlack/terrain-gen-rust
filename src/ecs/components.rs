@@ -655,6 +655,10 @@ pub struct PathCache {
     pub dest_y: f64,
     /// Tick when this path was computed (for staleness check).
     pub computed_tick: u64,
+    /// Hierarchical path for long-distance navigation. Set by `move_toward_hierarchical`
+    /// when the destination crosses multiple 16x16 regions.
+    #[serde(skip)]
+    pub hier_path: Option<crate::pathfinding::graph::HierarchicalPath>,
 }
 
 // --- Tick Budgeting ---

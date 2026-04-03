@@ -224,6 +224,152 @@ pub(super) fn move_toward_cached_with_danger(
     }
 }
 
+/// Move toward a target using hierarchical pathfinding for long distances.
+/// For short distances (< HIERARCHY_DISTANCE_THRESHOLD) or same-region, delegates
+/// to `move_toward_cached_with_danger`. For long distances, computes a high-level
+/// path through the NavGraph and feeds region waypoints to local cached A*.
+/// The hierarchical path is stored on `cache.hier_path`.
+pub(super) fn move_toward_hierarchical(
+    pos: &Position,
+    tx: f64,
+    ty: f64,
+    speed: f64,
+    vel: &mut Velocity,
+    map: &TileMap,
+    cache: &mut PathCache,
+    nav_graph: &crate::pathfinding::NavGraph,
+    current_tick: u64,
+    danger_overlay: &[f64],
+) -> f64 {
+    use crate::pathfinding::graph::HIERARCHY_DISTANCE_THRESHOLD;
+    use crate::pathfinding::region::REGION_SIZE;
+
+    let d = dist(pos.x, pos.y, tx, ty);
+    if d < 0.5 {
+        return d;
+    }
+
+    // Short distance or same region: skip hierarchy
+    let same_region = (pos.x as usize / REGION_SIZE) == (tx as usize / REGION_SIZE)
+        && (pos.y as usize / REGION_SIZE) == (ty as usize / REGION_SIZE);
+    if d <= HIERARCHY_DISTANCE_THRESHOLD || same_region {
+        return move_toward_cached_with_danger(
+            pos,
+            tx,
+            ty,
+            speed,
+            vel,
+            map,
+            cache,
+            current_tick,
+            danger_overlay,
+        );
+    }
+
+    // Check if hierarchical path is valid
+    let hier_valid = cache.hier_path.as_ref().is_some_and(|hp| {
+        (hp.dest_x - tx).abs() < 0.5
+            && (hp.dest_y - ty).abs() < 0.5
+            && (current_tick - hp.computed_tick) < 600
+            && hp.region_cursor < hp.region_waypoints.len()
+    });
+
+    if !hier_valid {
+        // Compute high-level path through NavGraph
+        if let Some(waypoints) = nav_graph.find_path(pos.x, pos.y, tx, ty, map) {
+            if waypoints.is_empty() {
+                // Same region or adjacent -- use local A* directly
+                return move_toward_cached_with_danger(
+                    pos,
+                    tx,
+                    ty,
+                    speed,
+                    vel,
+                    map,
+                    cache,
+                    current_tick,
+                    danger_overlay,
+                );
+            }
+            cache.hier_path = Some(crate::pathfinding::graph::HierarchicalPath {
+                region_waypoints: waypoints,
+                region_cursor: 0,
+                computed_tick: current_tick,
+                dest_x: tx,
+                dest_y: ty,
+            });
+            cache.waypoints.clear();
+            cache.cursor = 0;
+        } else {
+            // No high-level path: fall back to direct cached A*
+            return move_toward_cached_with_danger(
+                pos,
+                tx,
+                ty,
+                speed,
+                vel,
+                map,
+                cache,
+                current_tick,
+                danger_overlay,
+            );
+        }
+    }
+
+    // Follow region waypoints via local path cache
+    let hp = cache.hier_path.as_mut().unwrap();
+    let (wx, wy) = hp.region_waypoints[hp.region_cursor];
+    let wd = dist(pos.x, pos.y, wx, wy);
+
+    if wd < 1.5 {
+        // Reached this region waypoint, advance
+        hp.region_cursor += 1;
+        let cursor = hp.region_cursor;
+        let len = hp.region_waypoints.len();
+        cache.waypoints.clear();
+        cache.cursor = 0;
+        if cursor >= len {
+            // All region waypoints traversed -- walk to final destination
+            return move_toward_cached_with_danger(
+                pos,
+                tx,
+                ty,
+                speed,
+                vel,
+                map,
+                cache,
+                current_tick,
+                danger_overlay,
+            );
+        }
+        let hp = cache.hier_path.as_ref().unwrap();
+        let (wx2, wy2) = hp.region_waypoints[cursor];
+        return move_toward_cached_with_danger(
+            pos,
+            wx2,
+            wy2,
+            speed,
+            vel,
+            map,
+            cache,
+            current_tick,
+            danger_overlay,
+        );
+    }
+
+    move_toward_cached_with_danger(
+        pos,
+        wx,
+        wy,
+        speed,
+        vel,
+        map,
+        cache,
+        current_tick,
+        danger_overlay,
+    )
+}
+
 /// Like `move_toward_cached` but uses a cost overlay (e.g. danger scent) in A* pathfinding.
 /// The overlay adds extra cost per tile, causing paths to route around high-overlay areas.
 pub(super) fn move_toward_cached_with_overlay(
@@ -719,12 +865,13 @@ pub(super) fn ai_villager(
     rng: &mut impl rand::RngExt,
     is_night: bool,
     frontier: &[(usize, usize)],
-    stockpile_fullness: &StockpileState,
+    _stockpile_fullness: &StockpileState,
     cache: &mut PathCache,
     current_tick: u64,
     danger_scent: &crate::simulation::ScentMap,
     home_scent: &crate::simulation::ScentMap,
     danger_zones: &[(f64, f64, f64)],
+    nav_graph: &crate::pathfinding::NavGraph,
 ) -> (
     BehaviorState,
     f64,
@@ -794,8 +941,8 @@ pub(super) fn ai_villager(
                 .unwrap_or((creature.home_x, creature.home_y));
 
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            // Use combined danger overlay (personal memory + scent) when fleeing.
-            let d = move_toward_cached_with_danger(
+            // Use hierarchical path for long-distance flee (personal memory + scent overlay).
+            let d = move_toward_hierarchical(
                 pos,
                 hx,
                 hy,
@@ -803,6 +950,7 @@ pub(super) fn ai_villager(
                 &mut vel,
                 map,
                 cache,
+                nav_graph,
                 current_tick,
                 &danger_overlay,
             );
@@ -849,7 +997,7 @@ pub(super) fn ai_villager(
                     .map(|(e, _)| (e.x, e.y))
                     .unwrap_or((creature.home_x, creature.home_y));
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_cached_with_danger(
+                move_toward_hierarchical(
                     pos,
                     hx,
                     hy,
@@ -857,6 +1005,7 @@ pub(super) fn ai_villager(
                     &mut vel,
                     map,
                     cache,
+                    nav_graph,
                     current_tick,
                     &danger_overlay,
                 );
@@ -892,7 +1041,7 @@ pub(super) fn ai_villager(
             resource_type,
         } => {
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward_cached_with_danger(
+            let d = move_toward_hierarchical(
                 pos,
                 *target_x,
                 *target_y,
@@ -900,6 +1049,7 @@ pub(super) fn ai_villager(
                 &mut vel,
                 map,
                 cache,
+                nav_graph,
                 current_tick,
                 &danger_overlay,
             );
@@ -1258,7 +1408,7 @@ pub(super) fn ai_villager(
                 );
             }
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            move_toward_cached_with_danger(
+            move_toward_hierarchical(
                 pos,
                 *target_x,
                 *target_y,
@@ -1266,6 +1416,7 @@ pub(super) fn ai_villager(
                 &mut vel,
                 map,
                 cache,
+                nav_graph,
                 current_tick,
                 &danger_overlay,
             );
