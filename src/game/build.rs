@@ -34,9 +34,17 @@ impl super::Game {
                     return false;
                 }
                 if let Some(terrain) = self.map.get(tx as usize, ty as usize) {
-                    match terrain {
-                        Terrain::Grass | Terrain::Sand | Terrain::Forest => {} // ok
-                        _ => return false, // water, mountain, snow, existing buildings
+                    match building_type {
+                        BuildingType::Bridge => {
+                            // Bridges can only be placed on Water tiles
+                            if *terrain != Terrain::Water {
+                                return false;
+                            }
+                        }
+                        _ => match terrain {
+                            Terrain::Grass | Terrain::Sand | Terrain::Forest => {} // ok
+                            _ => return false, // water, mountain, snow, existing buildings
+                        },
                     }
                 } else {
                     return false;
@@ -120,13 +128,18 @@ impl super::Game {
             let _ = self.world.despawn(entity);
         }
 
+        // Bridge uses its own terrain type; all others use BuildingFloor as placeholder
+        let placeholder_terrain = if bt == BuildingType::Bridge {
+            Terrain::Bridge
+        } else {
+            Terrain::BuildingFloor
+        };
         for dy in 0..sh {
             for dx in 0..sw {
                 let tx = bx + dx;
                 let ty = by + dy;
                 if tx >= 0 && ty >= 0 {
-                    self.map
-                        .set(tx as usize, ty as usize, Terrain::BuildingFloor);
+                    self.map.set(tx as usize, ty as usize, placeholder_terrain);
                 }
             }
         }
@@ -1301,6 +1314,7 @@ impl super::Game {
             BuildingType::Bakery => (0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 1.0, -1.0),
             BuildingType::TownHall => (0.5, 0.0, 1.5, 0.0, 0.0, 2.0, 0.0, 0.0, 3.0, -0.5),
             BuildingType::Road => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0),
+            BuildingType::Bridge => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         };
 
         let mut score = 0.0;

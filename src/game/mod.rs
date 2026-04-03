@@ -434,6 +434,7 @@ impl Game {
         };
 
         // Find a good start position: grass/sand tile adjacent to forest, near map center.
+        // Prefer locations near fords (settlements near natural crossings have geographic advantage).
         // Also require at least 5 distinct 3×3 buildable areas within 20 tiles so auto-build
         let cx = map_width / 2;
         let cy = map_height / 2;
@@ -441,7 +442,50 @@ impl Game {
         let mut start_cy = cy;
         let mut used_fallback = false;
 
-        'search: for r in 0..80usize {
+        // Helper: check if a ford exists within `radius` tiles of (ux, uy)
+        let has_ford_nearby = |map_ref: &TileMap, ux: usize, uy: usize, radius: i32| -> bool {
+            for fy in -radius..=radius {
+                for fx in -radius..=radius {
+                    let nx = ux as i32 + fx;
+                    let ny = uy as i32 + fy;
+                    if nx >= 0 && ny >= 0 && (nx as usize) < map_width && (ny as usize) < map_height
+                    {
+                        if map_ref.get(nx as usize, ny as usize) == Some(&Terrain::Ford) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        };
+
+        // Helper: count buildable 3x3 zones within scan_r
+        let count_buildable_zones =
+            |map_ref: &TileMap, ux: usize, uy: usize, scan_r: i32| -> usize {
+                let mut count = 0usize;
+                let mut gx = ux as i32 - scan_r;
+                while gx <= ux as i32 + scan_r - 2 {
+                    let mut gy = uy as i32 - scan_r;
+                    while gy <= uy as i32 + scan_r - 2 {
+                        let zone_fits = (0..3i32).all(|fy| {
+                            (0..3i32).all(|fx| {
+                                let tx = (gx + fx).max(0) as usize;
+                                let ty = (gy + fy).max(0) as usize;
+                                matches!(map_ref.get(tx, ty), Some(Terrain::Grass | Terrain::Sand))
+                            })
+                        });
+                        if zone_fits {
+                            count += 1;
+                        }
+                        gy += 3;
+                    }
+                    gx += 3;
+                }
+                count
+            };
+
+        // First pass: prefer spawn near a ford (within 20 tiles) for geographic advantage
+        'ford_search: for r in 0..80usize {
             for dy in -(r as i32)..=(r as i32) {
                 for dx in -(r as i32)..=(r as i32) {
                     if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
@@ -457,56 +501,96 @@ impl Game {
                     let uy = y as usize;
                     if let Some(t) = map.get(ux, uy)
                         && matches!(t, Terrain::Grass | Terrain::Sand)
+                        && has_ford_nearby(&map, ux, uy, 20)
                     {
-                        // Check if forest is adjacent (within 3 tiles)
                         let has_forest = (-3i32..=3).any(|fy| {
                             (-3i32..=3).any(|fx| {
                                 map.get((ux as i32 + fx) as usize, (uy as i32 + fy) as usize)
                                     == Some(&Terrain::Forest)
                             })
                         });
-                        if has_forest {
-                            // Count non-overlapping 3×3 Grass/Sand zones within 25 tiles
-                            // (step by 3 in both axes). Need ≥8 to reject narrow corridors:
-                            // a 3-wide corridor has zones only along one axis (e.g. 8 zones
-                            // requires a 24-long corridor), but a genuine open area (9×9)
-                            // provides 9 zones spread in both dimensions. The higher threshold
-                            // ensures auto-build can place multiple distinct buildings without
-                            // running out of valid spots, and rejects the seed 137 narrow
-                            // mountain corridor that has been blocking pop growth every session.
-                            let mut buildable_count = 0usize;
-                            let scan_r = 25i32;
-                            let mut gx = ux as i32 - scan_r;
-                            while gx <= ux as i32 + scan_r - 2 {
-                                let mut gy = uy as i32 - scan_r;
-                                while gy <= uy as i32 + scan_r - 2 {
-                                    let zone_fits = (0..3i32).all(|fy| {
-                                        (0..3i32).all(|fx| {
-                                            let tx = (gx + fx).max(0) as usize;
-                                            let ty = (gy + fy).max(0) as usize;
-                                            matches!(
-                                                map.get(tx, ty),
-                                                Some(Terrain::Grass | Terrain::Sand)
-                                            )
-                                        })
-                                    });
-                                    if zone_fits {
-                                        buildable_count += 1;
-                                    }
-                                    gy += 3;
-                                }
-                                gx += 3;
-                            }
-                            if buildable_count >= 8 {
-                                start_cx = ux;
-                                start_cy = uy;
-                                break 'search;
-                            }
+                        if has_forest && count_buildable_zones(&map, ux, uy, 25) >= 8 {
+                            start_cx = ux;
+                            start_cy = uy;
+                            break 'ford_search;
                         }
                     }
                 }
             }
         }
+
+        // Second pass (normal): if ford search didn't find anything, use standard search
+        if start_cx == cx && start_cy == cy {
+            'search: for r in 0..80usize {
+                for dy in -(r as i32)..=(r as i32) {
+                    for dx in -(r as i32)..=(r as i32) {
+                        if (dx.unsigned_abs() as usize != r) && (dy.unsigned_abs() as usize != r) {
+                            continue;
+                        }
+                        let x = cx as i32 + dx;
+                        let y = cy as i32 + dy;
+                        if x < 2
+                            || y < 2
+                            || x as usize >= map_width - 2
+                            || y as usize >= map_height - 2
+                        {
+                            continue;
+                        }
+                        let ux = x as usize;
+                        let uy = y as usize;
+                        if let Some(t) = map.get(ux, uy)
+                            && matches!(t, Terrain::Grass | Terrain::Sand)
+                        {
+                            // Check if forest is adjacent (within 3 tiles)
+                            let has_forest = (-3i32..=3).any(|fy| {
+                                (-3i32..=3).any(|fx| {
+                                    map.get((ux as i32 + fx) as usize, (uy as i32 + fy) as usize)
+                                        == Some(&Terrain::Forest)
+                                })
+                            });
+                            if has_forest {
+                                // Count non-overlapping 3×3 Grass/Sand zones within 25 tiles
+                                // (step by 3 in both axes). Need ≥8 to reject narrow corridors:
+                                // a 3-wide corridor has zones only along one axis (e.g. 8 zones
+                                // requires a 24-long corridor), but a genuine open area (9×9)
+                                // provides 9 zones spread in both dimensions. The higher threshold
+                                // ensures auto-build can place multiple distinct buildings without
+                                // running out of valid spots, and rejects the seed 137 narrow
+                                // mountain corridor that has been blocking pop growth every session.
+                                let mut buildable_count = 0usize;
+                                let scan_r = 25i32;
+                                let mut gx = ux as i32 - scan_r;
+                                while gx <= ux as i32 + scan_r - 2 {
+                                    let mut gy = uy as i32 - scan_r;
+                                    while gy <= uy as i32 + scan_r - 2 {
+                                        let zone_fits = (0..3i32).all(|fy| {
+                                            (0..3i32).all(|fx| {
+                                                let tx = (gx + fx).max(0) as usize;
+                                                let ty = (gy + fy).max(0) as usize;
+                                                matches!(
+                                                    map.get(tx, ty),
+                                                    Some(Terrain::Grass | Terrain::Sand)
+                                                )
+                                            })
+                                        });
+                                        if zone_fits {
+                                            buildable_count += 1;
+                                        }
+                                        gy += 3;
+                                    }
+                                    gx += 3;
+                                }
+                                if buildable_count >= 8 {
+                                    start_cx = ux;
+                                    start_cy = uy;
+                                    break 'search;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } // end if start_cx == cx (normal search fallback)
 
         // Fallback spawn search: if no grass+forest+8zones position was found (happens on maps
         // where open grass areas aren't adjacent to forest, e.g. seed 137 desert), accept any
@@ -1234,6 +1318,25 @@ impl Game {
         if !self.paused {
             for _speed_tick in 0..self.game_speed {
                 self.tick += 1;
+
+                // Safety teleport: rescue entities stranded on impassable tiles
+                // (e.g. after Water became impassable). Teleport to nearest walkable tile.
+                {
+                    let mut teleports: Vec<(hecs::Entity, f64, f64)> = Vec::new();
+                    for (entity, pos) in self.world.query::<(hecs::Entity, &Position)>().iter() {
+                        if !self.map.is_walkable(pos.x, pos.y) {
+                            if let Some((nx, ny)) = self.map.find_nearest_walkable(pos.x, pos.y) {
+                                teleports.push((entity, nx, ny));
+                            }
+                        }
+                    }
+                    for (entity, nx, ny) in teleports {
+                        if let Ok(mut pos) = self.world.get::<&mut Position>(entity) {
+                            pos.x = nx;
+                            pos.y = ny;
+                        }
+                    }
+                }
 
                 // Clean up old notifications
                 self.notifications.retain(|(t, _)| self.tick - t < 200);
@@ -2924,14 +3027,17 @@ mod tests {
     #[test]
     fn settlement_start_area_is_pre_revealed() {
         let game = Game::new(60, 42);
-        // Center of the map (128, 128) should be revealed
-        assert!(game.exploration.is_revealed(128, 128));
-        // Tiles within radius 15 of center should be revealed
-        assert!(game.exploration.is_revealed(120, 128));
-        assert!(game.exploration.is_revealed(128, 115));
-        // Tiles far from center should NOT be revealed
+        // Settlement center should be revealed (may be near map center or near a ford)
+        let (scx, scy) = game.settlement_center();
+        let sx = scx as usize;
+        let sy = scy as usize;
+        assert!(game.exploration.is_revealed(sx, sy));
+        // Tiles within radius 15 of settlement should be revealed
+        assert!(game.exploration.is_revealed(sx.saturating_sub(8), sy));
+        assert!(game.exploration.is_revealed(sx, sy.saturating_sub(8)));
+        // Tiles far from settlement should NOT be revealed
         assert!(!game.exploration.is_revealed(0, 0));
-        assert!(!game.exploration.is_revealed(200, 200));
+        assert!(!game.exploration.is_revealed(250, 250));
     }
 
     #[test]

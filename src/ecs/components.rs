@@ -716,6 +716,8 @@ pub enum BuildingType {
     Granary,
     Bakery,
     TownHall,
+    /// Bridge over water — enables river crossing. Player-placed via build mode.
+    Bridge,
 }
 
 /// Tile layout pattern for a building footprint.
@@ -864,6 +866,17 @@ impl BuildingType {
                 size: (3, 3),
                 layout: TileLayout::WallsNoDoor,
             },
+            BuildingType::Bridge => BuildingDef {
+                name: "Bridge",
+                cost: Resources {
+                    wood: 8,
+                    stone: 4,
+                    ..DEF_RES
+                },
+                build_time: 120,
+                size: (1, 1),
+                layout: TileLayout::Single(Terrain::Bridge),
+            },
         }
     }
 
@@ -954,6 +967,7 @@ impl BuildingType {
             BuildingType::Granary,
             BuildingType::Bakery,
             BuildingType::TownHall,
+            BuildingType::Bridge,
         ]
     }
 }

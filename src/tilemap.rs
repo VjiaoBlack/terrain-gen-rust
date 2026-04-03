@@ -24,12 +24,16 @@ pub enum Terrain {
     BuildingFloor,
     BuildingWall,
     Road,
+    /// Shallow river crossing — rare natural ford at narrow river points.
+    Ford,
+    /// Player-built bridge over water — enables crossing rivers.
+    Bridge,
 }
 
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
-            Terrain::BuildingWall | Terrain::Cliff => false,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => false,
             _ => true,
         }
     }
@@ -57,6 +61,8 @@ impl Terrain {
             Terrain::BuildingFloor => '░',
             Terrain::BuildingWall => '█',
             Terrain::Road => '=',
+            Terrain::Ford => '~',
+            Terrain::Bridge => '#',
         }
     }
 
@@ -83,6 +89,8 @@ impl Terrain {
             Terrain::BuildingFloor => Color(140, 120, 90),
             Terrain::BuildingWall => Color(160, 140, 110),
             Terrain::Road => Color(160, 130, 80),
+            Terrain::Ford => Color(80, 140, 220),
+            Terrain::Bridge => Color(140, 100, 50),
         }
     }
 
@@ -109,6 +117,8 @@ impl Terrain {
             Terrain::BuildingFloor => Some(Color(100, 80, 60)),
             Terrain::BuildingWall => Some(Color(120, 100, 80)),
             Terrain::Road => Some(Color(130, 105, 65)),
+            Terrain::Ford => Some(Color(40, 70, 120)),
+            Terrain::Bridge => Some(Color(80, 60, 30)),
         }
     }
 
@@ -117,6 +127,7 @@ impl Terrain {
         match self {
             Terrain::Road => 1.5,
             Terrain::Grass | Terrain::BuildingFloor | Terrain::Scrubland => 1.0,
+            Terrain::Bridge => 0.9,
             Terrain::ScarredGround => 0.9,
             Terrain::Bare => 0.9,
             Terrain::Desert | Terrain::Tundra => 0.8,
@@ -125,10 +136,10 @@ impl Terrain {
             Terrain::QuarryDeep => 0.5,
             Terrain::Forest => 0.6,
             Terrain::Snow => 0.4,
+            Terrain::Ford => 0.3,
             Terrain::Marsh => 0.3,
             Terrain::Mountain => 0.25,
-            Terrain::Water => 0.15, // swimming, very slow
-            Terrain::BuildingWall | Terrain::Cliff => 0.0,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => 0.0,
         }
     }
 
@@ -137,6 +148,7 @@ impl Terrain {
         match self {
             Terrain::Road => 0.7,
             Terrain::Grass | Terrain::BuildingFloor | Terrain::Scrubland | Terrain::Bare => 1.0,
+            Terrain::Bridge => 1.1,
             Terrain::ScarredGround => 1.1,
             Terrain::Stump => 1.2,
             Terrain::Sand | Terrain::Desert | Terrain::Tundra => 1.3,
@@ -144,10 +156,10 @@ impl Terrain {
             Terrain::QuarryDeep => 2.0,
             Terrain::Forest => 1.7,
             Terrain::Snow => 2.5,
+            Terrain::Ford => 3.0,
             Terrain::Marsh => 3.0,
             Terrain::Mountain => 4.0,
-            Terrain::Water => 8.0, // swimmable but heavily penalized by A*
-            Terrain::BuildingWall | Terrain::Cliff => f64::INFINITY,
+            Terrain::Water | Terrain::BuildingWall | Terrain::Cliff => f64::INFINITY,
         }
     }
 }
@@ -529,6 +541,37 @@ impl TileMap {
         None
     }
 
+    /// Find the nearest walkable tile to a position. Returns None if no walkable
+    /// tile exists within search radius 50. Used to rescue entities stranded on
+    /// impassable tiles (e.g. water after rivers become barriers).
+    pub fn find_nearest_walkable(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let cx = x.round() as i32;
+        let cy = y.round() as i32;
+        for r in 1..50i32 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let nx = cx + dx;
+                    let ny = cy + dy;
+                    if nx >= 0
+                        && ny >= 0
+                        && (nx as usize) < self.width
+                        && (ny as usize) < self.height
+                    {
+                        if let Some(t) = self.get(nx as usize, ny as usize) {
+                            if t.is_walkable() {
+                                return Some((nx as f64, ny as f64));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Check if a world position is walkable (in-bounds and walkable terrain).
     pub fn is_walkable(&self, x: f64, y: f64) -> bool {
         let ix = x.round() as i64;
@@ -688,15 +731,42 @@ mod tests {
         assert_eq!(Terrain::Forest.speed_multiplier(), 0.6);
         assert_eq!(Terrain::Mountain.speed_multiplier(), 0.25);
         assert_eq!(Terrain::Road.speed_multiplier(), 1.5);
-        assert!(Terrain::Water.is_walkable()); // swimmable
-        assert_eq!(Terrain::Water.speed_multiplier(), 0.15);
+        assert!(!Terrain::Water.is_walkable()); // impassable barrier
+        assert_eq!(Terrain::Water.speed_multiplier(), 0.0);
         assert!(Terrain::Mountain.is_walkable());
+    }
+
+    #[test]
+    fn ford_terrain_properties() {
+        assert!(Terrain::Ford.is_walkable());
+        assert_eq!(Terrain::Ford.ch(), '~');
+        assert_eq!(Terrain::Ford.speed_multiplier(), 0.3);
+        assert_eq!(Terrain::Ford.move_cost(), 3.0);
+        assert!(Terrain::Ford.bg().is_some());
+    }
+
+    #[test]
+    fn bridge_terrain_properties() {
+        assert!(Terrain::Bridge.is_walkable());
+        assert_eq!(Terrain::Bridge.ch(), '#');
+        assert_eq!(Terrain::Bridge.speed_multiplier(), 0.9);
+        assert_eq!(Terrain::Bridge.move_cost(), 1.1);
+        assert!(Terrain::Bridge.bg().is_some());
+    }
+
+    #[test]
+    fn water_blocks_movement() {
+        // Water is impassable — A* treats it like a wall
+        assert!(!Terrain::Water.is_walkable());
+        assert_eq!(Terrain::Water.move_cost(), f64::INFINITY);
+        assert_eq!(Terrain::Water.speed_multiplier(), 0.0);
     }
 
     #[test]
     fn astar_paths_around_water() {
         let mut map = TileMap::new(20, 20, Terrain::Grass);
         // Wall of water from (5,0) to (5,8), leaving a gap at (5,9)
+        // Water is impassable, so A* must route around it via the gap
         for y in 0..9 {
             map.set(5, y, Terrain::Water);
         }
@@ -709,6 +779,40 @@ mod tests {
             ny > 5.0 || nx < 5.0,
             "should route around water, not through it"
         );
+    }
+
+    #[test]
+    fn astar_routes_through_ford() {
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        // River wall from (5,0) to (5,19) — impassable water
+        for y in 0..20 {
+            map.set(5, y, Terrain::Water);
+        }
+        // Ford at (5,10) — the only crossing
+        map.set(5, 10, Terrain::Ford);
+        // Path from (3,5) to (7,5) must route through the ford at (5,10)
+        let path = map.astar_full_path(3.0, 5.0, 7.0, 5.0, 2000);
+        assert!(path.is_some(), "should find path through ford");
+        let path = path.unwrap();
+        // Path should pass through or near the ford
+        let passes_ford = path.iter().any(|(x, _y)| *x == 5.0);
+        assert!(passes_ford, "path should cross at ford x=5");
+    }
+
+    #[test]
+    fn astar_routes_through_bridge() {
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        // River wall from (5,0) to (5,19) — impassable water
+        for y in 0..20 {
+            map.set(5, y, Terrain::Water);
+        }
+        // Bridge at (5,10) — the only crossing
+        map.set(5, 10, Terrain::Bridge);
+        // Path from (3,10) to (7,10) should go straight through bridge
+        let next = map.astar_next(3.0, 10.0, 7.0, 10.0, 500);
+        assert!(next.is_some(), "should find path through bridge");
+        let (nx, _ny) = next.unwrap();
+        assert!(nx > 3.0, "should move toward bridge");
     }
 
     #[test]
@@ -825,7 +929,7 @@ mod tests {
     #[test]
     fn astar_avoids_water() {
         let mut map = TileMap::new(10, 10, Terrain::Grass);
-        // Lake in the middle
+        // Lake in the middle — water is impassable, must route around
         for y in 3..7 {
             for x in 3..7 {
                 map.set(x, y, Terrain::Water);

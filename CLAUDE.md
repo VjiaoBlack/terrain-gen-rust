@@ -76,6 +76,7 @@ cargo run --release -- --screenshot --width 80 --height 30   # single ANSI scree
 | Granary    | 6w 4s       | 3 food → 2 grain    | Preserves food for winter    |
 | Bakery     | 8w 4s 2p    | 2 grain + 1 wood → 3 bread | Prevents plague events |
 | Garrison   | 4w 6s 2m    | —                   | Defends against wolf raids   |
+| Bridge     | 8w 4s       | —                   | River crossing, player-placed on Water tiles |
 | Stockpile  | —           | —                   | Auto-placed at start, resource depot |
 
 **Key**: w=wood, s=stone, p=planks, m=masonry

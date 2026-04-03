@@ -990,6 +990,86 @@ pub fn generate_resource_map(
     resources
 }
 
+// ─── Stage 8b: Ford Placement ───────────────────────────────────────────────
+
+/// Place shallow fords at narrow river points with flat banks.
+/// Fords are rare natural crossings — max ~1 per 30 river tiles.
+/// Rules:
+///   - River width <= 2.0 at that cell (narrow point)
+///   - Both banks on opposite sides have slope < 0.04
+///   - At most 1 ford per 30 tiles of river (measured by BFS distance between fords)
+pub fn place_fords(
+    map: &mut TileMap,
+    river_mask: &[bool],
+    river_width: &[f64],
+    slope: &[f64],
+    w: usize,
+    h: usize,
+) -> usize {
+    let mut ford_count = 0usize;
+    let mut ford_positions: Vec<(usize, usize)> = Vec::new();
+    let min_ford_spacing = 30.0f64; // minimum distance between fords
+
+    // Collect candidate ford cells: narrow river + flat banks
+    let mut candidates: Vec<(usize, usize, f64)> = Vec::new(); // (x, y, width)
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let i = y * w + x;
+            if !river_mask[i] {
+                continue;
+            }
+            if river_width[i] > 2.0 {
+                continue;
+            }
+
+            // Check for flat bank on both sides (look for non-river tiles with low slope)
+            let dirs: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+            let mut has_flat_bank_a = false;
+            let mut has_flat_bank_b = false;
+            for &(dx, dy) in &dirs {
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                    continue;
+                }
+                let ni = ny as usize * w + nx as usize;
+                if !river_mask[ni] && slope[ni] < 0.04 {
+                    if !has_flat_bank_a {
+                        has_flat_bank_a = true;
+                    } else {
+                        has_flat_bank_b = true;
+                    }
+                }
+            }
+            if has_flat_bank_a && has_flat_bank_b {
+                candidates.push((x, y, river_width[i]));
+            }
+        }
+    }
+
+    // Sort by width (prefer narrowest crossings)
+    candidates.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Place fords with spacing constraint
+    for (cx, cy, _width) in &candidates {
+        // Check minimum distance from existing fords
+        let too_close = ford_positions.iter().any(|(fx, fy)| {
+            let dx = *cx as f64 - *fx as f64;
+            let dy = *cy as f64 - *fy as f64;
+            (dx * dx + dy * dy).sqrt() < min_ford_spacing
+        });
+        if too_close {
+            continue;
+        }
+
+        map.set(*cx, *cy, Terrain::Ford);
+        ford_positions.push((*cx, *cy));
+        ford_count += 1;
+    }
+
+    ford_count
+}
+
 // ─── Orchestrator ────────────────────────────────────────────────────────────
 
 pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResult {
@@ -1059,6 +1139,9 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             map.set(x, y, terrain);
         }
     }
+
+    // Stage 6b: Ford placement at narrow river points with flat banks
+    place_fords(&mut map, &river_mask, &river_width, &slope, w, h);
 
     // Stage 7: Soil
     let soil = assign_soil(

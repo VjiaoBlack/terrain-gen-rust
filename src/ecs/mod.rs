@@ -144,19 +144,48 @@ mod tests {
     }
 
     #[test]
-    fn water_slows_movement() {
+    fn water_blocks_movement() {
         let mut world = World::new();
         let mut map = walkable_map(10, 10);
-        map.set(5, 5, Terrain::Water);
-        // Start ON the water tile — speed multiplier applies to current tile
+        map.set(7, 5, Terrain::Water);
+        // Entity on grass tile at (5,5) moving east toward water at (7,5)
+        // Velocity 0.5 so first step lands at 5.5 which rounds to tile (6,5) = grass
+        let e = spawn_entity(&mut world, 5.0, 5.0, 0.5, 0.0, '@', Color(255, 255, 255));
+
+        // First step: 5.0 + 0.5*1.0 = 5.5 (grass) — moves fine
+        system_movement(&mut world, &map);
+        {
+            let pos = world.get::<&Position>(e).unwrap();
+            assert!(pos.x > 5.0, "should move on grass");
+        }
+
+        // Keep stepping — should eventually be blocked by water at (7,5)
+        for _ in 0..10 {
+            system_movement(&mut world, &map);
+        }
+        let pos = world.get::<&Position>(e).unwrap();
+        // Water at x=7 is impassable — entity should not reach or pass it
+        assert!(
+            pos.x < 7.0,
+            "should not enter water tile at x=7, pos.x={}",
+            pos.x
+        );
+    }
+
+    #[test]
+    fn ford_allows_slow_movement() {
+        let mut world = World::new();
+        let mut map = walkable_map(10, 10);
+        map.set(5, 5, Terrain::Ford);
+        // Start ON the ford tile — speed multiplier applies to current tile
         let e = spawn_entity(&mut world, 5.0, 5.0, 1.0, 0.0, '@', Color(255, 255, 255));
 
         system_movement(&mut world, &map);
 
         let pos = world.get::<&Position>(e).unwrap();
-        // Water is swimmable but very slow (0.15x), so 5.0 + 1.0*0.15 = 5.15
-        assert!(pos.x > 5.0, "should move in water (slowly)");
-        assert!(pos.x < 5.5, "should be very slow in water");
+        // Ford is walkable at 0.3x speed, so 5.0 + 1.0*0.3 = 5.3
+        assert!(pos.x > 5.0, "should move on ford (slowly)");
+        assert!(pos.x < 5.5, "should be slow on ford");
     }
 
     #[test]

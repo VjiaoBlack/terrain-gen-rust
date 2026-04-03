@@ -1595,6 +1595,8 @@ impl super::Game {
                         Color(140, 120, 80)
                     }
                     Some(Terrain::Road) => Color(100, 90, 70),
+                    Some(Terrain::Ford) => Color(80, 140, 220),
+                    Some(Terrain::Bridge) => Color(140, 100, 50),
                     _ => Color(60, 60, 60),
                 };
 
@@ -1674,6 +1676,8 @@ impl super::Game {
                         Terrain::Quarry => ('Q', Color(140, 130, 115)),
                         Terrain::QuarryDeep => ('V', Color(110, 100, 90)),
                         Terrain::ScarredGround => ('s', Color(145, 135, 120)),
+                        Terrain::Ford => ('~', Color(80, 140, 220)),
+                        Terrain::Bridge => ('#', Color(140, 100, 50)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }
