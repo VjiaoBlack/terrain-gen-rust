@@ -458,6 +458,10 @@ pub struct FarmPlot {
     pub worker_present: bool, // must have villager tending for growth
     #[serde(default)]
     pub pending_food: u32, // harvested food waiting for pickup
+    #[serde(default)]
+    pub tile_x: usize, // map x coordinate for moisture lookup
+    #[serde(default)]
+    pub tile_y: usize, // map y coordinate for moisture lookup
 }
 
 /// Marker component for berry bushes (food source for prey).

@@ -5,7 +5,7 @@ use super::ai::*;
 use super::components::*;
 use super::spawn::*;
 use crate::renderer::{Color, Renderer};
-use crate::simulation::Season;
+use crate::simulation::{MoistureMap, Season};
 use crate::tilemap::{Terrain, TileMap};
 
 // --- Systems ---
@@ -799,15 +799,22 @@ pub fn system_render(world: &World, renderer: &mut dyn Renderer) {
     }
 }
 
+/// Convert tile moisture to a growth-rate multiplier.
+/// Floor of 0.4 (dry farms still work), caps at 1.0 when moisture >= 0.6.
+fn moisture_ramp(moisture: f64) -> f64 {
+    let t = (moisture / 0.6).clamp(0.0, 1.0);
+    0.4 + 0.6 * t
+}
+
 /// Grow farm plots based on season and auto-harvest when ready.
-pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
+/// Moisture from the simulation scales growth: river-adjacent farms grow faster.
+pub fn system_farms(world: &mut World, season: Season, skill_mult: f64, moisture: &MoistureMap) {
     let base_rate = match season {
         Season::Spring => 0.002,
         Season::Summer => 0.003,
         Season::Autumn => 0.001,
         Season::Winter => 0.0,
     };
-    let growth_rate = base_rate * skill_mult;
 
     // Pass 1: advance growth only if a worker is present
     for farm in world.query_mut::<&mut FarmPlot>() {
@@ -819,6 +826,9 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64) {
                 farm.pending_food += 3;
             }
         } else if farm.worker_present {
+            let moisture_val = moisture.get(farm.tile_x, farm.tile_y);
+            let moisture_factor = moisture_ramp(moisture_val);
+            let growth_rate = base_rate * skill_mult * moisture_factor;
             farm.growth += growth_rate;
             if farm.growth >= 1.0 {
                 farm.growth = 1.0;

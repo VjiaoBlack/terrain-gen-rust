@@ -1338,7 +1338,12 @@ impl Game {
                 // Farm growth (only advances when villager is present at farm)
                 let farm_mult =
                     (1.0 + self.skills.farming / 100.0) * self.events.farm_yield_multiplier();
-                ecs::system_farms(&mut self.world, self.day_night.season, farm_mult);
+                ecs::system_farms(
+                    &mut self.world,
+                    self.day_night.season,
+                    farm_mult,
+                    &self.moisture,
+                );
 
                 // Assign idle villagers to farms/workshops, then mark worker presence
                 ecs::system_assign_workers(&mut self.world, &self.resources);

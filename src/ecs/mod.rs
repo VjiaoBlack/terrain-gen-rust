@@ -16,12 +16,25 @@ mod tests {
     use super::*;
     use crate::headless_renderer::HeadlessRenderer;
     use crate::renderer::Color;
-    use crate::simulation::Season;
+    use crate::simulation::{MoistureMap, Season};
     use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
     fn walkable_map(w: usize, h: usize) -> TileMap {
         TileMap::new(w, h, Terrain::Grass)
+    }
+
+    /// Create a MoistureMap with uniform high moisture (0.6) so moisture_ramp returns 1.0.
+    /// This preserves existing test behavior where growth rate is unscaled.
+    fn wet_moisture_map() -> MoistureMap {
+        let mut mm = MoistureMap::new(64, 64);
+        // Set all tiles to 0.6 so ramp returns 1.0
+        for y in 0..64 {
+            for x in 0..64 {
+                mm.set(x, y, 0.6);
+            }
+        }
+        mm
     }
 
     #[test]
@@ -1340,12 +1353,13 @@ mod tests {
     fn farm_produces_food_with_worker() {
         let mut world = World::new();
         spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
 
         for _ in 0..400 {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0);
+            system_farms(&mut world, Season::Summer, 1.0, &mm);
         }
         let pending = world
             .query::<&FarmPlot>()
@@ -1364,9 +1378,10 @@ mod tests {
     fn farm_no_growth_without_worker() {
         let mut world = World::new();
         spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
 
         for _ in 0..500 {
-            system_farms(&mut world, Season::Summer, 1.0);
+            system_farms(&mut world, Season::Summer, 1.0, &mm);
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -1381,12 +1396,13 @@ mod tests {
     fn farm_no_growth_in_winter() {
         let mut world = World::new();
         spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
 
         for _ in 0..500 {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Winter, 1.0);
+            system_farms(&mut world, Season::Winter, 1.0, &mm);
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -1401,6 +1417,7 @@ mod tests {
     fn farm_visual_changes_with_growth() {
         let mut world = World::new();
         spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
 
         let ch = world
             .query::<&Sprite>()
@@ -1413,7 +1430,7 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0);
+            system_farms(&mut world, Season::Summer, 1.0, &mm);
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -1429,7 +1446,7 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0);
+            system_farms(&mut world, Season::Summer, 1.0, &mm);
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -1440,6 +1457,69 @@ mod tests {
                 sprite.ch
             );
         }
+    }
+
+    #[test]
+    fn moisture_ramp_values() {
+        // moisture_ramp is private to systems.rs, so we test via system_farms behavior.
+        // Farm at moisture=0.0 should grow at 40% of base rate.
+        // Farm at moisture=0.6 should grow at 100% of base rate.
+        let mut world_dry = World::new();
+        spawn_farm_plot(&mut world_dry, 5.0, 5.0);
+        let mm_dry = MoistureMap::new(64, 64);
+        // moisture defaults to 0.0
+
+        let mut world_wet = World::new();
+        spawn_farm_plot(&mut world_wet, 5.0, 5.0);
+        let mut mm_wet = MoistureMap::new(64, 64);
+        mm_wet.set(5, 5, 0.6);
+
+        let ticks = 100;
+        for _ in 0..ticks {
+            for farm in world_dry.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            system_farms(&mut world_dry, Season::Summer, 1.0, &mm_dry);
+            for farm in world_wet.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            system_farms(&mut world_wet, Season::Summer, 1.0, &mm_wet);
+        }
+
+        let dry_growth = world_dry.query::<&FarmPlot>().iter().next().unwrap().growth;
+        let wet_growth = world_wet.query::<&FarmPlot>().iter().next().unwrap().growth;
+        assert!(
+            wet_growth > dry_growth,
+            "wet farm should grow faster: wet={}, dry={}",
+            wet_growth,
+            dry_growth
+        );
+        // Dry farm grows at 0.003 * 0.4 = 0.0012/tick, 100 ticks = 0.12
+        // Wet farm grows at 0.003 * 1.0 = 0.003/tick, 100 ticks = 0.30
+        let expected_dry = 0.003 * 0.4 * ticks as f64;
+        let expected_wet = 0.003 * 1.0 * ticks as f64;
+        assert!(
+            (dry_growth - expected_dry).abs() < 0.001,
+            "dry farm growth should be ~{}: got {}",
+            expected_dry,
+            dry_growth
+        );
+        assert!(
+            (wet_growth - expected_wet).abs() < 0.001,
+            "wet farm growth should be ~{}: got {}",
+            expected_wet,
+            wet_growth
+        );
+    }
+
+    #[test]
+    fn farm_tile_position_set_at_spawn() {
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 20.0);
+        let mut q = world.query::<&FarmPlot>();
+        let farm = q.iter().next().unwrap();
+        assert_eq!(farm.tile_x, 10, "tile_x should match spawn x");
+        assert_eq!(farm.tile_y, 20, "tile_y should match spawn y");
     }
 
     #[test]

@@ -182,6 +182,8 @@ pub fn spawn_farm_plot(world: &mut World, x: f64, y: f64) -> Entity {
             harvest_ready: false,
             worker_present: false,
             pending_food: 0,
+            tile_x: x as usize,
+            tile_y: y as usize,
         },
     ))
 }

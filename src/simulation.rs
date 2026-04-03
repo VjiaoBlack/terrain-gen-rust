@@ -261,6 +261,12 @@ impl MoistureMap {
         }
     }
 
+    pub fn set(&mut self, x: usize, y: usize, val: f64) {
+        if x < self.width && y < self.height {
+            self.moisture[y * self.width + x] = val;
+        }
+    }
+
     fn wrapping_idx(&self, x: i32, y: i32) -> usize {
         let wx = x.rem_euclid(self.width as i32) as usize;
         let wy = y.rem_euclid(self.height as i32) as usize;
