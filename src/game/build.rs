@@ -1260,8 +1260,258 @@ impl super::Game {
         visited
     }
 
-    /// Find a valid spot for a building near (cx, cy), searching outward in rings.
-    /// Only returns spots reachable from the centroid (connected land, not across water).
+    /// Score a candidate building position based on terrain features.
+    /// Returns a f64 score where higher is better. Different building types
+    /// weight terrain features differently (farms prefer water, garrisons
+    /// prefer high ground and chokepoints, huts cluster together, etc.).
+    pub(super) fn score_building_spot(
+        &self,
+        bx: i32,
+        by: i32,
+        bt: BuildingType,
+        cx: f64,
+        cy: f64,
+    ) -> f64 {
+        let w = self.map.width;
+        let h = self.map.height;
+        let (bw, bh) = bt.size();
+
+        // Use the center tile of the building footprint for scoring.
+        let mx = bx + bw / 2;
+        let my = by + bh / 2;
+        if mx < 0 || my < 0 || mx as usize >= w || my as usize >= h {
+            return f64::NEG_INFINITY;
+        }
+        let idx = my as usize * w + mx as usize;
+
+        // ── Per-building-type weights ──
+        // (water_prox, fertility, flatness, high_elev, chokepoint, cluster, stone_prox, wood_prox, traffic, dist_pen)
+        let (
+            w_water,
+            w_fert,
+            w_flat,
+            w_high,
+            w_choke,
+            w_cluster,
+            w_stone,
+            w_wood,
+            w_traffic,
+            w_dist,
+        ): (f64, f64, f64, f64, f64, f64, f64, f64, f64, f64) = match bt {
+            BuildingType::Farm => (2.0, 3.0, 1.5, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0, -0.5),
+            BuildingType::Hut => (0.5, 0.0, 1.0, 0.0, 0.0, 1.5, 0.0, 0.0, 0.0, -1.0),
+            BuildingType::Stockpile => (0.3, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.5, -0.3),
+            BuildingType::Garrison => (0.0, 0.0, 0.5, 1.5, 3.0, 0.0, 0.0, 0.0, 0.0, -0.2),
+            BuildingType::Wall => (0.0, 0.0, 0.3, 1.0, 2.5, 0.0, 0.0, 0.0, 0.0, -0.1),
+            BuildingType::Workshop => (0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 1.5, 1.0, -1.0),
+            BuildingType::Smithy => (0.0, 0.0, 1.0, 0.5, 0.0, 2.0, 1.5, 0.0, 1.0, -1.0),
+            BuildingType::Granary => (0.0, 0.0, 1.0, 0.0, 0.0, 1.5, 0.0, 0.0, 1.5, -0.8),
+            BuildingType::Bakery => (0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 1.0, -1.0),
+            BuildingType::TownHall => (0.5, 0.0, 1.5, 0.0, 0.0, 2.0, 0.0, 0.0, 3.0, -0.5),
+            BuildingType::Road => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0),
+        };
+
+        let mut score = 0.0;
+
+        // ── Water proximity: BFS-free approximation using river_mask ──
+        // Scan outward from building center to find nearest water/river tile.
+        if w_water.abs() > 0.01 {
+            let mut min_water_dist = 30.0f64; // cap
+            'water_search: for r in 0i32..30 {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        if dx.abs() != r && dy.abs() != r {
+                            continue;
+                        }
+                        let wx = mx + dx;
+                        let wy = my + dy;
+                        if wx < 0 || wy < 0 || wx as usize >= w || wy as usize >= h {
+                            continue;
+                        }
+                        let wi = wy as usize * w + wx as usize;
+                        let is_water = self.river_mask.get(wi).copied().unwrap_or(false)
+                            || matches!(
+                                self.map.get(wx as usize, wy as usize),
+                                Some(Terrain::Water)
+                            );
+                        if is_water {
+                            min_water_dist = r as f64;
+                            break 'water_search;
+                        }
+                    }
+                }
+            }
+            score += w_water * (1.0 / (1.0 + min_water_dist * 0.15));
+        }
+
+        // ── Soil fertility (from ResourceMap) ──
+        if w_fert.abs() > 0.01 {
+            let fertility =
+                self.resource_map.get(mx as usize, my as usize).fertility as f64 / 255.0;
+            score += w_fert * fertility;
+        }
+
+        // ── Flatness: prefer low slope (approximate from height differences) ──
+        if w_flat.abs() > 0.01 {
+            if idx < self.heights.len() {
+                let center_h = self.heights[idx];
+                let mut max_diff = 0.0f64;
+                for (dx, dy) in [(-1i32, 0), (1, 0), (0, -1i32), (0, 1)] {
+                    let nx = mx + dx;
+                    let ny = my + dy;
+                    if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h {
+                        let ni = ny as usize * w + nx as usize;
+                        if ni < self.heights.len() {
+                            let diff = (self.heights[ni] - center_h).abs();
+                            if diff > max_diff {
+                                max_diff = diff;
+                            }
+                        }
+                    }
+                }
+                // Flat: max_diff < 0.05 → score ~1.0; steep: max_diff > 0.1 → score ~0.0
+                score += w_flat * (1.0 - (max_diff / 0.1).min(1.0));
+            }
+        }
+
+        // ── Elevation (high ground for garrisons/walls) ──
+        if w_high.abs() > 0.01 && idx < self.heights.len() {
+            score += w_high * self.heights[idx];
+        }
+
+        // ── Chokepoint: how narrow the walkable corridor is here ──
+        // Measure minimum clear distance to impassable terrain in 8 directions.
+        if w_choke.abs() > 0.01 {
+            let mut min_clear = 40i32;
+            for (ddx, ddy) in [
+                (1i32, 0),
+                (-1, 0),
+                (0, 1i32),
+                (0, -1),
+                (1, 1),
+                (1, -1),
+                (-1, 1),
+                (-1, -1),
+            ] {
+                let mut dist = 0i32;
+                loop {
+                    dist += 1;
+                    let sx = mx + ddx * dist;
+                    let sy = my + ddy * dist;
+                    if sx < 0 || sy < 0 || sx as usize >= w || sy as usize >= h {
+                        break;
+                    }
+                    if !self.map.is_walkable(sx as f64, sy as f64) {
+                        break;
+                    }
+                    if dist >= 40 {
+                        break;
+                    }
+                }
+                if dist < min_clear {
+                    min_clear = dist;
+                }
+            }
+            // Narrow pass (min_clear=2) → 1/(2+1)=0.33; open field (min_clear=40) → 0.024
+            score += w_choke * (1.0 / (min_clear as f64 + 1.0));
+        }
+
+        // ── Cluster bonus: count buildings of same type within 8 tiles ──
+        if w_cluster.abs() > 0.01 {
+            let mut nearby_count = 0u32;
+            for (pos, _site) in self.world.query::<(&Position, &BuildSite)>().iter() {
+                let dx = (pos.x as i32 - mx).abs();
+                let dy = (pos.y as i32 - my).abs();
+                if dx <= 8 && dy <= 8 {
+                    nearby_count += 1;
+                }
+            }
+            // Also count completed buildings via terrain tiles (BuildingFloor/Wall within 8 tiles)
+            for dy in -8i32..=8 {
+                for dx in -8i32..=8 {
+                    let tx = mx + dx;
+                    let ty = my + dy;
+                    if tx >= 0 && ty >= 0 && (tx as usize) < w && (ty as usize) < h {
+                        if matches!(
+                            self.map.get(tx as usize, ty as usize),
+                            Some(Terrain::BuildingFloor | Terrain::BuildingWall)
+                        ) {
+                            nearby_count += 1;
+                        }
+                    }
+                }
+            }
+            score += w_cluster * (nearby_count as f64 * 0.1).min(0.5);
+        }
+
+        // ── Stone proximity (for smithy) ──
+        if w_stone.abs() > 0.01 {
+            let stone_pot = self.resource_map.get(mx as usize, my as usize).stone as f64 / 255.0;
+            score += w_stone * stone_pot;
+        }
+
+        // ── Wood proximity (for workshop) ──
+        if w_wood.abs() > 0.01 {
+            let wood_pot = self.resource_map.get(mx as usize, my as usize).wood as f64 / 255.0;
+            score += w_wood * wood_pot;
+        }
+
+        // ── Traffic / crossroads (for stockpiles, town halls) ──
+        if w_traffic.abs() > 0.01 {
+            let traffic_val = self.traffic.get(mx as usize, my as usize);
+            // Normalize: traffic values vary widely; use a sigmoid-like curve.
+            let normalized = traffic_val / (traffic_val + 50.0);
+            score += w_traffic * normalized;
+        }
+
+        // ── Distance penalty: soft falloff from centroid ──
+        let dist = ((bx as f64 - cx).powi(2) + (by as f64 - cy).powi(2)).sqrt();
+        score += w_dist * (dist / 20.0);
+
+        // ── Spacing penalty: discourage same-type buildings within 5 tiles ──
+        let mut same_type_nearby = 0u32;
+        for (pos, site) in self.world.query::<(&Position, &BuildSite)>().iter() {
+            if site.building_type == bt {
+                let dx = (pos.x as i32 - mx).abs();
+                let dy = (pos.y as i32 - my).abs();
+                if dx <= 5 && dy <= 5 {
+                    same_type_nearby += 1;
+                }
+            }
+        }
+        // Check completed buildings too (for farms, huts, etc.)
+        match bt {
+            BuildingType::Farm => {
+                for (pos, _) in self.world.query::<(&Position, &FarmPlot)>().iter() {
+                    let dx = (pos.x as i32 - mx).abs();
+                    let dy = (pos.y as i32 - my).abs();
+                    if dx <= 5 && dy <= 5 {
+                        same_type_nearby += 1;
+                    }
+                }
+            }
+            BuildingType::Hut => {
+                for (pos, _) in self.world.query::<(&Position, &HutBuilding)>().iter() {
+                    let dx = (pos.x as i32 - mx).abs();
+                    let dy = (pos.y as i32 - my).abs();
+                    if dx <= 5 && dy <= 5 {
+                        same_type_nearby += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+        if same_type_nearby > 0 {
+            score -= 0.3 * same_type_nearby as f64;
+        }
+
+        score
+    }
+
+    /// Find a valid spot for a building near (cx, cy) using terrain-aware scoring.
+    /// Scans all reachable candidates within a search radius, scores each by terrain
+    /// features appropriate to the building type, and returns the highest-scoring spot.
+    /// Falls back to an expanded ring scan if no scored candidates are found.
     pub(super) fn find_building_spot(
         &self,
         cx: f64,
@@ -1270,49 +1520,92 @@ impl super::Game {
     ) -> Option<(i32, i32)> {
         let (bw, bh) = bt.size();
         // Pre-compute which tiles are reachable from the settlement centroid.
-        // This filters out terrain-valid spots on disconnected land (e.g. across a river).
         let reachable = self.reachable_tiles(cx, cy, 80);
         let is_reachable = |bx: i32, by: i32| -> bool {
-            // Check the center tile of the building footprint is reachable.
-            let cx = bx + bw / 2;
-            let cy = by + bh / 2;
-            if cx < 0 || cy < 0 {
+            let rcx = bx + bw / 2;
+            let rcy = by + bh / 2;
+            if rcx < 0 || rcy < 0 {
                 return false;
             }
-            let idx = cy as usize * self.map.width + cx as usize;
+            let idx = rcy as usize * self.map.width + rcx as usize;
             idx < reachable.len() && reachable[idx]
         };
-        // Primary search: coarse grid (building-size steps), close to settlement
-        for r in 2i32..8 {
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    if dx.abs() != r && dy.abs() != r {
-                        continue;
-                    }
-                    let bx = cx as i32 + dx * bw;
-                    let by = cy as i32 + dy * bh;
-                    if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
-                        return Some((bx, by));
+
+        // ── Scored search: scan all candidates within search_radius, pick best ──
+        let search_radius: i32 = match bt {
+            BuildingType::Garrison => 40, // willing to be far out at a chokepoint
+            BuildingType::Wall => 30,
+            BuildingType::Farm => 25, // farms can be placed further out near water
+            _ => 20,                  // huts, workshops, etc. stay close
+        };
+
+        let mut best_score = f64::NEG_INFINITY;
+        let mut best_pos: Option<(i32, i32)> = None;
+
+        // Coarse grid pass: building-size steps within search_radius
+        let step_x = bw.max(1);
+        let step_y = bh.max(1);
+        let coarse_r = search_radius / step_x.max(step_y);
+        for dy in -coarse_r..=coarse_r {
+            for dx in -coarse_r..=coarse_r {
+                let bx = cx as i32 + dx * step_x;
+                let by = cy as i32 + dy * step_y;
+                if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
+                    let s = self.score_building_spot(bx, by, bt, cx, cy);
+                    if s > best_score {
+                        best_score = s;
+                        best_pos = Some((bx, by));
                     }
                 }
             }
         }
-        // Fallback: fine-grid scan for narrow terrain corridors where coarse grid misses valid spots
-        for r in 4i32..64 {
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    if dx.abs() != r && dy.abs() != r {
-                        continue;
+
+        // Fine grid pass if coarse found nothing (narrow corridors)
+        if best_pos.is_none() {
+            for r in 1i32..search_radius {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        if dx.abs() != r && dy.abs() != r {
+                            continue; // perimeter only for efficiency
+                        }
+                        let bx = cx as i32 + dx;
+                        let by = cy as i32 + dy;
+                        if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
+                            let s = self.score_building_spot(bx, by, bt, cx, cy);
+                            if s > best_score {
+                                best_score = s;
+                                best_pos = Some((bx, by));
+                            }
+                        }
                     }
-                    let bx = cx as i32 + dx;
-                    let by = cy as i32 + dy;
-                    if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
-                        return Some((bx, by));
+                }
+                // Early exit: once we have candidates from a ring close to center,
+                // don't scan all the way out. But ensure we have at least a few rings.
+                if best_pos.is_some() && r >= 8 {
+                    break;
+                }
+            }
+        }
+
+        // Fallback: expanded ring scan (original algorithm) for extreme terrain
+        if best_pos.is_none() {
+            for r in search_radius..64 {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        if dx.abs() != r && dy.abs() != r {
+                            continue;
+                        }
+                        let bx = cx as i32 + dx;
+                        let by = cy as i32 + dy;
+                        if self.can_place_building_impl(bx, by, bt, false) && is_reachable(bx, by) {
+                            return Some((bx, by));
+                        }
                     }
                 }
             }
         }
-        None
+
+        best_pos
     }
 
     /// Find a spot for a defensive wall between settlement center and nearest wolf.
