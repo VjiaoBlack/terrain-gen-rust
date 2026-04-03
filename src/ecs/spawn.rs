@@ -1,4 +1,5 @@
 use hecs::{Entity, World};
+use rand::RngExt;
 
 use super::components::*;
 use crate::renderer::Color;
@@ -134,7 +135,20 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
             sight_range: 22.0,
         },
         PathCache::default(),
+        TickSchedule::default(), // next_ai_tick: 0 → runs immediately on first tick
     ))
+}
+
+/// Spawn a villager with a staggered initial AI tick to prevent all villagers
+/// from evaluating on the same tick. Used in production; tests use `spawn_villager`.
+pub fn spawn_villager_staggered(world: &mut World, x: f64, y: f64, current_tick: u64) -> Entity {
+    let mut rng = rand::rng();
+    let offset: u64 = rng.random_range(0..8);
+    let e = spawn_villager(world, x, y);
+    if let Ok(mut schedule) = world.get::<&mut TickSchedule>(e) {
+        schedule.next_ai_tick = current_tick + offset;
+    }
+    e
 }
 
 pub fn spawn_build_site(

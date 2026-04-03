@@ -57,6 +57,59 @@ pub struct PathCache {
     pub computed_tick: u64,
 }
 
+// --- Tick Budgeting ---
+
+/// Priority-based tick budgeting: determines how often an entity runs AI.
+/// See docs/design/pillar5_scale/tick_budgeting.md.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TickSchedule {
+    /// Which tick this entity next runs AI.
+    pub next_ai_tick: u64,
+    /// Ticks between AI evaluations (set from priority category).
+    pub interval: u8,
+}
+
+impl Default for TickSchedule {
+    fn default() -> Self {
+        Self {
+            next_ai_tick: 0,
+            interval: 1,
+        }
+    }
+}
+
+/// Maps a BehaviorState to a tick interval for AI scheduling.
+/// - Critical (1): FleeHome, Captured, Building within 3 tiles of site
+/// - Active (2): Seek, Hauling, Gathering, Exploring
+/// - Normal (4): Farming, Working, Eating
+/// - Idle (8): Wander, Idle, Sleeping, AtHome
+pub fn tick_priority(state: &BehaviorState) -> u8 {
+    match state {
+        // Critical: every tick
+        BehaviorState::FleeHome { .. }
+        | BehaviorState::Captured
+        | BehaviorState::Hunting { .. } => 1,
+        BehaviorState::Building { .. } => 1, // always critical (close to site by definition)
+
+        // Active: every 2 ticks
+        BehaviorState::Seek { .. }
+        | BehaviorState::Hauling { .. }
+        | BehaviorState::Gathering { .. }
+        | BehaviorState::Exploring { .. } => 2,
+
+        // Normal: every 4 ticks
+        BehaviorState::Farming { .. }
+        | BehaviorState::Working { .. }
+        | BehaviorState::Eating { .. } => 4,
+
+        // Idle: every 8 ticks
+        BehaviorState::Wander { .. }
+        | BehaviorState::Idle { .. }
+        | BehaviorState::Sleeping { .. }
+        | BehaviorState::AtHome { .. } => 8,
+    }
+}
+
 // --- Components ---
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

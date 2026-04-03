@@ -173,7 +173,12 @@ impl Game {
                     for _ in 0..count {
                         let ox = rng.random_range(-3i32..4) as f64;
                         let oy = rng.random_range(-3i32..4) as f64;
-                        ecs::spawn_villager(&mut self.world, cx as f64 + ox, cy as f64 + oy);
+                        ecs::spawn_villager_staggered(
+                            &mut self.world,
+                            cx as f64 + ox,
+                            cy as f64 + oy,
+                            self.tick,
+                        );
                     }
                     self.events
                         .event_log

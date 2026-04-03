@@ -13,6 +13,8 @@ pub enum SerializedEntity {
         sprite: Sprite,
         behavior: Behavior,
         creature: Creature,
+        #[serde(default)]
+        tick_schedule: Option<TickSchedule>,
     },
     Prey {
         pos: Position,
@@ -81,8 +83,15 @@ pub enum SerializedEntity {
 pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
     let mut entities = Vec::new();
 
-    for (pos, vel, sprite, behavior, creature) in world
-        .query::<(&Position, &Velocity, &Sprite, &Behavior, &Creature)>()
+    for (pos, vel, sprite, behavior, creature, schedule) in world
+        .query::<(
+            &Position,
+            &Velocity,
+            &Sprite,
+            &Behavior,
+            &Creature,
+            Option<&TickSchedule>,
+        )>()
         .iter()
     {
         let se = match creature.species {
@@ -92,6 +101,7 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
                 sprite: *sprite,
                 behavior: *behavior,
                 creature: *creature,
+                tick_schedule: schedule.copied(),
             },
             Species::Prey => SerializedEntity::Prey {
                 pos: *pos,
@@ -208,8 +218,22 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
                 sprite,
                 behavior,
                 creature,
+                tick_schedule,
             } => {
-                world.spawn((*pos, *vel, *sprite, *behavior, *creature));
+                // Reset next_ai_tick to 0 on load so entities re-evaluate immediately
+                let schedule = TickSchedule {
+                    next_ai_tick: 0,
+                    interval: tick_schedule.map(|s| s.interval).unwrap_or(1),
+                };
+                world.spawn((
+                    *pos,
+                    *vel,
+                    *sprite,
+                    *behavior,
+                    *creature,
+                    schedule,
+                    PathCache::default(),
+                ));
             }
             SerializedEntity::Prey {
                 pos,

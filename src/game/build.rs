@@ -600,7 +600,7 @@ impl super::Game {
         if let Some(&(vx, vy)) = villager_pos.first()
             && let Some((nx, ny)) = self.find_nearby_walkable(vx, vy, 5)
         {
-            ecs::spawn_villager(&mut self.world, nx, ny);
+            ecs::spawn_villager_staggered(&mut self.world, nx, ny, self.tick);
             self.last_birth_tick = self.tick;
             self.notify("New villager born!".to_string());
         }

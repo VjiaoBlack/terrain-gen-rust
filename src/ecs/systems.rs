@@ -47,14 +47,23 @@ pub fn system_movement(world: &mut World, map: &TileMap) {
 /// Hunger increases each tick.
 /// Rate: 0.0005/tick → full hunger in ~2000 ticks (~1.7 in-game days at 0.02h/tick).
 /// Creatures should eat roughly once per day.
-pub fn system_hunger(world: &mut World, hunger_mult: f64) {
-    for creature in world.query_mut::<&mut Creature>() {
+/// Also triggers hunger-critical interrupt: if hunger > 0.85, force AI next tick.
+pub fn system_hunger(world: &mut World, hunger_mult: f64, current_tick: u64) {
+    for (creature, schedule) in world.query_mut::<(&mut Creature, Option<&mut TickSchedule>)>() {
         let rate = match creature.species {
             Species::Prey => 0.0005,
             Species::Predator => 0.0006,  // predators burn slightly more
             Species::Villager => 0.00015, // villagers burn slowly — settlements need time to establish
         };
         creature.hunger = (creature.hunger + rate * hunger_mult).min(1.0);
+        // Hunger-critical interrupt: force AI evaluation when starving
+        if creature.hunger > 0.85 {
+            if let Some(sched) = schedule {
+                if sched.next_ai_tick > current_tick + 1 {
+                    sched.next_ai_tick = current_tick + 1;
+                }
+            }
+        }
     }
 }
 
@@ -179,6 +188,16 @@ pub fn system_ai(
         // Captured prey: frozen, no AI — wait for predator to finish eating
         if matches!(behavior_state, BehaviorState::Captured) {
             continue;
+        }
+
+        // Tick budgeting: skip villagers whose AI is not scheduled this tick.
+        // Movement continues (velocity persists), only AI decisions are gated.
+        if creature.species == Species::Villager {
+            if let Ok(schedule) = world.get::<&TickSchedule>(e) {
+                if schedule.next_ai_tick > current_tick {
+                    continue;
+                }
+            }
         }
 
         // Decide the new state and velocity
@@ -312,6 +331,14 @@ pub fn system_ai(
         if let Ok(mut c) = world.get::<&mut Creature>(e) {
             c.hunger = new_hunger;
         }
+        // Update tick schedule for villagers after AI evaluation
+        if creature.species == Species::Villager {
+            let interval = tick_priority(&new_state);
+            if let Ok(mut schedule) = world.get::<&mut TickSchedule>(e) {
+                schedule.interval = interval;
+                schedule.next_ai_tick = current_tick + interval as u64;
+            }
+        }
         // Track build progress and activity for skills
         if creature.species == Species::Villager {
             match new_state {
@@ -374,6 +401,31 @@ pub fn system_ai(
     // Despawn consumed prey
     for e in to_despawn {
         let _ = world.despawn(e);
+    }
+
+    // Predator proximity interrupt: force villagers near predators to run AI next tick.
+    // Collect predator positions first, then scan villagers with TickSchedule.
+    let predator_positions: Vec<(f64, f64)> = world
+        .query::<(&Position, &Creature)>()
+        .iter()
+        .filter(|(_, c)| c.species == Species::Predator)
+        .map(|(p, _)| (p.x, p.y))
+        .collect();
+    if !predator_positions.is_empty() {
+        let threat_range = 8.0_f64;
+        for (pos, schedule) in world.query_mut::<(&Position, &mut TickSchedule)>() {
+            if schedule.next_ai_tick <= current_tick + 1 {
+                continue; // already scheduled soon
+            }
+            for &(px, py) in &predator_positions {
+                let dx = pos.x - px;
+                let dy = pos.y - py;
+                if dx * dx + dy * dy < threat_range * threat_range {
+                    schedule.next_ai_tick = current_tick;
+                    break;
+                }
+            }
+        }
     }
 
     // Increment progress on build sites where villagers are working

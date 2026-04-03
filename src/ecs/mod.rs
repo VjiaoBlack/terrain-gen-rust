@@ -423,7 +423,7 @@ mod tests {
         let start_hunger = world.get::<&Creature>(e).unwrap().hunger;
 
         for _ in 0..100 {
-            system_hunger(&mut world, 1.0);
+            system_hunger(&mut world, 1.0, 0);
         }
 
         let end_hunger = world.get::<&Creature>(e).unwrap().hunger;
@@ -725,7 +725,7 @@ mod tests {
         let mut states_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for tick in 0..1000 {
-            system_hunger(&mut world, 1.0);
+            system_hunger(&mut world, 1.0, 0);
             let grid = make_grid(&world, &map);
             system_ai(
                 &mut world,
@@ -1243,12 +1243,12 @@ mod tests {
         let e = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
         let start = world.get::<&Creature>(e).unwrap().hunger;
 
-        system_hunger(&mut world, 1.0);
+        system_hunger(&mut world, 1.0, 0);
         let normal_hunger = world.get::<&Creature>(e).unwrap().hunger;
         let normal_increase = normal_hunger - start;
 
         world.get::<&mut Creature>(e).unwrap().hunger = start;
-        system_hunger(&mut world, 1.8);
+        system_hunger(&mut world, 1.8, 0);
         let winter_hunger = world.get::<&Creature>(e).unwrap().hunger;
         let winter_increase = winter_hunger - start;
 
@@ -1613,7 +1613,7 @@ mod tests {
         let mut any_gathered = false;
 
         for tick in 0..3000 {
-            system_hunger(&mut world, 1.0);
+            system_hunger(&mut world, 1.0, 0);
             let grid = make_grid(&world, &map);
             let r = system_ai(
                 &mut world,
@@ -3265,6 +3265,8 @@ mod tests {
             target_y: 10.0,
             resource_type: ResourceType::Stone,
         };
+        // Reset tick schedule so AI runs this tick (Hauling interval=2 from tick 100)
+        world.get::<&mut TickSchedule>(v).unwrap().next_ai_tick = 0;
 
         let grid = make_grid(&world, &map);
         system_ai(
@@ -3388,5 +3390,313 @@ mod tests {
             cache.waypoints.is_empty(),
             "short distance should bypass cache"
         );
+    }
+
+    // --- Tick Budgeting Tests ---
+
+    #[test]
+    fn tick_priority_categories() {
+        use components::tick_priority;
+        // Critical
+        assert_eq!(tick_priority(&BehaviorState::FleeHome { timer: 10 }), 1);
+        assert_eq!(tick_priority(&BehaviorState::Captured), 1);
+        assert_eq!(
+            tick_priority(&BehaviorState::Building {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 10,
+            }),
+            1
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Hunting {
+                target_x: 0.0,
+                target_y: 0.0,
+            }),
+            1
+        );
+
+        // Active
+        assert_eq!(
+            tick_priority(&BehaviorState::Seek {
+                target_x: 0.0,
+                target_y: 0.0,
+                reason: SeekReason::Food,
+            }),
+            2
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Hauling {
+                target_x: 0.0,
+                target_y: 0.0,
+                resource_type: ResourceType::Wood,
+            }),
+            2
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Gathering {
+                timer: 10,
+                resource_type: ResourceType::Wood,
+            }),
+            2
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Exploring {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 10,
+            }),
+            2
+        );
+
+        // Normal
+        assert_eq!(
+            tick_priority(&BehaviorState::Farming {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 10,
+            }),
+            4
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Working {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 10,
+            }),
+            4
+        );
+        assert_eq!(tick_priority(&BehaviorState::Eating { timer: 10 }), 4);
+
+        // Idle
+        assert_eq!(tick_priority(&BehaviorState::Wander { timer: 10 }), 8);
+        assert_eq!(tick_priority(&BehaviorState::Idle { timer: 10 }), 8);
+        assert_eq!(tick_priority(&BehaviorState::Sleeping { timer: 10 }), 8);
+        assert_eq!(tick_priority(&BehaviorState::AtHome { timer: 10 }), 8);
+    }
+
+    #[test]
+    fn tick_schedule_skips_villager_when_not_due() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Set villager to Idle and schedule far in the future
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Idle { timer: 50 };
+        world.get::<&mut TickSchedule>(v).unwrap().next_ai_tick = 100;
+
+        let state_before = world.get::<&Behavior>(v).unwrap().state;
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            10,
+            10,
+            10,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            50, // current_tick < next_ai_tick (100)
+        );
+
+        let state_after = world.get::<&Behavior>(v).unwrap().state;
+        // State should be unchanged because AI was skipped
+        assert!(
+            matches!(state_after, BehaviorState::Idle { timer: 50 }),
+            "villager AI should be skipped when not scheduled, got: {:?} (was {:?})",
+            state_after,
+            state_before
+        );
+    }
+
+    #[test]
+    fn tick_schedule_runs_villager_when_due() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 10.0, 10.0);
+
+        // Schedule is default (next_ai_tick: 0), so tick 0 should run
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Idle { timer: 1 };
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            10,
+            10,
+            10,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            0,
+        );
+
+        let schedule = *world.get::<&TickSchedule>(v).unwrap();
+        // After running AI, next_ai_tick should be updated
+        assert!(
+            schedule.next_ai_tick > 0,
+            "next_ai_tick should be set after AI runs"
+        );
+    }
+
+    #[test]
+    fn tick_schedule_updated_based_on_new_state() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Put villager near a predator to trigger FleeHome (critical)
+        spawn_predator(&mut world, 12.0, 10.0);
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.4,
+            10,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            10,
+        );
+
+        let state = world.get::<&Behavior>(v).unwrap().state;
+        let schedule = *world.get::<&TickSchedule>(v).unwrap();
+        if matches!(state, BehaviorState::FleeHome { .. }) {
+            // Critical: interval 1
+            assert_eq!(
+                schedule.interval, 1,
+                "FleeHome should be critical (interval 1)"
+            );
+            assert_eq!(schedule.next_ai_tick, 11, "next tick should be current + 1");
+        }
+    }
+
+    #[test]
+    fn predator_interrupt_forces_schedule() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Schedule villager far in the future
+        world.get::<&mut TickSchedule>(v).unwrap().next_ai_tick = 1000;
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Sleeping { timer: 100 };
+
+        // Spawn predator within threat range (8 tiles)
+        spawn_predator(&mut world, 14.0, 10.0);
+
+        // Run AI at tick 50 — villager should be skipped due to schedule,
+        // but the predator interrupt post-pass should reset the schedule
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            50,
+        );
+
+        let schedule = *world.get::<&TickSchedule>(v).unwrap();
+        assert_eq!(
+            schedule.next_ai_tick, 50,
+            "predator interrupt should set next_ai_tick to current_tick"
+        );
+    }
+
+    #[test]
+    fn hunger_interrupt_forces_schedule() {
+        let mut world = World::new();
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Set hunger above threshold and schedule far out
+        world.get::<&mut Creature>(v).unwrap().hunger = 0.9;
+        world.get::<&mut TickSchedule>(v).unwrap().next_ai_tick = 1000;
+
+        system_hunger(&mut world, 1.0, 50);
+
+        let schedule = *world.get::<&TickSchedule>(v).unwrap();
+        assert_eq!(
+            schedule.next_ai_tick, 51,
+            "hunger interrupt should set next_ai_tick to current_tick + 1"
+        );
+    }
+
+    #[test]
+    fn spawn_villager_has_tick_schedule() {
+        let mut world = World::new();
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        let schedule = world.get::<&TickSchedule>(v);
+        assert!(
+            schedule.is_ok(),
+            "villager should have TickSchedule component"
+        );
+        let s = *schedule.unwrap();
+        assert_eq!(s.next_ai_tick, 0, "new villager should run AI immediately");
+    }
+
+    #[test]
+    fn prey_and_predator_not_gated_by_tick_schedule() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        // Spawn prey and predator — they should NOT have TickSchedule
+        let prey = spawn_prey(&mut world, 10.0, 10.0, 10.0, 10.0);
+        let pred = spawn_predator(&mut world, 20.0, 20.0);
+
+        assert!(
+            world.get::<&TickSchedule>(prey).is_err(),
+            "prey should not have TickSchedule"
+        );
+        assert!(
+            world.get::<&TickSchedule>(pred).is_err(),
+            "predator should not have TickSchedule"
+        );
+
+        // They should still run AI every tick
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            0,
+        );
+        // Just verify no panic — prey/predator AI ran without TickSchedule
     }
 }

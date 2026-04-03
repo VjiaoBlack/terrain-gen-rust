@@ -775,10 +775,10 @@ impl Game {
             }
         }
 
-        // Spawn 3 villagers near the stockpile
+        // Spawn 3 villagers near the stockpile (staggered to avoid tick-sync)
         for i in 0..3 {
             let (vx, vy) = find_walkable(&map, scx + i * 2, scy + 1);
-            ecs::spawn_villager(&mut world, vx, vy);
+            ecs::spawn_villager_staggered(&mut world, vx, vy, 0);
         }
 
         let mut g = Self {
@@ -1134,7 +1134,7 @@ impl Game {
                 // Apply seasonal modifiers
                 let mods = self.day_night.season_modifiers();
 
-                ecs::system_hunger(&mut self.world, mods.hunger_mult);
+                ecs::system_hunger(&mut self.world, mods.hunger_mult, self.tick);
 
                 // Siege model: compute if settlement is defended
                 let defense_rating = self.compute_defense_rating();
