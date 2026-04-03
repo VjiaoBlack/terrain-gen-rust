@@ -1,4 +1,5 @@
 mod build;
+pub mod chokepoint;
 mod events;
 mod render;
 mod save;
@@ -385,6 +386,12 @@ pub struct Game {
     /// Active fire tiles: (x, y, burn_ticks_remaining). Processed each tick for
     /// fire spread and burnout — O(fire_front), not O(map).
     pub fire_tiles: Vec<(usize, usize, u32)>,
+    /// Per-tile chokepoint scores + clustered locations. Computed at world-gen,
+    /// recomputed when `chokepoints_dirty` is set (e.g. building placement).
+    pub chokepoint_map: chokepoint::ChokepointMap,
+    /// Set to true when terrain changes (building placed/demolished) to trigger
+    /// chokepoint recomputation on the next relevant tick.
+    pub chokepoints_dirty: bool,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -1092,9 +1099,14 @@ impl Game {
             flooded_tiles: Vec::new(),
             raid_survived_clean: false,
             fire_tiles: Vec::new(),
+            chokepoint_map: chokepoint::ChokepointMap::empty(map_width, map_height),
+            chokepoints_dirty: true, // will be computed on first access
             #[cfg(feature = "lua")]
             script_engine: None,
         };
+        // Compute initial chokepoint map from generated terrain
+        g.chokepoint_map = chokepoint::ChokepointMap::compute(&g.map, &g.river_mask);
+        g.chokepoints_dirty = false;
         // Pre-reveal settlement start area (around map center)
         g.exploration.reveal(scx, scy, 15);
         // Start camera at settlement
@@ -2118,6 +2130,13 @@ impl Game {
 
                 // Population growth check
                 self.try_population_growth();
+
+                // Recompute chokepoint map if terrain changed (building placed/demolished).
+                if self.chokepoints_dirty && self.tick.is_multiple_of(50) {
+                    self.chokepoint_map =
+                        chokepoint::ChokepointMap::compute(&self.map, &self.river_mask);
+                    self.chokepoints_dirty = false;
+                }
 
                 // Auto-build check (every 50 ticks — frequent enough to catch narrow
                 // resource windows, e.g. wood=8-9 where Workshop is affordable but Hut is not)

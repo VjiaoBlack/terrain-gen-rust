@@ -144,6 +144,7 @@ impl super::Game {
             }
         }
         ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt, self.tick);
+        self.chokepoints_dirty = true;
     }
 
     /// Handle a mouse click at screen coordinates.
@@ -1441,41 +1442,9 @@ impl super::Game {
             score += w_high * self.heights[idx];
         }
 
-        // ── Chokepoint: how narrow the walkable corridor is here ──
-        // Measure minimum clear distance to impassable terrain in 8 directions.
+        // ── Chokepoint: read from precomputed ChokepointMap ──
         if w_choke.abs() > 0.01 {
-            let mut min_clear = 40i32;
-            for (ddx, ddy) in [
-                (1i32, 0),
-                (-1, 0),
-                (0, 1i32),
-                (0, -1),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ] {
-                let mut dist = 0i32;
-                loop {
-                    dist += 1;
-                    let sx = mx + ddx * dist;
-                    let sy = my + ddy * dist;
-                    if sx < 0 || sy < 0 || sx as usize >= w || sy as usize >= h {
-                        break;
-                    }
-                    if !self.map.is_walkable(sx as f64, sy as f64) {
-                        break;
-                    }
-                    if dist >= 40 {
-                        break;
-                    }
-                }
-                if dist < min_clear {
-                    min_clear = dist;
-                }
-            }
-            // Narrow pass (min_clear=2) → 1/(2+1)=0.33; open field (min_clear=40) → 0.024
-            score += w_choke * (1.0 / (min_clear as f64 + 1.0));
+            score += w_choke * self.chokepoint_map.get(mx as usize, my as usize);
         }
 
         // ── Cluster bonus: count buildings of same type within 8 tiles ──
@@ -1850,6 +1819,7 @@ impl super::Game {
                     }
                 }
             }
+            self.chokepoints_dirty = true;
             if exhausted_farm {
                 self.notify("Exhausted farm demolished — soil scarred.".to_string());
             } else {

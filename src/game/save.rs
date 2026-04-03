@@ -40,7 +40,7 @@ impl Game {
         let state: SaveState = serde_json::from_reader(file)?;
         let map_w = state.map.width;
         let map_h = state.map.height;
-        Ok(Game {
+        let mut game = Game {
             target_fps,
             tick: state.tick,
             map: state.map,
@@ -103,8 +103,15 @@ impl Game {
             flooded_tiles: Vec::new(),
             raid_survived_clean: false,
             fire_tiles: Vec::new(),
+            chokepoint_map: super::chokepoint::ChokepointMap::empty(map_w, map_h),
+            chokepoints_dirty: true, // recompute after load
             #[cfg(feature = "lua")]
             script_engine: None,
-        })
+        };
+        // Recompute chokepoint map from loaded terrain
+        game.chokepoint_map =
+            super::chokepoint::ChokepointMap::compute(&game.map, &game.river_mask);
+        game.chokepoints_dirty = false;
+        Ok(game)
     }
 }
