@@ -94,6 +94,9 @@ impl Game {
             soil_fertility: crate::simulation::SoilFertilityMap::new(map_w, map_h),
             soil: vec![crate::terrain_pipeline::SoilType::Loam; map_w * map_h],
             river_mask: vec![false; map_w * map_h],
+            pipeline_temperature: vec![0.5; map_w * map_h],
+            pipeline_slope: vec![0.0; map_w * map_h],
+            pipeline_moisture: vec![0.5; map_w * map_h],
             resource_map: state
                 .resource_map
                 .unwrap_or_else(|| crate::terrain_pipeline::ResourceMap::new(map_w, map_h)),

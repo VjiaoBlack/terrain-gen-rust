@@ -498,6 +498,9 @@ pub struct Game {
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
+    pub pipeline_temperature: Vec<f64>,
+    pub pipeline_slope: Vec<f64>,
+    pub pipeline_moisture: Vec<f64>,
     pub resource_map: crate::terrain_pipeline::ResourceMap,
     pub knowledge: SettlementKnowledge,
     pub spatial_grid: crate::ecs::spatial::SpatialHashGrid,
@@ -584,7 +587,27 @@ impl Game {
             }
         }
         let moisture = MoistureMap::new(map_width, map_height);
-        let vegetation = VegetationMap::new(map_width, map_height);
+        let mut vegetation = VegetationMap::new(map_width, map_height);
+
+        // Seed vegetation from biome so the map looks alive from tick 0
+        for y in 0..map_height {
+            for x in 0..map_width {
+                let veg = match map.get(x, y) {
+                    Some(Terrain::Forest) => 0.8,
+                    Some(Terrain::Grass) => 0.4,
+                    Some(Terrain::Scrubland) => 0.2,
+                    Some(Terrain::Marsh) => 0.5,
+                    Some(Terrain::Sapling) => 0.3,
+                    Some(Terrain::Sand) => 0.05,
+                    Some(Terrain::Tundra) => 0.1,
+                    Some(Terrain::Desert) => 0.02,
+                    _ => 0.0,
+                };
+                if let Some(v) = vegetation.get_mut(x, y) {
+                    *v = veg;
+                }
+            }
+        }
 
         let camera = Camera::new(100, 100);
         let mut world = World::new();
@@ -1243,6 +1266,9 @@ impl Game {
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
+            pipeline_temperature: result.temperature,
+            pipeline_slope: result.slope,
+            pipeline_moisture: result.moisture,
             resource_map: result.resources,
             knowledge: SettlementKnowledge::default(),
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_width, map_height, 16),
