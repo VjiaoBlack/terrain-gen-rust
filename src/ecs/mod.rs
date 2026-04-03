@@ -1,6 +1,7 @@
 mod ai;
 pub mod ai_arrays;
 pub mod components;
+pub mod groups;
 pub mod serialize;
 pub mod spatial;
 pub mod spawn;
@@ -318,6 +319,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
         }
@@ -362,6 +365,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
         }
@@ -408,6 +413,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
         }
@@ -453,6 +460,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
@@ -526,6 +535,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -571,6 +582,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -611,6 +624,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -654,6 +669,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -697,6 +714,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -744,6 +763,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
 
@@ -816,6 +837,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
 
@@ -890,6 +913,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
@@ -930,6 +955,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -976,6 +1003,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1022,6 +1051,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1072,6 +1103,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1133,6 +1166,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
@@ -1210,6 +1245,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1263,6 +1300,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1387,6 +1426,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             system_movement(&mut world, &map);
         }
@@ -1783,6 +1824,8 @@ mod tests {
                 &[],
                 &ScentMap::default(),
                 &ScentMap::default(),
+                &crate::pathfinding::NavGraph::default(),
+                &crate::ecs::groups::GroupManager::new(),
             );
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
@@ -1848,6 +1891,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1897,6 +1942,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -2306,6 +2353,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2357,6 +2406,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2505,6 +2556,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         if result.grain_consumed > 0 || result.food_consumed > 0 {
@@ -2630,6 +2683,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
@@ -2680,6 +2735,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         assert!(
@@ -2742,6 +2799,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         assert!(
@@ -3143,6 +3202,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         assert!(
@@ -3238,6 +3299,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3286,6 +3349,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3331,6 +3396,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // Villager should have a PathCache with content
@@ -3379,6 +3446,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
         system_movement(&mut world, &map);
 
@@ -3409,6 +3478,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let cache_after_second = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3452,6 +3523,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3485,6 +3558,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let cache_second = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3525,6 +3600,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3550,6 +3627,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let cache_after = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3592,6 +3671,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let cache = world.get::<&PathCache>(v).unwrap();
@@ -3718,6 +3799,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state_after = world.get::<&Behavior>(v).unwrap().state;
@@ -3759,6 +3842,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let schedule = *world.get::<&TickSchedule>(v).unwrap();
@@ -3797,6 +3882,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -3845,6 +3932,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let schedule = *world.get::<&TickSchedule>(v).unwrap();
@@ -3923,6 +4012,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
         // Just verify no panic — prey/predator AI ran without TickSchedule
     }
@@ -4229,6 +4320,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // Check that deposit happened
@@ -4594,6 +4687,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // The board should now have the wood sighting
@@ -5251,6 +5346,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // Check: villager should be in confused Idle with timer = STALE_ARRIVAL_PAUSE
@@ -5328,6 +5425,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // WoodSource memory should still be present (not deleted)
@@ -5381,6 +5480,8 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // Should be in confused idle
@@ -6983,6 +7084,8 @@ mod tests {
             &[],
             &danger_scent,
             &home_scent,
+            &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         // Villager should now be fleeing

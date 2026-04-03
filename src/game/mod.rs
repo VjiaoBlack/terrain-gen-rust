@@ -457,6 +457,7 @@ pub struct Game {
     pub resource_map: crate::terrain_pipeline::ResourceMap,
     pub knowledge: SettlementKnowledge,
     pub spatial_grid: crate::ecs::spatial::SpatialHashGrid,
+    pub group_manager: crate::ecs::groups::GroupManager,
     pub ai_arrays: crate::ecs::ai_arrays::AiArrays,
     pub difficulty: DifficultyState,
     pub milestone_banner: Option<MilestoneBanner>,
@@ -1191,6 +1192,7 @@ impl Game {
             resource_map: result.resources,
             knowledge: SettlementKnowledge::default(),
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_width, map_height, 16),
+            group_manager: crate::ecs::groups::GroupManager::new(),
             ai_arrays: crate::ecs::ai_arrays::AiArrays::new(64),
             difficulty: DifficultyState::default(),
             milestone_banner: None,
@@ -1860,6 +1862,20 @@ impl Game {
                     build_speed: (self.skills.building / 50.0).floor() as u32,
                 };
                 self.spatial_grid.populate(&self.world);
+                // Group detection: rebuild groups periodically, check threats every tick
+                if self
+                    .tick
+                    .saturating_sub(self.group_manager.last_detection_tick)
+                    >= crate::ecs::groups::GROUP_DETECTION_INTERVAL
+                {
+                    self.group_manager
+                        .detect_groups(&self.world, &self.spatial_grid, self.tick);
+                }
+                self.group_manager.update_threat_detection(
+                    &mut self.world,
+                    &self.spatial_grid,
+                    self.tick,
+                );
                 self.ai_arrays.extract(&self.world);
                 ecs::system_update_memories(
                     &mut self.world,
@@ -1887,6 +1903,7 @@ impl Game {
                     &self.danger_scent,
                     &self.home_scent,
                     &self.nav_graph,
+                    &self.group_manager,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -2160,7 +2177,9 @@ impl Game {
                     .filter(|c| c.species == Species::Predator)
                     .count();
 
-                ecs::system_death(&mut self.world);
+                let dead = ecs::system_death(&mut self.world);
+                self.group_manager
+                    .remove_dead_entities(&dead, &mut self.world, self.tick);
 
                 let villagers_after = self
                     .world
@@ -3313,6 +3332,7 @@ mod tests {
             &ScentMap::default(),
             &ScentMap::default(),
             &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -5389,6 +5409,7 @@ mod tests {
             &ScentMap::default(),
             &ScentMap::default(),
             &crate::pathfinding::NavGraph::default(),
+            &crate::ecs::groups::GroupManager::new(),
         );
 
         let state = game.world.get::<&crate::ecs::Behavior>(v).unwrap().state;
