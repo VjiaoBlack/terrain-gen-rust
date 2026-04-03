@@ -781,6 +781,42 @@ impl super::Game {
 
                             renderer.draw(sx, sy, ch, fg, bg);
                         } else {
+                            // Check for runtime water depth — render as water if flooded
+                            let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                            if water_depth > 0.08
+                                && !matches!(
+                                    terrain,
+                                    Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
+                                )
+                            {
+                                let intensity = (water_depth * 4.0).min(1.0);
+                                let water_fg = Color(
+                                    (40.0 * (1.0 - intensity)) as u8,
+                                    (80.0 + 60.0 * intensity) as u8,
+                                    (160.0 + 60.0 * intensity) as u8,
+                                );
+                                let water_bg = Color(
+                                    (20.0 * (1.0 - intensity)) as u8,
+                                    (40.0 + 30.0 * intensity) as u8,
+                                    (100.0 + 40.0 * intensity) as u8,
+                                );
+                                let water_chars = ['~', '≈', '∼'];
+                                let anim =
+                                    ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
+                                let fg = self.day_night.apply_lighting(
+                                    water_fg,
+                                    wx as usize,
+                                    wy as usize,
+                                );
+                                let bg = Some(self.day_night.apply_lighting(
+                                    water_bg,
+                                    wx as usize,
+                                    wy as usize,
+                                ));
+                                renderer.draw(sx, sy, water_chars[anim], fg, bg);
+                                continue;
+                            }
+
                             // Blend soil + vegetation for natural terrain types
                             let (fg, bg) = if terrain.has_vegetation_blending() {
                                 let ux = wx as usize;
