@@ -782,8 +782,9 @@ impl super::Game {
                             renderer.draw(sx, sy, ch, fg, bg);
                         } else {
                             // Check for runtime water depth — render as water if flooded
-                            let water_depth = self.water.get_avg(wx as usize, wy as usize);
-                            if water_depth > 0.08
+                            // Use raw water depth (not slow average) for responsive visuals
+                            let water_depth = self.water.get(wx as usize, wy as usize);
+                            if water_depth > 0.01
                                 && !matches!(
                                     terrain,
                                     Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
