@@ -1,12 +1,115 @@
 use super::{CELL_ASPECT, GameEvent, OverlayMode, PANEL_WIDTH, ROAD_TRAFFIC_THRESHOLD};
 use crate::ecs::{
     self, Behavior, BehaviorState, BuildingType, Creature, Den, FarmPlot, FoodSource,
-    GarrisonBuilding, Position, ProcessingBuilding, ResourceType, Species, Sprite, Stockpile,
-    StoneDeposit, TownHallBuilding,
+    GarrisonBuilding, Position, ProcessingBuilding, ResourceType, SeekReason, Species, Sprite,
+    Stockpile, StoneDeposit, TownHallBuilding, Velocity,
 };
 use crate::renderer::{Color, Renderer};
 use crate::simulation::Season;
 use crate::tilemap::Terrain;
+
+/// Compute directional character from a movement vector.
+/// Returns `>`, `<`, `^`, or `v` based on the dominant axis.
+/// Falls back to `>` when the vector is zero-length.
+fn direction_char(dx: f64, dy: f64) -> char {
+    if dx.abs() < 0.001 && dy.abs() < 0.001 {
+        return '>';
+    }
+    if dx.abs() > dy.abs() {
+        if dx > 0.0 { '>' } else { '<' }
+    } else {
+        // Screen Y increases downward, so positive dy = down
+        if dy > 0.0 { 'v' } else { '^' }
+    }
+}
+
+/// Map (Species, BehaviorState, velocity) to a display character and base color.
+///
+/// This replaces the static `sprite.ch` so entities visually reflect their
+/// current activity. The returned color is the *base* color before day/night
+/// tinting is applied by the caller.
+pub(super) fn entity_visual(
+    species: Species,
+    state: &BehaviorState,
+    vel_dx: f64,
+    vel_dy: f64,
+    _default_sprite: &Sprite,
+) -> (char, Color) {
+    match species {
+        Species::Villager => villager_visual(state, vel_dx, vel_dy),
+        Species::Predator => predator_visual(state, vel_dx, vel_dy),
+        Species::Prey => prey_visual(state),
+    }
+}
+
+fn villager_visual(state: &BehaviorState, vdx: f64, vdy: f64) -> (char, Color) {
+    match state {
+        BehaviorState::Idle { .. } => ('o', Color(80, 80, 180)),
+        BehaviorState::Wander { .. } => ('o', Color(100, 100, 160)),
+        BehaviorState::Seek { reason, .. } => match reason {
+            SeekReason::Food => ('!', Color(220, 180, 50)),
+            SeekReason::Stockpile => (direction_char(vdx, vdy), Color(200, 180, 50)),
+            SeekReason::BuildSite => (direction_char(vdx, vdy), Color(255, 220, 50)),
+            SeekReason::Wood => (direction_char(vdx, vdy), Color(139, 90, 43)),
+            SeekReason::Stone => (direction_char(vdx, vdy), Color(150, 150, 150)),
+            SeekReason::Hut => (direction_char(vdx, vdy), Color(100, 100, 200)),
+            SeekReason::ExitBuilding => ('V', Color(100, 200, 255)),
+            SeekReason::Unknown => ('?', Color(150, 150, 50)),
+        },
+        BehaviorState::Gathering { resource_type, .. } => match resource_type {
+            ResourceType::Wood => ('T', Color(139, 90, 43)),
+            ResourceType::Stone => ('M', Color(150, 150, 150)),
+            ResourceType::Food => ('F', Color(50, 200, 50)),
+            _ => ('g', Color(180, 180, 100)),
+        },
+        BehaviorState::Hauling { resource_type, .. } => {
+            let dir = direction_char(vdx, vdy);
+            match resource_type {
+                ResourceType::Wood => (dir, Color(180, 120, 50)),
+                ResourceType::Stone => (dir, Color(180, 180, 180)),
+                ResourceType::Food => (dir, Color(100, 220, 80)),
+                ResourceType::Grain => (dir, Color(220, 200, 80)),
+                ResourceType::Planks => (dir, Color(200, 160, 80)),
+                ResourceType::Masonry => (dir, Color(200, 200, 210)),
+            }
+        }
+        BehaviorState::Building { .. } => ('B', Color(255, 220, 50)),
+        BehaviorState::Farming { .. } => ('~', Color(80, 200, 80)),
+        BehaviorState::Working { .. } => ('*', Color(200, 120, 50)),
+        BehaviorState::Exploring { .. } => ('>', Color(50, 180, 255)),
+        BehaviorState::Sleeping { .. } => ('z', Color(60, 60, 140)),
+        BehaviorState::FleeHome { .. } => ('!', Color(255, 50, 50)),
+        BehaviorState::Eating { .. } => ('e', Color(50, 200, 50)),
+        // Villagers shouldn't normally reach these, but handle gracefully
+        BehaviorState::Hunting { .. } => ('V', Color(200, 100, 100)),
+        BehaviorState::Captured => ('X', Color(200, 50, 50)),
+        BehaviorState::AtHome { .. } => ('.', Color(80, 80, 100)),
+    }
+}
+
+fn predator_visual(state: &BehaviorState, vdx: f64, vdy: f64) -> (char, Color) {
+    match state {
+        BehaviorState::Wander { .. } => ('w', Color(160, 50, 50)),
+        BehaviorState::Idle { .. } => ('w', Color(120, 40, 40)),
+        BehaviorState::Seek { .. } => (direction_char(vdx, vdy), Color(180, 60, 60)),
+        BehaviorState::Hunting { .. } => ('W', Color(255, 50, 50)),
+        BehaviorState::Eating { .. } => ('X', Color(200, 30, 30)),
+        BehaviorState::FleeHome { .. } => (direction_char(vdx, vdy), Color(160, 80, 80)),
+        _ => ('W', Color(160, 50, 50)),
+    }
+}
+
+fn prey_visual(state: &BehaviorState) -> (char, Color) {
+    match state {
+        BehaviorState::Wander { .. } => ('r', Color(180, 140, 80)),
+        BehaviorState::Idle { .. } => ('r', Color(140, 110, 60)),
+        BehaviorState::Eating { .. } => ('r', Color(100, 180, 60)),
+        BehaviorState::FleeHome { .. } => ('!', Color(255, 200, 50)),
+        BehaviorState::AtHome { .. } => ('.', Color(100, 80, 50)),
+        BehaviorState::Captured => ('x', Color(200, 50, 50)),
+        _ => ('r', Color(180, 140, 80)),
+    }
+}
 
 impl super::Game {
     /// Apply seasonal color tinting to vegetation-sensitive terrain.
@@ -615,7 +718,7 @@ impl super::Game {
         } // end Territory overlay
 
         // draw entities (offset by camera) — world→screen X is multiplied by aspect
-        // Skip AtHome (hidden in den), dim Captured (being eaten)
+        // Skip AtHome (hidden in den for prey), use entity_visual() for state-based rendering.
         for (e, (pos, sprite)) in self
             .world
             .query::<(hecs::Entity, (&Position, &Sprite))>()
@@ -640,66 +743,35 @@ impl super::Game {
                 && (sy as u16) < h.saturating_sub(status_h)
             {
                 let (tr, tg, tb) = self.day_night.ambient_tint();
-                let fg = if matches!(bstate, Some(BehaviorState::Captured)) {
-                    // Captured prey rendered dim red
-                    Color(
-                        (120.0 * tr).clamp(0.0, 255.0) as u8,
-                        (30.0 * tg).clamp(0.0, 255.0) as u8,
-                        (30.0 * tb).clamp(0.0, 255.0) as u8,
-                    )
-                } else if matches!(bstate, Some(BehaviorState::Sleeping { .. })) {
-                    // Sleeping villagers rendered dimmer
-                    Color(
-                        (sprite.fg.0 as f64 * tr * 0.5).clamp(0.0, 255.0) as u8,
-                        (sprite.fg.1 as f64 * tg * 0.5).clamp(0.0, 255.0) as u8,
-                        (sprite.fg.2 as f64 * tb * 0.5).clamp(0.0, 255.0) as u8,
-                    )
+
+                // Determine display char and base color from species + behavior state.
+                // Non-creature entities (buildings, resources) keep their sprite defaults.
+                let creature_opt = self.world.get::<&Creature>(e).ok();
+                let vel_opt = self.world.get::<&Velocity>(e).ok();
+                let (display_ch, base_fg) = if let (Some(creature), Some(bstate_val)) =
+                    (creature_opt.as_deref(), &bstate)
+                {
+                    let (vdx, vdy) = vel_opt
+                        .as_deref()
+                        .map(|v| (v.dx, v.dy))
+                        .unwrap_or((0.0, 0.0));
+                    entity_visual(creature.species, bstate_val, vdx, vdy, sprite)
                 } else {
-                    Color(
-                        (sprite.fg.0 as f64 * tr).clamp(0.0, 255.0) as u8,
-                        (sprite.fg.1 as f64 * tg).clamp(0.0, 255.0) as u8,
-                        (sprite.fg.2 as f64 * tb).clamp(0.0, 255.0) as u8,
-                    )
+                    (sprite.ch, sprite.fg)
                 };
-                // Task overlay: color-code villagers by activity
-                let fg = if self.overlay == OverlayMode::Tasks {
-                    if let Ok(creature) = self.world.get::<&Creature>(e) {
-                        if creature.species == Species::Villager {
-                            match bstate {
-                                Some(BehaviorState::Gathering {
-                                    resource_type: ResourceType::Wood,
-                                    ..
-                                }) => Color(139, 90, 43), // brown
-                                Some(BehaviorState::Gathering {
-                                    resource_type: ResourceType::Stone,
-                                    ..
-                                }) => Color(150, 150, 150), // gray
-                                Some(BehaviorState::Gathering {
-                                    resource_type: ResourceType::Food,
-                                    ..
-                                }) => Color(50, 200, 50), // green
-                                Some(BehaviorState::Hauling { .. }) => Color(200, 180, 50), // gold
-                                Some(BehaviorState::Building { .. }) => Color(255, 220, 50), // yellow
-                                Some(BehaviorState::Farming { .. }) => Color(80, 200, 80), // farm green
-                                Some(BehaviorState::Working { .. }) => Color(200, 120, 50), // workshop orange
-                                Some(BehaviorState::Eating { .. }) => Color(50, 200, 50),   // green
-                                Some(BehaviorState::Sleeping { .. }) => Color(100, 100, 200), // blue
-                                Some(BehaviorState::FleeHome { .. }) => Color(255, 50, 50),   // red
-                                Some(BehaviorState::Idle { .. })
-                                | Some(BehaviorState::Wander { .. }) => Color(80, 80, 180), // dim blue
-                                Some(BehaviorState::Seek { .. }) => Color(180, 180, 50), // dim yellow
-                                _ => fg,
-                            }
-                        } else {
-                            fg
-                        }
-                    } else {
-                        fg
-                    }
+
+                // Apply day/night tinting; sleeping entities get extra dimming.
+                let dim = if matches!(bstate, Some(BehaviorState::Sleeping { .. })) {
+                    0.5
                 } else {
-                    fg
+                    1.0
                 };
-                renderer.draw(sx as u16, sy as u16, sprite.ch, fg, None);
+                let fg = Color(
+                    (base_fg.0 as f64 * tr * dim).clamp(0.0, 255.0) as u8,
+                    (base_fg.1 as f64 * tg * dim).clamp(0.0, 255.0) as u8,
+                    (base_fg.2 as f64 * tb * dim).clamp(0.0, 255.0) as u8,
+                );
+                renderer.draw(sx as u16, sy as u16, display_ch, fg, None);
             }
         }
 
@@ -1658,5 +1730,348 @@ impl super::Game {
         // Notifications and status bar (shared with normal draw)
         self.draw_notifications(renderer);
         self.draw_status(renderer);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::{BehaviorState, ResourceType, SeekReason, Species};
+    use crate::renderer::Color;
+
+    fn dummy_sprite() -> Sprite {
+        Sprite {
+            ch: 'V',
+            fg: Color(100, 200, 255),
+        }
+    }
+
+    // --- direction_char ---
+
+    #[test]
+    fn direction_char_right() {
+        assert_eq!(direction_char(1.0, 0.0), '>');
+    }
+
+    #[test]
+    fn direction_char_left() {
+        assert_eq!(direction_char(-1.0, 0.0), '<');
+    }
+
+    #[test]
+    fn direction_char_down() {
+        assert_eq!(direction_char(0.0, 1.0), 'v');
+    }
+
+    #[test]
+    fn direction_char_up() {
+        assert_eq!(direction_char(0.0, -1.0), '^');
+    }
+
+    #[test]
+    fn direction_char_zero_defaults_right() {
+        assert_eq!(direction_char(0.0, 0.0), '>');
+    }
+
+    #[test]
+    fn direction_char_diagonal_favors_dominant() {
+        // dx=3, dy=1 => horizontal dominant => '>'
+        assert_eq!(direction_char(3.0, 1.0), '>');
+        // dx=1, dy=-3 => vertical dominant => '^'
+        assert_eq!(direction_char(1.0, -3.0), '^');
+    }
+
+    // --- Villager states ---
+
+    #[test]
+    fn villager_idle_shows_circle() {
+        let state = BehaviorState::Idle { timer: 10 };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'o');
+        assert_eq!(color, Color(80, 80, 180));
+    }
+
+    #[test]
+    fn villager_wander_shows_circle_slate() {
+        let state = BehaviorState::Wander { timer: 5 };
+        let (ch, _) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'o');
+    }
+
+    #[test]
+    fn villager_seek_food_shows_exclamation() {
+        let state = BehaviorState::Seek {
+            target_x: 10.0,
+            target_y: 10.0,
+            reason: SeekReason::Food,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 1.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, '!');
+        assert_eq!(color, Color(220, 180, 50));
+    }
+
+    #[test]
+    fn villager_seek_stockpile_shows_direction() {
+        let state = BehaviorState::Seek {
+            target_x: 10.0,
+            target_y: 10.0,
+            reason: SeekReason::Stockpile,
+        };
+        // Moving right
+        let (ch, _) = entity_visual(Species::Villager, &state, 2.0, 0.5, &dummy_sprite());
+        assert_eq!(ch, '>');
+        // Moving left
+        let (ch, _) = entity_visual(Species::Villager, &state, -2.0, 0.5, &dummy_sprite());
+        assert_eq!(ch, '<');
+    }
+
+    #[test]
+    fn villager_seek_wood_brown() {
+        let state = BehaviorState::Seek {
+            target_x: 5.0,
+            target_y: 5.0,
+            reason: SeekReason::Wood,
+        };
+        let (_, color) = entity_visual(Species::Villager, &state, 1.0, 0.0, &dummy_sprite());
+        assert_eq!(color, Color(139, 90, 43));
+    }
+
+    #[test]
+    fn villager_gathering_wood_shows_t() {
+        let state = BehaviorState::Gathering {
+            timer: 20,
+            resource_type: ResourceType::Wood,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'T');
+        assert_eq!(color, Color(139, 90, 43));
+    }
+
+    #[test]
+    fn villager_gathering_stone_shows_m() {
+        let state = BehaviorState::Gathering {
+            timer: 15,
+            resource_type: ResourceType::Stone,
+        };
+        let (ch, _) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'M');
+    }
+
+    #[test]
+    fn villager_gathering_food_shows_f() {
+        let state = BehaviorState::Gathering {
+            timer: 10,
+            resource_type: ResourceType::Food,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'F');
+        assert_eq!(color, Color(50, 200, 50));
+    }
+
+    #[test]
+    fn villager_hauling_uses_direction_and_resource_color() {
+        let state = BehaviorState::Hauling {
+            target_x: 10.0,
+            target_y: 10.0,
+            resource_type: ResourceType::Wood,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 1.0, &dummy_sprite());
+        assert_eq!(ch, 'v'); // moving down
+        assert_eq!(color, Color(180, 120, 50));
+    }
+
+    #[test]
+    fn villager_hauling_stone_grey() {
+        let state = BehaviorState::Hauling {
+            target_x: 0.0,
+            target_y: 0.0,
+            resource_type: ResourceType::Stone,
+        };
+        let (_, color) = entity_visual(Species::Villager, &state, -1.0, 0.0, &dummy_sprite());
+        assert_eq!(color, Color(180, 180, 180));
+    }
+
+    #[test]
+    fn villager_building_shows_b() {
+        let state = BehaviorState::Building {
+            target_x: 5.0,
+            target_y: 5.0,
+            timer: 30,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'B');
+        assert_eq!(color, Color(255, 220, 50));
+    }
+
+    #[test]
+    fn villager_farming_shows_tilde() {
+        let state = BehaviorState::Farming {
+            target_x: 5.0,
+            target_y: 5.0,
+            lease: 100,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, '~');
+        assert_eq!(color, Color(80, 200, 80));
+    }
+
+    #[test]
+    fn villager_working_shows_star() {
+        let state = BehaviorState::Working {
+            target_x: 5.0,
+            target_y: 5.0,
+            lease: 50,
+        };
+        let (ch, _) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, '*');
+    }
+
+    #[test]
+    fn villager_exploring_shows_arrow() {
+        let state = BehaviorState::Exploring {
+            target_x: 20.0,
+            target_y: 20.0,
+            timer: 100,
+        };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, '>');
+        assert_eq!(color, Color(50, 180, 255));
+    }
+
+    #[test]
+    fn villager_sleeping_shows_z() {
+        let state = BehaviorState::Sleeping { timer: 200 };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'z');
+        assert_eq!(color, Color(60, 60, 140));
+    }
+
+    #[test]
+    fn villager_flee_shows_exclamation_red() {
+        let state = BehaviorState::FleeHome { timer: 50 };
+        let (ch, color) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, '!');
+        assert_eq!(color, Color(255, 50, 50));
+    }
+
+    #[test]
+    fn villager_eating_shows_e() {
+        let state = BehaviorState::Eating { timer: 10 };
+        let (ch, _) = entity_visual(Species::Villager, &state, 0.0, 0.0, &dummy_sprite());
+        assert_eq!(ch, 'e');
+    }
+
+    // --- Predator (wolf) states ---
+
+    #[test]
+    fn wolf_wander_lowercase() {
+        let state = BehaviorState::Wander { timer: 10 };
+        let sprite = Sprite {
+            ch: 'W',
+            fg: Color(160, 50, 50),
+        };
+        let (ch, _) = entity_visual(Species::Predator, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, 'w');
+    }
+
+    #[test]
+    fn wolf_hunting_uppercase_bright_red() {
+        let state = BehaviorState::Hunting {
+            target_x: 5.0,
+            target_y: 5.0,
+        };
+        let sprite = Sprite {
+            ch: 'W',
+            fg: Color(160, 50, 50),
+        };
+        let (ch, color) = entity_visual(Species::Predator, &state, 1.0, 0.0, &sprite);
+        assert_eq!(ch, 'W');
+        assert_eq!(color, Color(255, 50, 50));
+    }
+
+    #[test]
+    fn wolf_eating_shows_x() {
+        let state = BehaviorState::Eating { timer: 5 };
+        let sprite = Sprite {
+            ch: 'W',
+            fg: Color(160, 50, 50),
+        };
+        let (ch, _) = entity_visual(Species::Predator, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, 'X');
+    }
+
+    #[test]
+    fn wolf_seek_directional() {
+        let state = BehaviorState::Seek {
+            target_x: 10.0,
+            target_y: 10.0,
+            reason: SeekReason::Unknown,
+        };
+        let sprite = Sprite {
+            ch: 'W',
+            fg: Color(160, 50, 50),
+        };
+        let (ch, _) = entity_visual(Species::Predator, &state, -1.0, 0.0, &sprite);
+        assert_eq!(ch, '<');
+    }
+
+    // --- Prey (rabbit) states ---
+
+    #[test]
+    fn rabbit_wander_lowercase_r() {
+        let state = BehaviorState::Wander { timer: 10 };
+        let sprite = Sprite {
+            ch: 'r',
+            fg: Color(180, 140, 80),
+        };
+        let (ch, _) = entity_visual(Species::Prey, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, 'r');
+    }
+
+    #[test]
+    fn rabbit_eating_green_tint() {
+        let state = BehaviorState::Eating { timer: 5 };
+        let sprite = Sprite {
+            ch: 'r',
+            fg: Color(180, 140, 80),
+        };
+        let (ch, color) = entity_visual(Species::Prey, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, 'r');
+        assert_eq!(color, Color(100, 180, 60));
+    }
+
+    #[test]
+    fn rabbit_flee_exclamation_yellow() {
+        let state = BehaviorState::FleeHome { timer: 10 };
+        let sprite = Sprite {
+            ch: 'r',
+            fg: Color(180, 140, 80),
+        };
+        let (ch, color) = entity_visual(Species::Prey, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, '!');
+        assert_eq!(color, Color(255, 200, 50));
+    }
+
+    #[test]
+    fn rabbit_captured_lowercase_x_red() {
+        let state = BehaviorState::Captured;
+        let sprite = Sprite {
+            ch: 'r',
+            fg: Color(180, 140, 80),
+        };
+        let (ch, color) = entity_visual(Species::Prey, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, 'x');
+        assert_eq!(color, Color(200, 50, 50));
+    }
+
+    #[test]
+    fn rabbit_at_home_dot() {
+        let state = BehaviorState::AtHome { timer: 100 };
+        let sprite = Sprite {
+            ch: 'r',
+            fg: Color(180, 140, 80),
+        };
+        let (ch, _) = entity_visual(Species::Prey, &state, 0.0, 0.0, &sprite);
+        assert_eq!(ch, '.');
     }
 }
