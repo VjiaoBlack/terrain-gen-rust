@@ -170,6 +170,7 @@ pub fn system_ai(
     let mut to_despawn: Vec<Entity> = Vec::new();
     let mut build_progress: Vec<(f64, f64)> = Vec::new(); // positions where building work happened
     let mut harvest_positions: Vec<(f64, f64, ResourceType)> = Vec::new(); // where harvests completed
+    let mut wood_harvest_pos: Vec<(f64, f64)> = Vec::new(); // wood harvest positions for deforestation
     for e in entities {
         // Read position (copy) and check if it's a creature
         let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else {
@@ -437,7 +438,10 @@ pub fn system_ai(
                     }
                 }
             }
-            _ => {} // Wood comes from terrain, not entities
+            ResourceType::Wood => {
+                wood_harvest_pos.push((hx, hy));
+            }
+            _ => {} // Refined resources not gathered from terrain
         }
     }
     for e in to_deplete_despawn {
@@ -453,12 +457,19 @@ pub fn system_ai(
         mining_ticks,
         woodcutting_ticks,
         building_ticks,
+        wood_harvest_positions: wood_harvest_pos,
     }
 }
 
-/// Regrowth system: berry bushes can regrow near trees over time.
-/// Trees regrow from Forest terrain naturally. Stone does NOT regrow.
-pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
+/// Regrowth system: berry bushes regrow near trees, and deforested terrain recovers.
+/// Lifecycle: Forest -> Stump -> Bare -> Sapling -> Forest.
+/// Stone does NOT regrow.
+pub fn system_regrowth(
+    world: &mut World,
+    map: &mut TileMap,
+    vegetation: &crate::simulation::VegetationMap,
+    tick: u64,
+) {
     // Only check every 400 ticks
     if !tick.is_multiple_of(400) {
         return;
@@ -487,6 +498,61 @@ pub fn system_regrowth(world: &mut World, map: &TileMap, tick: u64) {
                     spawn_berry_bush(world, x as f64, y as f64);
                 }
             }
+        }
+    }
+
+    // Deforestation regrowth: sample random tiles and advance lifecycle.
+    // Sample 20 random tiles per check (scales well for 256x256 maps).
+    let sample_count = 20usize;
+    for _ in 0..sample_count {
+        let x = rng.random_range(0..map.width as u32) as usize;
+        let y = rng.random_range(0..map.height as u32) as usize;
+        let Some(terrain) = map.get(x, y).copied() else {
+            continue;
+        };
+        match terrain {
+            // Stump -> Bare: 30% chance per 400-tick check
+            Terrain::Stump => {
+                if rng.random_range(0u32..100) < 30 {
+                    map.set(x, y, Terrain::Bare);
+                }
+            }
+            // Bare -> Sapling: requires adjacent Forest or Sapling, gated on vegetation > 0.2
+            Terrain::Bare => {
+                if vegetation.get(x, y) <= 0.2 {
+                    continue;
+                }
+                let mut adj_forest = false;
+                let mut adj_sapling = false;
+                for &(dx, dy) in &[(-1i32, 0), (1, 0), (0, -1), (0, 1)] {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx >= 0 && ny >= 0 {
+                        match map.get(nx as usize, ny as usize) {
+                            Some(&Terrain::Forest) => adj_forest = true,
+                            Some(&Terrain::Sapling) => adj_sapling = true,
+                            _ => {}
+                        }
+                    }
+                }
+                let chance = if adj_forest {
+                    5u32
+                } else if adj_sapling {
+                    2
+                } else {
+                    0
+                };
+                if chance > 0 && rng.random_range(0u32..100) < chance {
+                    map.set(x, y, Terrain::Sapling);
+                }
+            }
+            // Sapling -> Forest: 3% chance per check
+            Terrain::Sapling => {
+                if rng.random_range(0u32..100) < 3 {
+                    map.set(x, y, Terrain::Forest);
+                }
+            }
+            _ => {}
         }
     }
 }

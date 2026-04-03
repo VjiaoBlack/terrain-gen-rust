@@ -98,7 +98,9 @@ cargo run --release -- --screenshot --width 80 --height 30   # single ANSI scree
 |---------------|-------|----------|---------|
 | Road          | 1.5x  | yes      | 0.7     |
 | Grass/Floor   | 1.0x  | yes      | 1.0     |
-| Sand          | 0.8x  | yes      | 1.3     |
+| Bare          | 0.9x  | yes      | 1.0     |
+| Sand/Stump    | 0.8x  | yes      | 1.2-1.3 |
+| Sapling       | 0.7x  | yes      | 1.4     |
 | Forest        | 0.6x  | yes      | 1.7     |
 | Snow          | 0.4x  | yes      | 2.5     |
 | Mountain      | 0.25x | yes      | 4.0     |

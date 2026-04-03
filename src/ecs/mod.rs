@@ -2425,14 +2425,269 @@ mod tests {
     #[test]
     fn stone_does_not_regrow() {
         let mut world = World::new();
-        let map = walkable_map(30, 30);
+        let mut map = walkable_map(30, 30);
 
         for tick in 0..10 {
-            system_regrowth(&mut world, &map, tick * 400);
+            let veg = crate::simulation::VegetationMap::new(30, 30);
+            system_regrowth(&mut world, &mut map, &veg, tick * 400);
         }
 
         let stone_count = world.query::<&StoneDeposit>().iter().count();
         assert_eq!(stone_count, 0, "stone should not regrow");
+    }
+
+    #[test]
+    fn wood_harvest_converts_forest_to_stump() {
+        // When a villager finishes gathering wood (timer hits 0), system_ai should
+        // report the harvest position so the caller can convert Forest -> Stump.
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        map.set(10, 10, Terrain::Forest);
+        map.set(11, 10, Terrain::Forest);
+
+        let villager = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Put villager in Gathering Wood state with timer at 0 (ready to transition to Hauling)
+        {
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Gathering {
+                timer: 0,
+                resource_type: ResourceType::Wood,
+            };
+        }
+
+        let result = system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+        );
+
+        assert!(
+            !result.wood_harvest_positions.is_empty(),
+            "should report wood harvest position"
+        );
+
+        // Simulate what Game::step does: convert Forest -> Stump at harvest position
+        for (hx, hy) in &result.wood_harvest_positions {
+            let ix = hx.round() as usize;
+            let iy = hy.round() as usize;
+            if map.get(ix, iy) == Some(&Terrain::Forest) {
+                map.set(ix, iy, Terrain::Stump);
+            }
+        }
+
+        assert_eq!(
+            map.get(10, 10).copied(),
+            Some(Terrain::Stump),
+            "harvested forest tile should become stump"
+        );
+    }
+
+    #[test]
+    fn stump_decays_to_bare() {
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        // Place many stumps so random sampling hits at least one
+        for x in 0..30 {
+            for y in 0..30 {
+                map.set(x, y, Terrain::Stump);
+            }
+        }
+        let veg = crate::simulation::VegetationMap::new(30, 30);
+
+        // Run regrowth many times — 30% chance per check, with 900 stumps and 20 samples
+        // per check, statistically guaranteed to convert at least one.
+        for tick in 0..50 {
+            system_regrowth(&mut world, &mut map, &veg, tick * 400);
+        }
+
+        let mut found_bare = false;
+        for y in 0..30 {
+            for x in 0..30 {
+                if map.get(x, y) == Some(&Terrain::Bare) {
+                    found_bare = true;
+                }
+            }
+        }
+        assert!(found_bare, "some stumps should have decayed to bare ground");
+    }
+
+    #[test]
+    fn bare_adjacent_to_forest_becomes_sapling() {
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        // Create a bare area adjacent to forest
+        for x in 5..15 {
+            for y in 5..15 {
+                map.set(x, y, Terrain::Bare);
+            }
+        }
+        // Forest border along the edge
+        for x in 4..16 {
+            map.set(x, 4, Terrain::Forest);
+        }
+
+        // VegetationMap with high moisture so regrowth is not gated
+        let mut veg = crate::simulation::VegetationMap::new(30, 30);
+        for y in 0..30 {
+            for x in 0..30 {
+                if let Some(v) = veg.get_mut(x, y) {
+                    *v = 0.5;
+                }
+            }
+        }
+
+        // Run many ticks — 5% chance per adjacent-to-forest bare tile
+        for tick in 0..200 {
+            system_regrowth(&mut world, &mut map, &veg, tick * 400);
+        }
+
+        let mut found_sapling = false;
+        for y in 5..15 {
+            for x in 5..15 {
+                if map.get(x, y) == Some(&Terrain::Sapling) {
+                    found_sapling = true;
+                }
+            }
+        }
+        assert!(
+            found_sapling,
+            "bare tiles adjacent to forest should eventually sprout saplings"
+        );
+    }
+
+    #[test]
+    fn isolated_bare_does_not_regrow() {
+        let mut world = World::new();
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        // Single bare tile with no forest or sapling neighbors
+        map.set(5, 5, Terrain::Bare);
+
+        let mut veg = crate::simulation::VegetationMap::new(10, 10);
+        for y in 0..10 {
+            for x in 0..10 {
+                if let Some(v) = veg.get_mut(x, y) {
+                    *v = 0.5;
+                }
+            }
+        }
+
+        for tick in 0..100 {
+            system_regrowth(&mut world, &mut map, &veg, tick * 400);
+        }
+
+        // With only 1 bare tile in a 10x10 map, random sampling might miss it.
+        // But even if hit, it has no adjacent forest/sapling, so chance is 0%.
+        // The tile should still be Bare or Grass (never Sapling).
+        let terrain = map.get(5, 5).copied();
+        assert!(
+            terrain != Some(Terrain::Sapling) && terrain != Some(Terrain::Forest),
+            "isolated bare tile should not become sapling or forest, got: {:?}",
+            terrain
+        );
+    }
+
+    #[test]
+    fn sapling_converts_to_forest() {
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        // Fill with saplings so random sampling hits them
+        for x in 0..30 {
+            for y in 0..30 {
+                map.set(x, y, Terrain::Sapling);
+            }
+        }
+        let veg = crate::simulation::VegetationMap::new(30, 30);
+
+        // 3% chance per check, 20 samples per check — run many ticks
+        for tick in 0..100 {
+            system_regrowth(&mut world, &mut map, &veg, tick * 400);
+        }
+
+        let mut found_forest = false;
+        for y in 0..30 {
+            for x in 0..30 {
+                if map.get(x, y) == Some(&Terrain::Forest) {
+                    found_forest = true;
+                }
+            }
+        }
+        assert!(
+            found_forest,
+            "some saplings should have matured into forest"
+        );
+    }
+
+    #[test]
+    fn bare_low_moisture_does_not_sprout() {
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        // Bare area adjacent to forest
+        for x in 5..15 {
+            for y in 5..15 {
+                map.set(x, y, Terrain::Bare);
+            }
+        }
+        for x in 4..16 {
+            map.set(x, 4, Terrain::Forest);
+        }
+
+        // VegetationMap with zero moisture — regrowth gated on > 0.2
+        let veg = crate::simulation::VegetationMap::new(30, 30);
+
+        for tick in 0..200 {
+            system_regrowth(&mut world, &mut map, &veg, tick * 400);
+        }
+
+        let mut found_sapling = false;
+        for y in 5..15 {
+            for x in 5..15 {
+                if map.get(x, y) == Some(&Terrain::Sapling) {
+                    found_sapling = true;
+                }
+            }
+        }
+        assert!(
+            !found_sapling,
+            "bare tiles in low-moisture areas should not sprout saplings"
+        );
+    }
+
+    #[test]
+    fn new_terrain_variants_properties() {
+        // Verify basic properties of Stump, Bare, Sapling
+        assert!(Terrain::Stump.is_walkable());
+        assert!(Terrain::Bare.is_walkable());
+        assert!(Terrain::Sapling.is_walkable());
+
+        assert_eq!(Terrain::Stump.ch(), '%');
+        assert_eq!(Terrain::Bare.ch(), '.');
+        assert_eq!(Terrain::Sapling.ch(), '!');
+
+        // Speed: Bare > Stump > Sapling > Forest
+        assert!(Terrain::Bare.speed_multiplier() > Terrain::Stump.speed_multiplier());
+        assert!(Terrain::Stump.speed_multiplier() > Terrain::Sapling.speed_multiplier());
+        assert!(Terrain::Sapling.speed_multiplier() > Terrain::Forest.speed_multiplier());
+
+        // Cost: Forest > Sapling > Stump > Bare
+        assert!(Terrain::Forest.move_cost() > Terrain::Sapling.move_cost());
+        assert!(Terrain::Sapling.move_cost() > Terrain::Stump.move_cost());
+        assert!(Terrain::Stump.move_cost() > Terrain::Bare.move_cost());
+
+        // All have bg colors
+        assert!(Terrain::Stump.bg().is_some());
+        assert!(Terrain::Bare.bg().is_some());
+        assert!(Terrain::Sapling.bg().is_some());
     }
 
     #[test]

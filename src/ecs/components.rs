@@ -32,6 +32,8 @@ pub struct AiResult {
     pub mining_ticks: u32,
     pub woodcutting_ticks: u32,
     pub building_ticks: u32,
+    /// Positions where wood was harvested (Forest tiles to convert to Stump).
+    pub wood_harvest_positions: Vec<(f64, f64)>,
 }
 
 // --- Components ---

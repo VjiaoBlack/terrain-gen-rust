@@ -1154,6 +1154,14 @@ impl Game {
                 if deposited_stone > 0 {
                     self.notify(format!("Resource deposited: +{} stone", deposited_stone));
                 }
+                // Deforestation: convert Forest tiles to Stump where wood was harvested
+                for (hx, hy) in &ai_result.wood_harvest_positions {
+                    let ix = hx.round() as usize;
+                    let iy = hy.round() as usize;
+                    if self.map.get(ix, iy) == Some(&Terrain::Forest) {
+                        self.map.set(ix, iy, Terrain::Stump);
+                    }
+                }
                 if ai_result.grain_consumed > 0 {
                     self.resources.grain = self
                         .resources
@@ -1421,8 +1429,8 @@ impl Game {
                     self.notify(format!("Food spoiled in winter (-{})", decay));
                 }
 
-                // Resource regrowth
-                ecs::system_regrowth(&mut self.world, &self.map, self.tick);
+                // Resource regrowth (deforestation lifecycle: Stump -> Bare -> Sapling -> Forest)
+                ecs::system_regrowth(&mut self.world, &mut self.map, &self.vegetation, self.tick);
 
                 // Check for completed buildings
                 self.check_build_completion();

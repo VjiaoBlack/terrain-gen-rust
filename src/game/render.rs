@@ -13,7 +13,7 @@ impl super::Game {
     fn season_tint(&self, color: Color, terrain: &Terrain) -> Color {
         use crate::simulation::Season;
         match terrain {
-            Terrain::Grass | Terrain::Forest => {
+            Terrain::Grass | Terrain::Forest | Terrain::Sapling => {
                 let Color(r, g, b) = color;
                 match self.day_night.season {
                     Season::Spring => {
@@ -1505,6 +1505,9 @@ impl super::Game {
                     Some(Terrain::Sand) => Color(160, 140, 80),
                     Some(Terrain::Grass) => Color(40, 100, 40),
                     Some(Terrain::Forest) => Color(20, 60, 20),
+                    Some(Terrain::Stump) => Color(80, 70, 40),
+                    Some(Terrain::Bare) => Color(70, 65, 45),
+                    Some(Terrain::Sapling) => Color(35, 90, 35),
                     Some(Terrain::Mountain) => Color(120, 110, 100),
                     Some(Terrain::Snow) => Color(200, 200, 220),
                     Some(Terrain::BuildingFloor) | Some(Terrain::BuildingWall) => {
@@ -1584,6 +1587,9 @@ impl super::Game {
                         Terrain::Desert => ('D', Color(210, 190, 120)),
                         Terrain::Tundra => ('T', Color(180, 190, 200)),
                         Terrain::Scrubland => ('U', Color(140, 150, 80)),
+                        Terrain::Stump => ('%', Color(100, 80, 40)),
+                        Terrain::Bare => ('.', Color(90, 80, 50)),
+                        Terrain::Sapling => ('!', Color(40, 140, 40)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }
