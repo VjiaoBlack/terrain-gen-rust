@@ -351,12 +351,34 @@ impl super::Game {
 
     /// Track villager movement and auto-convert high-traffic tiles to roads.
     pub fn update_traffic(&mut self) {
-        // Record footsteps for all villagers
-        for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+        // Record footsteps for all villagers with direction + resource info
+        for (e, (pos, creature)) in self
+            .world
+            .query::<(hecs::Entity, (&Position, &Creature))>()
+            .iter()
+        {
             if creature.species == Species::Villager {
                 let ix = pos.x.round() as usize;
                 let iy = pos.y.round() as usize;
-                self.traffic.step_on(ix, iy);
+                // Get velocity for directional tracking
+                let (dx, dy) = self
+                    .world
+                    .get::<&crate::ecs::Velocity>(e)
+                    .ok()
+                    .map(|v| (v.dx, v.dy))
+                    .unwrap_or((0.0, 0.0));
+                // Get hauled resource type if hauling
+                let resource =
+                    self.world
+                        .get::<&crate::ecs::Behavior>(e)
+                        .ok()
+                        .and_then(|b| match b.state {
+                            crate::ecs::BehaviorState::Hauling { resource_type, .. } => {
+                                Some(resource_type)
+                            }
+                            _ => None,
+                        });
+                self.traffic.step_on_directed(ix, iy, dx, dy, resource);
             }
         }
 

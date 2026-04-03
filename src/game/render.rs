@@ -295,6 +295,64 @@ impl super::Game {
         }
     }
 
+    /// Apply worn terrain visual based on traffic level. Returns `Some((ch, fg, bg))`
+    /// if traffic is high enough to visually alter the tile, `None` otherwise.
+    /// This makes supply lines visible without activating overlays.
+    ///
+    /// Traffic tiers:
+    /// - 10-50 (Faint): darken background by 10%, keep terrain char
+    /// - 50-150 (Worn): replace char with '.' or ',', shift color toward tan
+    /// - 150-300 (Trail): oriented trail char based on dominant travel direction
+    pub(super) fn worn_terrain_override(
+        &self,
+        wx: usize,
+        wy: usize,
+        base_ch: char,
+        base_fg: Color,
+        base_bg: Color,
+    ) -> (char, Color, Color) {
+        let traffic = self.traffic.get(wx, wy);
+        if traffic < 10.0 || traffic >= ROAD_TRAFFIC_THRESHOLD {
+            return (base_ch, base_fg, base_bg);
+        }
+
+        if traffic < 50.0 {
+            // Faint tier: darken background by 10%
+            let dim = 0.9;
+            let bg = Color(
+                (base_bg.0 as f64 * dim) as u8,
+                (base_bg.1 as f64 * dim) as u8,
+                (base_bg.2 as f64 * dim) as u8,
+            );
+            (base_ch, base_fg, bg)
+        } else if traffic < 150.0 {
+            // Worn tier: dot trail characters, shift color toward tan
+            let t = (traffic - 50.0) / 100.0; // 0..1 within tier
+            let ch = if ((wx + wy) % 3) == 0 { ',' } else { '.' };
+            let fg = Color(
+                (base_fg.0 as f64 * (1.0 - t) + 160.0 * t) as u8,
+                (base_fg.1 as f64 * (1.0 - t) + 140.0 * t) as u8,
+                (base_fg.2 as f64 * (1.0 - t) + 100.0 * t) as u8,
+            );
+            let bg = Color(
+                (base_bg.0 as f64 * (1.0 - t * 0.3) + 60.0 * t * 0.3) as u8,
+                (base_bg.1 as f64 * (1.0 - t * 0.3) + 50.0 * t * 0.3) as u8,
+                (base_bg.2 as f64 * (1.0 - t * 0.3) + 30.0 * t * 0.3) as u8,
+            );
+            (ch, fg, bg)
+        } else {
+            // Trail tier (150-300): oriented trail char based on dominant direction
+            let ch = self.traffic.trail_char(wx, wy);
+            let fg = Color(140, 110, 70); // tan-brown
+            let bg = Color(
+                (base_bg.0 as f64 * 0.7 + 50.0 * 0.3) as u8,
+                (base_bg.1 as f64 * 0.7 + 40.0 * 0.3) as u8,
+                (base_bg.2 as f64 * 0.7 + 25.0 * 0.3) as u8,
+            );
+            (ch, fg, bg)
+        }
+    }
+
     /// Draw the left-side UI panel.
     fn draw_panel(&self, renderer: &mut dyn Renderer) {
         let (_w, h) = renderer.size();
@@ -720,11 +778,22 @@ impl super::Game {
                         } else {
                             let fg = self.season_tint(terrain.fg(), terrain);
                             let bg = terrain.bg().map(|c| self.season_tint(c, terrain));
+                            // Apply worn terrain visual from foot traffic
+                            let base_bg = bg.unwrap_or(Color(0, 0, 0));
+                            let (ch, fg, worn_bg) = self.worn_terrain_override(
+                                wx as usize,
+                                wy as usize,
+                                terrain.ch(),
+                                fg,
+                                base_bg,
+                            );
                             let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
-                            let bg = self
-                                .day_night
-                                .apply_lighting_bg(bg, wx as usize, wy as usize);
-                            renderer.draw(sx, sy, terrain.ch(), fg, bg);
+                            let bg = self.day_night.apply_lighting_bg(
+                                Some(worn_bg),
+                                wx as usize,
+                                wy as usize,
+                            );
+                            renderer.draw(sx, sy, ch, fg, bg);
                         }
                     }
                 }
@@ -892,8 +961,20 @@ impl super::Game {
                 };
 
                 // Apply day/night tinting; sleeping entities get extra dimming.
+                // Hauler brightness: hauling villagers render at full brightness,
+                // seeking/idle villagers render at 70% to create visible directional flow.
                 let dim = if matches!(bstate, Some(BehaviorState::Sleeping { .. })) {
                     0.5
+                } else if matches!(
+                    bstate,
+                    Some(BehaviorState::Seek { .. })
+                        | Some(BehaviorState::Wander { .. })
+                        | Some(BehaviorState::Idle { .. })
+                ) && creature_opt
+                    .as_deref()
+                    .map_or(false, |c| c.species == Species::Villager)
+                {
+                    0.7
                 } else {
                     1.0
                 };
@@ -992,6 +1073,9 @@ impl super::Game {
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
                         let (ch, fg, bg) =
                             self.map_terrain_glyph(terrain, wx as usize, wy as usize);
+                        // Apply worn terrain visual from foot traffic
+                        let (ch, fg, bg) =
+                            self.worn_terrain_override(wx as usize, wy as usize, ch, fg, bg);
                         renderer.draw(sx, sy, ch, fg, Some(bg));
                     }
                 }
@@ -1084,7 +1168,26 @@ impl super::Game {
                 && (sy_i as u16) < h.saturating_sub(status_h)
             {
                 // Full brightness — no day/night dimming in Map Mode
-                renderer.draw(sx_i as u16, sy_i as u16, display_ch, display_fg, None);
+                // Hauler brightness: seeking/idle villagers at 70%, haulers at 100%
+                let dim = if matches!(
+                    bstate,
+                    Some(BehaviorState::Seek { .. })
+                        | Some(BehaviorState::Wander { .. })
+                        | Some(BehaviorState::Idle { .. })
+                ) && creature_opt
+                    .as_deref()
+                    .map_or(false, |c| c.species == Species::Villager)
+                {
+                    0.7
+                } else {
+                    1.0
+                };
+                let fg = Color(
+                    (display_fg.0 as f64 * dim).clamp(0.0, 255.0) as u8,
+                    (display_fg.1 as f64 * dim).clamp(0.0, 255.0) as u8,
+                    (display_fg.2 as f64 * dim).clamp(0.0, 255.0) as u8,
+                );
+                renderer.draw(sx_i as u16, sy_i as u16, display_ch, fg, None);
             }
         }
 
@@ -1140,6 +1243,9 @@ impl super::Game {
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
                         let (ch, fg, bg) =
                             self.landscape_terrain_glyph(terrain, wx as usize, wy as usize);
+                        // Apply worn terrain visual from foot traffic
+                        let (ch, fg, bg) =
+                            self.worn_terrain_override(wx as usize, wy as usize, ch, fg, bg);
                         renderer.draw(sx, sy, ch, fg, Some(bg));
                     }
                 }
@@ -1187,9 +1293,20 @@ impl super::Game {
                 && (sy_i as u16) < h.saturating_sub(status_h)
             {
                 // Entities render at full saturation — no lighting dimming
-                // Sleeping entities get slight dimming
+                // Sleeping entities get slight dimming.
+                // Hauler brightness: seeking/idle villagers at 70%, haulers at 100%
                 let dim = if matches!(bstate, Some(BehaviorState::Sleeping { .. })) {
                     0.6
+                } else if matches!(
+                    bstate,
+                    Some(BehaviorState::Seek { .. })
+                        | Some(BehaviorState::Wander { .. })
+                        | Some(BehaviorState::Idle { .. })
+                ) && creature_opt
+                    .as_deref()
+                    .map_or(false, |c| c.species == Species::Villager)
+                {
+                    0.7
                 } else {
                     1.0
                 };
@@ -2296,13 +2413,40 @@ impl super::Game {
                 }
                 let traffic = self.traffic.get(wx as usize, wy as usize);
                 if traffic > 1.0 {
-                    // Intensity scales from dim yellow to bright orange
                     let intensity = (traffic / ROAD_TRAFFIC_THRESHOLD).min(1.0);
-                    let r = (80.0 + 175.0 * intensity) as u8;
-                    let g = (60.0 + 140.0 * intensity) as u8;
-                    let b = (10.0 + 20.0 * intensity) as u8;
+
+                    // Color by dominant resource type if available
+                    let (r, g, b) = if let Some(rt) =
+                        self.traffic.get_dominant_resource(wx as usize, wy as usize)
+                    {
+                        // Resource-typed coloring, scaled by intensity
+                        let (base_r, base_g, base_b) = match rt {
+                            ResourceType::Wood => (160.0, 100.0, 40.0),
+                            ResourceType::Stone => (160.0, 160.0, 170.0),
+                            ResourceType::Food => (60.0, 180.0, 60.0),
+                            ResourceType::Grain => (200.0, 180.0, 60.0),
+                            ResourceType::Planks => (180.0, 140.0, 60.0),
+                            ResourceType::Masonry => (180.0, 180.0, 200.0),
+                        };
+                        (
+                            (base_r * (0.4 + 0.6 * intensity)) as u8,
+                            (base_g * (0.4 + 0.6 * intensity)) as u8,
+                            (base_b * (0.4 + 0.6 * intensity)) as u8,
+                        )
+                    } else {
+                        // Default amber heat coloring (no resource info)
+                        (
+                            (80.0 + 175.0 * intensity) as u8,
+                            (60.0 + 140.0 * intensity) as u8,
+                            (10.0 + 20.0 * intensity) as u8,
+                        )
+                    };
+
                     let ch = if traffic >= ROAD_TRAFFIC_THRESHOLD {
                         '='
+                    } else if traffic >= 150.0 {
+                        // Use oriented trail character for high-traffic sub-road paths
+                        self.traffic.trail_char(wx as usize, wy as usize)
                     } else {
                         '·'
                     };

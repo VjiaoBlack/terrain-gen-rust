@@ -3555,6 +3555,105 @@ mod tests {
     }
 
     #[test]
+    fn worn_terrain_faint_dims_background() {
+        let mut game = Game::new(60, 42);
+        // Set traffic to faint tier (10-50)
+        for _ in 0..25 {
+            game.traffic.step_on(5, 5);
+        }
+        let base_bg = Color(30, 50, 20); // typical grass bg
+        let (ch, _fg, bg) = game.worn_terrain_override(5, 5, '.', Color(0, 200, 0), base_bg);
+        // Faint tier should keep original char but dim bg
+        assert_eq!(ch, '.', "faint tier should keep original char");
+        assert!(
+            bg.0 < base_bg.0 || bg.1 < base_bg.1 || bg.2 < base_bg.2,
+            "faint tier should dim background: {:?} vs {:?}",
+            bg,
+            base_bg
+        );
+    }
+
+    #[test]
+    fn worn_terrain_worn_tier_changes_char() {
+        let mut game = Game::new(60, 42);
+        // Set traffic to worn tier (50-150)
+        for _ in 0..100 {
+            game.traffic.step_on(5, 5);
+        }
+        let (ch, _fg, _bg) =
+            game.worn_terrain_override(5, 5, '"', Color(0, 200, 0), Color(30, 50, 20));
+        assert!(
+            ch == '.' || ch == ',',
+            "worn tier should replace char with dot trail: got '{}'",
+            ch
+        );
+    }
+
+    #[test]
+    fn worn_terrain_trail_tier_uses_directional_char() {
+        let mut game = Game::new(60, 42);
+        // Set traffic to trail tier (150-300) with strong east-west direction
+        for _ in 0..200 {
+            game.traffic.step_on_directed(5, 5, 1.0, 0.0, None);
+        }
+        let (ch, fg, _bg) =
+            game.worn_terrain_override(5, 5, '"', Color(0, 200, 0), Color(30, 50, 20));
+        assert_eq!(ch, '-', "trail tier should use oriented char for east-west");
+        // Trail tier uses tan-brown color
+        assert_eq!(
+            fg,
+            Color(140, 110, 70),
+            "trail tier should use tan-brown fg"
+        );
+    }
+
+    #[test]
+    fn worn_terrain_no_effect_below_threshold() {
+        let game = Game::new(60, 42);
+        let orig_ch = '"';
+        let orig_fg = Color(0, 200, 0);
+        let orig_bg = Color(30, 50, 20);
+        let (ch, fg, bg) = game.worn_terrain_override(5, 5, orig_ch, orig_fg, orig_bg);
+        assert_eq!(ch, orig_ch);
+        assert_eq!(fg, orig_fg);
+        assert_eq!(bg, orig_bg);
+    }
+
+    #[test]
+    fn worn_terrain_no_effect_above_road_threshold() {
+        let mut game = Game::new(60, 42);
+        for _ in 0..400 {
+            game.traffic.step_on(5, 5);
+        }
+        let orig_ch = '=';
+        let orig_fg = Color(170, 145, 90);
+        let orig_bg = Color(80, 70, 50);
+        let (ch, fg, bg) = game.worn_terrain_override(5, 5, orig_ch, orig_fg, orig_bg);
+        assert_eq!(
+            ch, orig_ch,
+            "road-threshold traffic should not alter terrain"
+        );
+        assert_eq!(fg, orig_fg);
+        assert_eq!(bg, orig_bg);
+    }
+
+    #[test]
+    fn traffic_overlay_shows_resource_typed_colors() {
+        let mut game = Game::new(60, 42);
+        let mut renderer = HeadlessRenderer::new(120, 40);
+        game.overlay = OverlayMode::Traffic;
+
+        // Add resource-typed traffic
+        for _ in 0..50 {
+            game.traffic
+                .step_on_directed(105, 105, 1.0, 0.0, Some(ResourceType::Wood));
+        }
+
+        game.step(GameInput::None, &mut renderer).unwrap();
+        // Just verify no panic with resource-typed traffic overlay
+    }
+
+    #[test]
     fn water_animation_renders_without_panic() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
