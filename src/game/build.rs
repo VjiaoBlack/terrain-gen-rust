@@ -140,6 +140,7 @@ impl super::Game {
                 let ty = by + dy;
                 if tx >= 0 && ty >= 0 {
                     self.map.set(tx as usize, ty as usize, placeholder_terrain);
+                    self.nav_graph.mark_dirty(tx as usize, ty as usize);
                 }
             }
         }
@@ -273,6 +274,7 @@ impl super::Game {
                 let ty = pos.y as i32 + dy;
                 if tx >= 0 && ty >= 0 {
                     self.map.set(tx as usize, ty as usize, terrain);
+                    self.nav_graph.mark_dirty(tx as usize, ty as usize);
                 }
             }
             // Mark completed building footprint dirty
@@ -406,6 +408,7 @@ impl super::Game {
             for (x, y) in candidates {
                 self.map.set(x, y, Terrain::Road);
                 self.dirty.mark(x, y);
+                self.nav_graph.mark_dirty(x, y);
             }
         }
     }
@@ -1869,6 +1872,7 @@ impl super::Game {
                             && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall)
                         {
                             self.map.set(tux, tuy, restore_terrain);
+                            self.nav_graph.mark_dirty(tux, tuy);
                         }
                     }
                 }

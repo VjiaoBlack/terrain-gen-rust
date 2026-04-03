@@ -10,6 +10,8 @@ use hecs::World;
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
+use crate::pathfinding::NavGraph;
+
 #[allow(unused_imports)] // Some imports used only in #[cfg(test)] blocks
 use crate::ecs::{
     self, Behavior, BehaviorState, BuildSite, BuildingType, Creature, Den, FarmPlot, FoodSource,
@@ -478,6 +480,9 @@ pub struct Game {
     /// Previous camera position — used to detect scrolls and mark_all().
     prev_camera_x: i32,
     prev_camera_y: i32,
+    /// Hierarchical pathfinding navigation graph. Precomputed at world-gen,
+    /// updated incrementally when terrain changes. See docs/design/pillar5_scale/hierarchical_pathfinding.md.
+    pub nav_graph: NavGraph,
     /// Per-tile threat/defense data for the Threats overlay. Updated every 100 ticks.
     pub threat_map: ThreatMap,
     /// Wealth-based threat score, recomputed every 100 ticks from population,
@@ -1198,6 +1203,7 @@ impl Game {
             dirty: dirty::DirtyMap::new(map_width, map_height),
             prev_camera_x: i32::MIN, // force mark_all on first frame
             prev_camera_y: i32::MIN,
+            nav_graph: NavGraph::default(), // rebuilt below
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
@@ -1207,6 +1213,8 @@ impl Game {
         // Compute initial chokepoint map from generated terrain
         g.chokepoint_map = chokepoint::ChokepointMap::compute(&g.map, &g.river_mask);
         g.chokepoints_dirty = false;
+        // Build hierarchical pathfinding navigation graph from final terrain
+        g.nav_graph = NavGraph::build(&g.map);
         // Pre-reveal settlement start area (around map center)
         g.exploration.reveal(scx, scy, 15);
         // Start camera at settlement
@@ -1878,6 +1886,7 @@ impl Game {
                     &self.fire_tiles,
                     &self.danger_scent,
                     &self.home_scent,
+                    &self.nav_graph,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -1916,6 +1925,7 @@ impl Game {
                     if self.map.get(ix, iy) == Some(&Terrain::Forest) {
                         self.map.set(ix, iy, Terrain::Stump);
                         self.dirty.mark(ix, iy);
+                        self.nav_graph.mark_dirty(ix, iy);
                         // Deforestation erosion: exposed soil loses fertility
                         self.soil_fertility.degrade(ix, iy, 0.05);
                         for &(dx, dy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
@@ -1946,6 +1956,7 @@ impl Game {
                                     if count >= 12 {
                                         self.map.set(ux, uy, Terrain::QuarryDeep);
                                         self.dirty.mark(ux, uy);
+                                        self.nav_graph.mark_dirty(ux, uy);
                                         // QuarryDeep: set fertility to 0.05, neighbors lose 0.1
                                         self.soil_fertility.set(ux, uy, 0.05);
                                         for &(ndx, ndy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
@@ -1963,6 +1974,7 @@ impl Game {
                                     } else if count >= 6 && prev_terrain == Terrain::Mountain {
                                         self.map.set(ux, uy, Terrain::Quarry);
                                         self.dirty.mark(ux, uy);
+                                        self.nav_graph.mark_dirty(ux, uy);
                                         // Quarry: set fertility to 0.05, neighbors lose 0.1
                                         self.soil_fertility.set(ux, uy, 0.05);
                                         for &(ndx, ndy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
@@ -2450,6 +2462,10 @@ impl Game {
                         chokepoint::ChokepointMap::compute(&self.map, &self.river_mask);
                     self.chokepoints_dirty = false;
                 }
+
+                // Process dirty navigation regions (hierarchical pathfinding incremental update).
+                // Capped at 8 regions per tick to bound per-frame cost.
+                self.nav_graph.process_dirty(&self.map);
 
                 // Recompute threat map every 100 ticks (wolf territory, garrison coverage,
                 // corridor pressure, and exposure gaps for the Threats overlay).
@@ -3296,6 +3312,7 @@ mod tests {
             &[],
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -5371,6 +5388,7 @@ mod tests {
             &game.fire_tiles,
             &ScentMap::default(),
             &ScentMap::default(),
+            &crate::pathfinding::NavGraph::default(),
         );
 
         let state = game.world.get::<&crate::ecs::Behavior>(v).unwrap().state;
