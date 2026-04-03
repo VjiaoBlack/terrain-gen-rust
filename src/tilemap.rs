@@ -237,6 +237,105 @@ impl Terrain {
         }
     }
 
+    // --- Landscape Mode rendering: texture chars, hand-picked muted palettes ---
+
+    /// Landscape Mode texture pool: characters are surface noise, not semantic.
+    /// Returns a slice of characters for deterministic per-tile selection.
+    pub fn landscape_texture_pool(&self) -> &'static [char] {
+        match self {
+            Terrain::Grass | Terrain::Bare | Terrain::Sapling => &['.', '\'', ',', ' '],
+            Terrain::Sand => &['.', ':', ',', ' '],
+            Terrain::Desert => &['.', '\'', ' ', ' '],
+            Terrain::Forest => &['"', ':', ';', '%'],
+            Terrain::Scrubland => &[';', '\'', ',', ':'],
+            Terrain::Mountain => &['^', ':', '#', '%'],
+            Terrain::Cliff => &['#', '%', '|', ':'],
+            Terrain::Snow => &['.', ' ', '\'', ','],
+            Terrain::Tundra => &['-', '.', '\'', ','],
+            Terrain::Marsh => &[',', '~', '.', ';'],
+            Terrain::Water | Terrain::FloodWater | Terrain::Ford => &['~', '~', '~', '~'],
+            Terrain::Ice => &['=', '-', '=', '-'],
+            Terrain::Road => &['=', '-', '=', '-'],
+            Terrain::BuildingFloor => &['+', '.', '+', '.'],
+            Terrain::BuildingWall => &['#', '#', '#', '#'],
+            Terrain::Stump => &['%', '.', '%', '.'],
+            Terrain::Quarry | Terrain::QuarryDeep => &[':', '#', '%', ':'],
+            Terrain::ScarredGround | Terrain::Scorched => &['.', '`', '.', ','],
+            Terrain::Bridge => &['#', '=', '#', '='],
+            Terrain::Burning => &['*', '^', '*', '.'],
+        }
+    }
+
+    /// Landscape Mode character: deterministic texture from position hash.
+    pub fn landscape_ch(&self, wx: usize, wy: usize) -> char {
+        let pool = self.landscape_texture_pool();
+        let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
+        pool[idx]
+    }
+
+    /// Landscape Mode foreground: close to bg for low character contrast.
+    /// Hand-picked per terrain. These are "noon, clear day" base colors.
+    pub fn landscape_fg(&self) -> Color {
+        match self {
+            Terrain::Grass => Color(60, 140, 50),
+            Terrain::Sand => Color(190, 170, 100),
+            Terrain::Desert => Color(210, 190, 130),
+            Terrain::Forest => Color(25, 90, 20),
+            Terrain::Scrubland => Color(120, 115, 55),
+            Terrain::Mountain => Color(130, 120, 110),
+            Terrain::Cliff => Color(100, 92, 82),
+            Terrain::Snow => Color(210, 215, 220),
+            Terrain::Tundra => Color(155, 165, 172),
+            Terrain::Marsh => Color(50, 95, 65),
+            Terrain::Water | Terrain::FloodWater => Color(40, 80, 200),
+            Terrain::Ford => Color(70, 130, 210),
+            Terrain::Road => Color(155, 128, 78),
+            Terrain::BuildingFloor => Color(145, 125, 95),
+            Terrain::BuildingWall => Color(165, 145, 115),
+            Terrain::Stump => Color(100, 80, 45),
+            Terrain::Bare => Color(90, 85, 55),
+            Terrain::Sapling => Color(50, 130, 45),
+            Terrain::Quarry => Color(135, 125, 112),
+            Terrain::QuarryDeep => Color(108, 98, 88),
+            Terrain::ScarredGround => Color(140, 130, 115),
+            Terrain::Ice => Color(180, 205, 230),
+            Terrain::Bridge => Color(140, 105, 55),
+            Terrain::Burning => Color(255, 140, 40),
+            Terrain::Scorched => Color(75, 68, 58),
+        }
+    }
+
+    /// Landscape Mode background: carries biome identity. Close to fg.
+    pub fn landscape_bg(&self) -> Color {
+        match self {
+            Terrain::Grass => Color(30, 80, 25),
+            Terrain::Sand => Color(120, 105, 60),
+            Terrain::Desert => Color(195, 175, 115),
+            Terrain::Forest => Color(12, 50, 10),
+            Terrain::Scrubland => Color(100, 95, 42),
+            Terrain::Mountain => Color(80, 75, 70),
+            Terrain::Cliff => Color(75, 68, 58),
+            Terrain::Snow => Color(170, 175, 185),
+            Terrain::Tundra => Color(138, 148, 155),
+            Terrain::Marsh => Color(32, 72, 48),
+            Terrain::Water | Terrain::FloodWater => Color(20, 40, 120),
+            Terrain::Ford => Color(40, 80, 150),
+            Terrain::Road => Color(135, 110, 65),
+            Terrain::BuildingFloor => Color(115, 95, 72),
+            Terrain::BuildingWall => Color(130, 112, 88),
+            Terrain::Stump => Color(50, 60, 30),
+            Terrain::Bare => Color(60, 55, 38),
+            Terrain::Sapling => Color(28, 75, 25),
+            Terrain::Quarry => Color(88, 78, 68),
+            Terrain::QuarryDeep => Color(62, 55, 48),
+            Terrain::ScarredGround => Color(112, 102, 88),
+            Terrain::Ice => Color(120, 148, 175),
+            Terrain::Bridge => Color(82, 62, 32),
+            Terrain::Burning => Color(180, 50, 15),
+            Terrain::Scorched => Color(42, 38, 28),
+        }
+    }
+
     /// Movement speed multiplier for this terrain.
     pub fn speed_multiplier(&self) -> f64 {
         match self {

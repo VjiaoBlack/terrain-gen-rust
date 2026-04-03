@@ -171,6 +171,59 @@ fn map_prey_visual(state: &BehaviorState) -> Option<(char, Color)> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Landscape Mode entity visuals: simple glyphs, saturated colors by state.
+// Color carries meaning, not the glyph. Entities pop against muted terrain.
+// ---------------------------------------------------------------------------
+
+/// Landscape Mode glyph + color for an entity. Returns `None` for hidden entities.
+pub(super) fn landscape_entity_visual(
+    species: Species,
+    state: &BehaviorState,
+) -> Option<(char, Color)> {
+    match species {
+        Species::Villager => Some(landscape_villager_visual(state)),
+        Species::Predator => Some(landscape_predator_visual(state)),
+        Species::Prey => landscape_prey_visual(state),
+    }
+}
+
+fn landscape_villager_visual(state: &BehaviorState) -> (char, Color) {
+    match state {
+        BehaviorState::Idle { .. } | BehaviorState::Wander { .. } => {
+            ('o', Color(240, 220, 180)) // warm cream
+        }
+        BehaviorState::Seek { .. } => ('o', Color(200, 200, 150)),
+        BehaviorState::Gathering { .. } => ('o', Color(180, 220, 120)), // spring green
+        BehaviorState::Hauling { .. } => ('o', Color(200, 200, 140)),   // laden, slightly dim
+        BehaviorState::Building { .. } => ('o', Color(220, 180, 100)),  // warm amber
+        BehaviorState::Farming { .. } => ('o', Color(140, 200, 100)),   // earthy green
+        BehaviorState::Working { .. } => ('o', Color(220, 180, 100)),   // warm amber
+        BehaviorState::Sleeping { .. } => ('o', Color(120, 120, 160)),  // cool, dormant
+        BehaviorState::FleeHome { .. } => ('o', Color(255, 100, 80)),   // alarm red
+        BehaviorState::Exploring { .. } => ('o', Color(180, 220, 240)), // sky blue
+        BehaviorState::Eating { .. } => ('o', Color(240, 220, 180)),
+        BehaviorState::Captured => ('x', Color(200, 50, 50)),
+        BehaviorState::Hunting { .. } => ('o', Color(240, 220, 180)),
+        BehaviorState::AtHome { .. } => ('o', Color(120, 120, 140)),
+    }
+}
+
+fn landscape_predator_visual(state: &BehaviorState) -> (char, Color) {
+    match state {
+        BehaviorState::Hunting { .. } => ('w', Color(255, 60, 60)), // aggressive red
+        _ => ('w', Color(220, 60, 60)),                             // red
+    }
+}
+
+fn landscape_prey_visual(state: &BehaviorState) -> Option<(char, Color)> {
+    match state {
+        BehaviorState::AtHome { .. } => None, // hidden in den
+        BehaviorState::Captured => Some(('x', Color(200, 50, 50))),
+        _ => Some(('r', Color(200, 200, 180))), // soft, neutral
+    }
+}
+
 /// Map Mode glyph for a building type's center marker tile.
 fn map_building_center_glyph(bt: &BuildingType) -> (char, Color) {
     match bt {
@@ -1057,6 +1110,299 @@ impl super::Game {
         // No weather in Map Mode (design decision: no visual noise)
         self.draw_minimap(renderer);
         self.draw_status(renderer);
+    }
+
+    // -----------------------------------------------------------------------
+    // Landscape Mode: painterly rendering — texture chars, muted palettes,
+    // full Blinn-Phong lighting, seasonal tinting, entities pop via saturation.
+    // -----------------------------------------------------------------------
+
+    pub fn draw_landscape_mode(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH;
+
+        // Panel (shared with all modes)
+        self.draw_panel(renderer);
+
+        // --- Terrain pass: texture chars + hand-picked palettes + full lighting ---
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 {
+                    // Fog of exploration
+                    if !self.exploration.is_revealed(wx as usize, wy as usize) {
+                        renderer.draw(sx, sy, ' ', Color(15, 15, 18), Some(Color(8, 8, 10)));
+                        continue;
+                    }
+                    if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
+                        let (ch, fg, bg) =
+                            self.landscape_terrain_glyph(terrain, wx as usize, wy as usize);
+                        renderer.draw(sx, sy, ch, fg, Some(bg));
+                    }
+                }
+            }
+        }
+
+        // --- Entity pass: saturated colors pop against muted terrain ---
+        for (e, (pos, sprite)) in self
+            .world
+            .query::<(hecs::Entity, (&Position, &Sprite))>()
+            .iter()
+        {
+            let creature_opt = self.world.get::<&Creature>(e).ok();
+            let bstate = self.world.get::<&Behavior>(e).ok().map(|b| b.state);
+
+            // Hide AtHome entities
+            if matches!(bstate, Some(BehaviorState::AtHome { .. })) {
+                continue;
+            }
+
+            // Hide entities on unexplored tiles
+            if !self
+                .exploration
+                .is_revealed(pos.x.round() as usize, pos.y.round() as usize)
+            {
+                continue;
+            }
+
+            let (display_ch, display_fg) =
+                if let (Some(creature), Some(bstate_val)) = (creature_opt.as_deref(), &bstate) {
+                    match landscape_entity_visual(creature.species, bstate_val) {
+                        Some(vis) => vis,
+                        None => continue,
+                    }
+                } else {
+                    // Non-creature entities keep their sprite
+                    (sprite.ch, sprite.fg)
+                };
+
+            let sx_i = (pos.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+            let sy_i = pos.y.round() as i32 - self.camera.y;
+            if sx_i >= panel_w as i32
+                && sy_i >= 0
+                && (sx_i as u16) < w
+                && (sy_i as u16) < h.saturating_sub(status_h)
+            {
+                // Entities render at full saturation — no lighting dimming
+                // Sleeping entities get slight dimming
+                let dim = if matches!(bstate, Some(BehaviorState::Sleeping { .. })) {
+                    0.6
+                } else {
+                    1.0
+                };
+                let fg = Color(
+                    (display_fg.0 as f64 * dim).clamp(0.0, 255.0) as u8,
+                    (display_fg.1 as f64 * dim).clamp(0.0, 255.0) as u8,
+                    (display_fg.2 as f64 * dim).clamp(0.0, 255.0) as u8,
+                );
+                // Transparent bg: entity floats on landscape
+                renderer.draw(sx_i as u16, sy_i as u16, display_ch, fg, None);
+            }
+        }
+
+        // --- Shared UI overlays ---
+        if self.overlay == OverlayMode::Resources {
+            self.draw_resource_overlay(renderer);
+        } else if self.overlay == OverlayMode::Threats {
+            self.draw_threat_overlay(renderer);
+        } else if self.overlay == OverlayMode::Traffic {
+            self.draw_traffic_overlay(renderer);
+        }
+
+        if self.query_mode {
+            self.draw_query_cursor(renderer);
+            self.draw_query_panel(renderer);
+        }
+
+        if self.build_mode {
+            self.draw_build_mode(renderer);
+        }
+
+        self.draw_notifications(renderer);
+        self.draw_weather(renderer);
+        self.draw_minimap(renderer);
+        self.draw_status(renderer);
+    }
+
+    /// Resolve terrain glyph for Landscape Mode: texture char + season-tinted
+    /// palette + full Blinn-Phong lighting.
+    fn landscape_terrain_glyph(
+        &self,
+        terrain: &Terrain,
+        wx: usize,
+        wy: usize,
+    ) -> (char, Color, Color) {
+        // Base texture character from position hash
+        let mut ch = terrain.landscape_ch(wx, wy);
+        let mut fg = terrain.landscape_fg();
+        let mut bg = terrain.landscape_bg();
+
+        // Vegetation overlay: dense vegetation overrides base texture
+        if matches!(
+            terrain,
+            Terrain::Grass | Terrain::Scrubland | Terrain::Bare | Terrain::Sapling
+        ) {
+            if wx < self.vegetation.width && wy < self.vegetation.height {
+                let v = self.vegetation.get(wx, wy);
+                if v > 0.8 {
+                    // Dense canopy
+                    let pool: &[char] = &['%', '#', '&', '@'];
+                    let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
+                    ch = pool[idx];
+                    fg = Color(18, 65, 15);
+                    bg = Color(10, 45, 8);
+                } else if v > 0.5 {
+                    // Brush, young trees
+                    let pool: &[char] = &['%', ':', '"', ';'];
+                    let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
+                    ch = pool[idx];
+                    fg = Color(30, 95, 28);
+                    bg = Color(18, 60, 15);
+                } else if v > 0.2 {
+                    // Light scrub
+                    let pool: &[char] = &['"', ',', '\'', ';'];
+                    let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
+                    ch = pool[idx];
+                    fg = Color(48, 125, 42);
+                    bg = Color(28, 78, 24);
+                }
+            }
+        }
+
+        // Apply seasonal palette shift
+        fg = self.landscape_season_tint(fg, terrain);
+        bg = self.landscape_season_tint(bg, terrain);
+
+        // Apply full Blinn-Phong lighting (this is where the stepped lighting shines)
+        fg = self.day_night.apply_lighting(fg, wx, wy);
+        bg = self.day_night.apply_lighting(bg, wx, wy);
+
+        (ch, fg, bg)
+    }
+
+    /// Seasonal color tinting for Landscape Mode.
+    /// Uses the hand-picked palette shifts from the design doc.
+    fn landscape_season_tint(&self, color: Color, terrain: &Terrain) -> Color {
+        let Color(r, g, b) = color;
+        match self.day_night.season {
+            Season::Spring => match terrain {
+                Terrain::Grass | Terrain::Bare | Terrain::Sapling => Color(
+                    r,
+                    (g as u16 + 15).min(255) as u8,
+                    (b as u16 + 5).min(255) as u8,
+                ),
+                Terrain::Forest => Color(
+                    r,
+                    (g as u16 + 12).min(255) as u8,
+                    (b as u16 + 5).min(255) as u8,
+                ),
+                Terrain::Scrubland => Color(
+                    (r as u16 + 5).min(255) as u8,
+                    (g as u16 + 10).min(255) as u8,
+                    b,
+                ),
+                Terrain::Marsh => Color(
+                    (r as u16 + 5).min(255) as u8,
+                    (g as u16 + 15).min(255) as u8,
+                    (b as u16 + 10).min(255) as u8,
+                ),
+                Terrain::Snow => Color(r, g, (b as i16 - 15).max(0) as u8),
+                _ => color,
+            },
+            Season::Summer => match terrain {
+                Terrain::Grass | Terrain::Bare | Terrain::Sapling => Color(
+                    (r as u16 + 10).min(255) as u8,
+                    (g as u16 + 5).min(255) as u8,
+                    (b as i16 - 10).max(0) as u8,
+                ),
+                Terrain::Forest => Color(
+                    (r as u16 + 5).min(255) as u8,
+                    (g as u16 + 8).min(255) as u8,
+                    (b as i16 - 5).max(0) as u8,
+                ),
+                Terrain::Desert => Color(
+                    (r as u16 + 15).min(255) as u8,
+                    (g as u16 + 5).min(255) as u8,
+                    (b as i16 - 10).max(0) as u8,
+                ),
+                Terrain::Sand => Color(
+                    (r as u16 + 10).min(255) as u8,
+                    (g as u16 + 5).min(255) as u8,
+                    (b as i16 - 5).max(0) as u8,
+                ),
+                Terrain::Tundra => Color(
+                    (r as u16 + 10).min(255) as u8,
+                    (g as u16 + 5).min(255) as u8,
+                    (b as i16 - 5).max(0) as u8,
+                ),
+                _ => color,
+            },
+            Season::Autumn => match terrain {
+                Terrain::Grass | Terrain::Bare | Terrain::Sapling => {
+                    // Golden brown
+                    Color(110, 90, 35)
+                }
+                Terrain::Forest => {
+                    // Deep orange-red
+                    Color(100, 55, 18)
+                }
+                Terrain::Scrubland => {
+                    // Russet
+                    Color(120, 85, 30)
+                }
+                Terrain::Marsh => Color(
+                    (r as u16 + 15).min(255) as u8,
+                    (g as i16 - 10).max(0) as u8,
+                    (b as i16 - 10).max(0) as u8,
+                ),
+                Terrain::Mountain => Color(
+                    (r as u16 + 5).min(255) as u8,
+                    g,
+                    (b as i16 - 5).max(0) as u8,
+                ),
+                _ => color,
+            },
+            Season::Winter => match terrain {
+                Terrain::Grass | Terrain::Bare | Terrain::Sapling => {
+                    // Frost/snow dusted
+                    Color(140, 145, 155)
+                }
+                Terrain::Forest => {
+                    // Bare, dark, cold
+                    Color(50, 60, 55)
+                }
+                Terrain::Scrubland => {
+                    // Dead scrub
+                    Color(110, 108, 100)
+                }
+                Terrain::Marsh => {
+                    // Frozen grey
+                    Color(55, 65, 70)
+                }
+                Terrain::Sand => Color(
+                    (r as u16 + 20).min(255) as u8,
+                    (g as u16 + 20).min(255) as u8,
+                    (b as u16 + 30).min(255) as u8,
+                ),
+                Terrain::Tundra => {
+                    // Heavy snow
+                    Color(195, 198, 210)
+                }
+                Terrain::Snow => {
+                    // Fresh powder
+                    Color(225, 225, 240)
+                }
+                Terrain::Mountain => Color(
+                    (r as u16 + 15).min(255) as u8,
+                    (g as u16 + 15).min(255) as u8,
+                    (b as u16 + 25).min(255) as u8,
+                ),
+                _ => color,
+            },
+        }
     }
 
     /// Resolve terrain glyph for Map Mode, including vegetation overlay.
@@ -2922,7 +3268,8 @@ mod tests {
     fn render_mode_cycle() {
         use super::super::RenderMode;
         assert_eq!(RenderMode::Normal.next(), RenderMode::Map);
-        assert_eq!(RenderMode::Map.next(), RenderMode::Debug);
+        assert_eq!(RenderMode::Map.next(), RenderMode::Landscape);
+        assert_eq!(RenderMode::Landscape.next(), RenderMode::Debug);
         assert_eq!(RenderMode::Debug.next(), RenderMode::Normal);
     }
 
@@ -2931,6 +3278,168 @@ mod tests {
         use super::super::RenderMode;
         assert_eq!(RenderMode::Normal.label(), "-");
         assert_eq!(RenderMode::Map.label(), "M");
+        assert_eq!(RenderMode::Landscape.label(), "L");
         assert_eq!(RenderMode::Debug.label(), "D");
+    }
+
+    // --- Landscape Mode tests ---
+
+    #[test]
+    fn landscape_texture_pool_coverage() {
+        use crate::tilemap::Terrain;
+        // Every terrain type should return a non-empty texture pool
+        let terrains = [
+            Terrain::Water,
+            Terrain::Sand,
+            Terrain::Grass,
+            Terrain::Forest,
+            Terrain::Mountain,
+            Terrain::Snow,
+            Terrain::Cliff,
+            Terrain::Marsh,
+            Terrain::Desert,
+            Terrain::Tundra,
+            Terrain::Scrubland,
+            Terrain::Stump,
+            Terrain::Bare,
+            Terrain::Sapling,
+            Terrain::Quarry,
+            Terrain::QuarryDeep,
+            Terrain::ScarredGround,
+            Terrain::BuildingFloor,
+            Terrain::BuildingWall,
+            Terrain::Road,
+            Terrain::Ford,
+            Terrain::Bridge,
+            Terrain::Ice,
+            Terrain::FloodWater,
+            Terrain::Burning,
+            Terrain::Scorched,
+        ];
+        for t in &terrains {
+            let pool = t.landscape_texture_pool();
+            assert!(!pool.is_empty(), "empty texture pool for {:?}", t);
+        }
+    }
+
+    #[test]
+    fn landscape_ch_deterministic() {
+        use crate::tilemap::Terrain;
+        // Same position should always produce the same character
+        let ch1 = Terrain::Grass.landscape_ch(10, 20);
+        let ch2 = Terrain::Grass.landscape_ch(10, 20);
+        assert_eq!(ch1, ch2);
+        // Different positions should (usually) produce different characters
+        // Just check it doesn't panic for a range
+        for x in 0..20 {
+            for y in 0..20 {
+                let _ = Terrain::Mountain.landscape_ch(x, y);
+            }
+        }
+    }
+
+    #[test]
+    fn landscape_fg_bg_low_contrast() {
+        use crate::tilemap::Terrain;
+        // For landscape mode, fg and bg should be close (low contrast).
+        // Check that the RGB distance is bounded for key terrain types.
+        let terrains = [
+            Terrain::Grass,
+            Terrain::Forest,
+            Terrain::Sand,
+            Terrain::Mountain,
+            Terrain::Snow,
+            Terrain::Water,
+        ];
+        for t in &terrains {
+            let fg = t.landscape_fg();
+            let bg = t.landscape_bg();
+            let dr = (fg.0 as i32 - bg.0 as i32).abs();
+            let dg = (fg.1 as i32 - bg.1 as i32).abs();
+            let db = (fg.2 as i32 - bg.2 as i32).abs();
+            let max_diff = dr.max(dg).max(db);
+            assert!(
+                max_diff <= 100,
+                "landscape fg/bg too far apart for {:?}: fg={:?} bg={:?} max_diff={}",
+                t,
+                fg,
+                bg,
+                max_diff
+            );
+        }
+    }
+
+    #[test]
+    fn landscape_entity_villager_all_states() {
+        // Every villager behavior state should produce a visible glyph
+        let states: Vec<BehaviorState> = vec![
+            BehaviorState::Idle { timer: 10 },
+            BehaviorState::Wander { timer: 10 },
+            BehaviorState::Seek {
+                target_x: 0.0,
+                target_y: 0.0,
+                reason: SeekReason::Food,
+            },
+            BehaviorState::Gathering {
+                timer: 10,
+                resource_type: ResourceType::Wood,
+            },
+            BehaviorState::Hauling {
+                target_x: 0.0,
+                target_y: 0.0,
+                resource_type: ResourceType::Wood,
+            },
+            BehaviorState::Building {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 10,
+            },
+            BehaviorState::Farming {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 10,
+            },
+            BehaviorState::Working {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 10,
+            },
+            BehaviorState::Sleeping { timer: 10 },
+            BehaviorState::FleeHome { timer: 10 },
+            BehaviorState::Exploring {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 10,
+            },
+            BehaviorState::Eating { timer: 10 },
+        ];
+        for state in &states {
+            let result = landscape_entity_visual(Species::Villager, state);
+            assert!(
+                result.is_some(),
+                "Villager should have a landscape glyph for {:?}",
+                state
+            );
+            let (ch, _) = result.unwrap();
+            assert_eq!(ch, 'o', "Villager glyph should be 'o' in landscape mode");
+        }
+    }
+
+    #[test]
+    fn landscape_entity_predator_saturated() {
+        // Predator should always have red-ish high-saturation color
+        let state = BehaviorState::Hunting {
+            target_x: 0.0,
+            target_y: 0.0,
+        };
+        let (ch, color) = landscape_entity_visual(Species::Predator, &state).unwrap();
+        assert_eq!(ch, 'w');
+        assert!(color.0 > 200, "predator red channel should be high");
+    }
+
+    #[test]
+    fn landscape_prey_hidden_at_home() {
+        let state = BehaviorState::AtHome { timer: 10 };
+        assert!(landscape_entity_visual(Species::Prey, &state).is_none());
     }
 }

@@ -136,16 +136,20 @@ pub enum RenderMode {
     Normal,
     /// Symbolic map: flat colors, semantic glyphs, no lighting. Gameplay readability mode.
     Map,
+    /// Painterly landscape: texture chars, hand-picked palettes, full lighting.
+    /// Color carries all meaning; characters are invisible surface noise.
+    Landscape,
     /// Developer debug view: uppercase terrain letters, raw data.
     Debug,
 }
 
 impl RenderMode {
-    /// Cycle to the next render mode: Normal -> Map -> Debug -> Normal.
+    /// Cycle to the next render mode: Normal -> Map -> Landscape -> Debug -> Normal.
     pub fn next(self) -> Self {
         match self {
             RenderMode::Normal => RenderMode::Map,
-            RenderMode::Map => RenderMode::Debug,
+            RenderMode::Map => RenderMode::Landscape,
+            RenderMode::Landscape => RenderMode::Debug,
             RenderMode::Debug => RenderMode::Normal,
         }
     }
@@ -155,6 +159,7 @@ impl RenderMode {
         match self {
             RenderMode::Normal => "-",
             RenderMode::Map => "M",
+            RenderMode::Landscape => "L",
             RenderMode::Debug => "D",
         }
     }
@@ -2510,6 +2515,7 @@ impl Game {
         match self.render_mode {
             RenderMode::Debug => self.draw_debug(renderer),
             RenderMode::Map => self.draw_map_mode(renderer),
+            RenderMode::Landscape => self.draw_landscape_mode(renderer),
             RenderMode::Normal => self.draw(renderer),
         }
         if self.game_over {
