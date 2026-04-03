@@ -1031,4 +1031,160 @@ mod tests {
             assert!(step <= 2, "each step should be at most 1 tile away");
         }
     }
+
+    // --- Path cache: astar_full_path correctness ---
+
+    #[test]
+    fn astar_full_path_simple_3_tile() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        // From (2,5) to (5,5) — 3 tiles apart horizontally
+        let path = map.astar_full_path(2.0, 5.0, 5.0, 5.0, 100);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        // Should have waypoints: at least (3,5), (4,5), (5,5) or similar
+        assert!(
+            path.len() >= 2,
+            "3-tile path should have at least 2 waypoints"
+        );
+        // Last waypoint must be destination
+        let (lx, ly) = path.last().unwrap();
+        assert_eq!(*lx, 5.0);
+        assert_eq!(*ly, 5.0);
+    }
+
+    #[test]
+    fn astar_full_path_blocked_returns_none() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        // Create a complete wall blocking all paths
+        for y in 0..10 {
+            map.set(5, y, Terrain::BuildingWall);
+        }
+        let path = map.astar_full_path(2.0, 5.0, 8.0, 5.0, 500);
+        assert!(path.is_none(), "fully blocked path should return None");
+    }
+
+    #[test]
+    fn astar_full_path_blocked_waypoint_invalidates_cache() {
+        // Simulate: compute path, then place building on a waypoint
+        let mut map = TileMap::new(20, 10, Terrain::Grass);
+        let path = map.astar_full_path(2.0, 5.0, 15.0, 5.0, 500);
+        assert!(path.is_some());
+        let path = path.unwrap();
+
+        // Block a waypoint along the path
+        let (wx, wy) = path[path.len() / 2];
+        map.set(wx as usize, wy as usize, Terrain::BuildingWall);
+
+        // The blocked tile is no longer walkable
+        assert!(
+            !map.is_walkable(wx, wy),
+            "blocked waypoint should not be walkable"
+        );
+
+        // Recomputing should find an alternate route or return None
+        let new_path = map.astar_full_path(2.0, 5.0, 15.0, 5.0, 500);
+        if let Some(np) = &new_path {
+            // New path should NOT go through the blocked tile
+            assert!(
+                !np.iter()
+                    .any(|&(px, py)| px as usize == wx as usize && py as usize == wy as usize),
+                "new path should avoid blocked waypoint"
+            );
+        }
+    }
+
+    // --- Terrain change tests ---
+
+    #[test]
+    fn deforestation_forest_becomes_stump() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        map.set(5, 5, Terrain::Forest);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Forest);
+
+        // Simulate harvest: convert Forest -> Stump
+        map.set(5, 5, Terrain::Stump);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Stump);
+    }
+
+    #[test]
+    fn mining_progression_zero_to_quarry() {
+        let mut map = TileMap::new(10, 10, Terrain::Mountain);
+        assert_eq!(map.mine_count(5, 5), 0);
+
+        // Mine 6 times -> should become Quarry
+        for _ in 0..6 {
+            let count = map.increment_mine_count(5, 5);
+            if count >= 6 {
+                map.set(5, 5, Terrain::Quarry);
+            }
+        }
+        assert_eq!(map.mine_count(5, 5), 6);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Quarry);
+    }
+
+    #[test]
+    fn mining_progression_quarry_to_deep() {
+        let mut map = TileMap::new(10, 10, Terrain::Mountain);
+        // Advance to Quarry
+        for _ in 0..6 {
+            map.increment_mine_count(5, 5);
+        }
+        map.set(5, 5, Terrain::Quarry);
+
+        // Mine 6 more -> should become QuarryDeep
+        for _ in 0..6 {
+            let count = map.increment_mine_count(5, 5);
+            if count >= 12 {
+                map.set(5, 5, Terrain::QuarryDeep);
+            }
+        }
+        assert_eq!(map.mine_count(5, 5), 12);
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::QuarryDeep);
+    }
+
+    #[test]
+    fn quarry_walkability_and_cost() {
+        assert!(Terrain::Quarry.is_walkable());
+        assert!(Terrain::QuarryDeep.is_walkable());
+        assert!(Terrain::Quarry.move_cost() < Terrain::Mountain.move_cost());
+        assert!(Terrain::QuarryDeep.move_cost() < Terrain::Mountain.move_cost());
+    }
+
+    #[test]
+    fn stump_bare_sapling_speed_multipliers() {
+        assert_eq!(Terrain::Stump.speed_multiplier(), 0.8);
+        assert_eq!(Terrain::Bare.speed_multiplier(), 0.9);
+        assert_eq!(Terrain::Sapling.speed_multiplier(), 0.7);
+
+        // All should be walkable
+        assert!(Terrain::Stump.is_walkable());
+        assert!(Terrain::Bare.is_walkable());
+        assert!(Terrain::Sapling.is_walkable());
+    }
+
+    #[test]
+    fn building_wall_and_cliff_not_walkable() {
+        assert!(!Terrain::BuildingWall.is_walkable());
+        assert!(!Terrain::Cliff.is_walkable());
+        assert_eq!(Terrain::BuildingWall.speed_multiplier(), 0.0);
+        assert_eq!(Terrain::Cliff.speed_multiplier(), 0.0);
+    }
+
+    #[test]
+    fn is_walkable_method_checks_bounds() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        assert!(map.is_walkable(5.0, 5.0));
+        assert!(
+            !map.is_walkable(-1.0, 5.0),
+            "negative x should not be walkable"
+        );
+        assert!(
+            !map.is_walkable(5.0, -1.0),
+            "negative y should not be walkable"
+        );
+        assert!(
+            !map.is_walkable(100.0, 5.0),
+            "out of bounds should not be walkable"
+        );
+    }
 }

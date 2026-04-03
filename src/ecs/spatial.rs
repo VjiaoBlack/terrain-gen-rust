@@ -336,4 +336,164 @@ mod tests {
         // Query from neighboring cell should find it
         assert!(grid.nearest(17.0, 15.0, 5.0, category::VILLAGER).is_some());
     }
+
+    // --- New hardening tests ---
+
+    #[test]
+    fn radius_zero_matches_exact_position_only() {
+        let mut grid = SpatialHashGrid::new(256, 256, 16);
+        grid.insert(make_entry(50.0, 50.0, category::VILLAGER));
+        grid.insert(make_entry(50.5, 50.0, category::VILLAGER));
+
+        // Radius 0 should only match entities at distance 0 (i.e., exact position)
+        let count = grid.count_within(50.0, 50.0, 0.0, category::VILLAGER);
+        assert_eq!(
+            count, 1,
+            "radius=0 should only match entity at exact position"
+        );
+    }
+
+    #[test]
+    fn large_radius_covers_entire_map() {
+        let mut grid = SpatialHashGrid::new(64, 64, 16);
+        grid.insert(make_entry(0.0, 0.0, category::VILLAGER));
+        grid.insert(make_entry(63.0, 63.0, category::PREDATOR));
+        grid.insert(make_entry(32.0, 32.0, category::FOOD_SOURCE));
+
+        // Query from center with radius large enough to cover entire 64x64 map
+        let count = grid.count_within(
+            32.0,
+            32.0,
+            100.0,
+            category::VILLAGER | category::PREDATOR | category::FOOD_SOURCE,
+        );
+        assert_eq!(count, 3, "large radius should find all entities on map");
+    }
+
+    #[test]
+    fn fractional_coordinates() {
+        let mut grid = SpatialHashGrid::new(256, 256, 16);
+        grid.insert(make_entry(0.5, 0.5, category::VILLAGER));
+
+        assert!(
+            grid.nearest(0.5, 0.5, 1.0, category::VILLAGER).is_some(),
+            "should find entity at fractional coordinates"
+        );
+        let (entry, dist) = grid.nearest(0.5, 0.5, 1.0, category::VILLAGER).unwrap();
+        assert!((entry.x - 0.5).abs() < 0.001);
+        assert!((entry.y - 0.5).abs() < 0.001);
+        assert!(dist < 0.001, "distance to self should be ~0, got {}", dist);
+    }
+
+    #[test]
+    fn multiple_entities_same_tile() {
+        let mut grid = SpatialHashGrid::new(256, 256, 16);
+        grid.insert(make_entry(50.0, 50.0, category::VILLAGER));
+        grid.insert(make_entry(50.0, 50.0, category::VILLAGER));
+        grid.insert(make_entry(50.0, 50.0, category::PREDATOR));
+
+        assert_eq!(
+            grid.count_within(50.0, 50.0, 1.0, category::VILLAGER),
+            2,
+            "should find both villagers on same tile"
+        );
+        assert_eq!(
+            grid.count_within(50.0, 50.0, 1.0, category::PREDATOR),
+            1,
+            "should find the predator on same tile"
+        );
+        assert_eq!(
+            grid.count_within(50.0, 50.0, 1.0, category::VILLAGER | category::PREDATOR),
+            3,
+            "combined mask should find all 3"
+        );
+    }
+
+    #[test]
+    fn populate_from_world_with_mixed_entity_types() {
+        let mut world = World::new();
+        use super::{Creature, FoodSource, Position, Species, Stockpile, StoneDeposit};
+
+        // Spawn a villager
+        world.spawn((
+            Position { x: 10.0, y: 10.0 },
+            Creature {
+                species: Species::Villager,
+                hunger: 0.0,
+                home_x: 10.0,
+                home_y: 10.0,
+                sight_range: 12.0,
+            },
+        ));
+        // Spawn a predator
+        world.spawn((
+            Position { x: 20.0, y: 20.0 },
+            Creature {
+                species: Species::Predator,
+                hunger: 0.0,
+                home_x: 20.0,
+                home_y: 20.0,
+                sight_range: 15.0,
+            },
+        ));
+        // Spawn a food source
+        world.spawn((Position { x: 30.0, y: 30.0 }, FoodSource));
+        // Spawn a stockpile
+        world.spawn((Position { x: 40.0, y: 40.0 }, Stockpile));
+        // Spawn a stone deposit
+        world.spawn((Position { x: 50.0, y: 50.0 }, StoneDeposit));
+
+        let mut grid = SpatialHashGrid::new(64, 64, 16);
+        grid.populate(&world);
+
+        assert_eq!(
+            grid.all_of_category(category::VILLAGER).len(),
+            1,
+            "should find 1 villager"
+        );
+        assert_eq!(
+            grid.all_of_category(category::PREDATOR).len(),
+            1,
+            "should find 1 predator"
+        );
+        assert_eq!(
+            grid.all_of_category(category::FOOD_SOURCE).len(),
+            1,
+            "should find 1 food source"
+        );
+        assert_eq!(
+            grid.all_of_category(category::STOCKPILE).len(),
+            1,
+            "should find 1 stockpile"
+        );
+        assert_eq!(
+            grid.all_of_category(category::STONE_DEPOSIT).len(),
+            1,
+            "should find 1 stone deposit"
+        );
+    }
+
+    #[test]
+    fn entries_in_cell_returns_correct_entities() {
+        let mut grid = SpatialHashGrid::new(256, 256, 16);
+        // Cell (0,0) covers x=0..16, y=0..16
+        grid.insert(make_entry(5.0, 5.0, category::VILLAGER));
+        grid.insert(make_entry(10.0, 10.0, category::PREDATOR));
+        // Cell (1,0) covers x=16..32
+        grid.insert(make_entry(20.0, 5.0, category::FOOD_SOURCE));
+
+        assert_eq!(grid.entries_in_cell(0, 0).len(), 2);
+        assert_eq!(grid.entries_in_cell(1, 0).len(), 1);
+        assert_eq!(grid.entries_in_cell(2, 2).len(), 0);
+    }
+
+    #[test]
+    fn out_of_bounds_entries_in_cell() {
+        let grid = SpatialHashGrid::new(256, 256, 16);
+        assert_eq!(
+            grid.entries_in_cell(999, 999).len(),
+            0,
+            "out-of-bounds cell should return empty slice"
+        );
+    }
 }

@@ -4359,4 +4359,503 @@ mod tests {
             "board should contain wood sighting after villager deposit"
         );
     }
+
+    // ====================================================================
+    // Memory system tests
+    // ====================================================================
+
+    #[test]
+    fn memory_decay_half_life() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::FoodSource, 10.0, 10.0, 0);
+
+        // After 350 ticks of decay (0.002/tick), confidence should be ~0.5
+        // 1.0 - 350*0.002 = 1.0 - 0.7 = 0.3
+        for _ in 0..350 {
+            mem.decay_tick();
+        }
+        let entry = &mem.entries[0];
+        let expected = 1.0 - 350.0 * MEMORY_DECAY_RATE;
+        assert!(
+            (entry.confidence - expected).abs() < 0.01,
+            "after 350 ticks, confidence should be ~{:.3}, got {:.3}",
+            expected,
+            entry.confidence
+        );
+    }
+
+    #[test]
+    fn memory_best_resource_ignores_low_confidence() {
+        let mut mem = VillagerMemory::new();
+        // High confidence far away
+        mem.upsert(MemoryKind::WoodSource, 100.0, 100.0, 0);
+        // Low confidence nearby - manually set confidence below threshold
+        mem.upsert(MemoryKind::WoodSource, 5.0, 5.0, 0);
+        mem.entries.last_mut().unwrap().confidence = 0.05; // below forget threshold
+
+        // Decay once to evict entries below forget threshold
+        mem.decay_tick();
+
+        // The low confidence entry should be evicted
+        let result = mem.best_resource(MemoryKind::WoodSource, 0.0, 0.0);
+        assert!(result.is_some(), "should find at least one resource");
+        let (x, y, _) = result.unwrap();
+        assert!(
+            (x - 100.0).abs() < 0.1,
+            "should return the high-confidence entry, not the evicted one"
+        );
+    }
+
+    #[test]
+    fn memory_danger_near_with_multiple_dangers() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 10.0, 0);
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 0);
+        mem.upsert(MemoryKind::DangerZone, 100.0, 100.0, 0);
+
+        // Near the first danger
+        assert!(mem.danger_near(11.0, 11.0, 5.0));
+        // Near the second danger
+        assert!(mem.danger_near(49.0, 50.0, 5.0));
+        // Not near any danger
+        assert!(!mem.danger_near(30.0, 30.0, 5.0));
+    }
+
+    #[test]
+    fn memory_full_evicts_lowest_confidence() {
+        let mut mem = VillagerMemory::new();
+        // Fill memory to capacity
+        for i in 0..MEMORY_CAPACITY {
+            mem.upsert(
+                MemoryKind::FoodSource,
+                i as f64 * 20.0, // far enough apart to avoid upsert dedup
+                0.0,
+                0,
+            );
+        }
+        assert_eq!(mem.entry_count(), MEMORY_CAPACITY);
+
+        // Decay some entries to different confidence levels
+        for (i, entry) in mem.entries.iter_mut().enumerate() {
+            entry.confidence = 0.1 + (i as f64 * 0.02);
+        }
+
+        // Add one more — should evict lowest confidence
+        mem.upsert(MemoryKind::WoodSource, 999.0, 999.0, 100);
+        assert!(
+            mem.entry_count() <= MEMORY_CAPACITY,
+            "memory should not exceed capacity"
+        );
+        // New entry should be present
+        assert!(
+            mem.entries.iter().any(|e| e.kind == MemoryKind::WoodSource),
+            "new entry should be in memory"
+        );
+    }
+
+    #[test]
+    fn believed_stockpile_fields_update() {
+        let mut mem = VillagerMemory::new();
+        assert!(mem.believed_stockpile.is_none());
+
+        mem.believed_stockpile = Some(BelievedStockpile {
+            food: 10,
+            wood: 5,
+            stone: 3,
+            tick_observed: 100,
+        });
+        let bs = mem.believed_stockpile.unwrap();
+        assert_eq!(bs.food, 10);
+        assert_eq!(bs.wood, 5);
+        assert_eq!(bs.stone, 3);
+        assert_eq!(bs.tick_observed, 100);
+
+        // Update
+        mem.believed_stockpile = Some(BelievedStockpile {
+            food: 20,
+            wood: 10,
+            stone: 8,
+            tick_observed: 200,
+        });
+        let bs2 = mem.believed_stockpile.unwrap();
+        assert_eq!(bs2.food, 20);
+        assert_eq!(bs2.tick_observed, 200);
+    }
+
+    // ====================================================================
+    // Bulletin board tests
+    // ====================================================================
+
+    #[test]
+    fn bulletin_write_and_immediate_read() {
+        let mut board = BulletinBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+
+        board.write_from_memory(&mem, 0);
+
+        assert_eq!(board.posts.len(), 1);
+        assert_eq!(board.posts[0].kind, MemoryKind::WoodSource);
+        assert!((board.posts[0].x - 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn bulletin_two_villagers_both_posts_persist() {
+        let mut board = BulletinBoard::default();
+
+        let mut mem1 = VillagerMemory::new();
+        mem1.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+
+        let mut mem2 = VillagerMemory::new();
+        mem2.upsert(MemoryKind::StoneDeposit, 50.0, 50.0, 0);
+
+        board.write_from_memory(&mem1, 0);
+        board.write_from_memory(&mem2, 0);
+
+        assert_eq!(board.posts.len(), 2, "both villagers' posts should persist");
+        assert!(board.posts.iter().any(|p| p.kind == MemoryKind::WoodSource));
+        assert!(
+            board
+                .posts
+                .iter()
+                .any(|p| p.kind == MemoryKind::StoneDeposit)
+        );
+    }
+
+    #[test]
+    fn bulletin_resource_depleted_cancels_matching_only() {
+        let mut board = BulletinBoard::default();
+
+        // First villager posts a wood source
+        let mut mem1 = VillagerMemory::new();
+        mem1.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+        board.write_from_memory(&mem1, 0);
+
+        // Also post a stone deposit far away
+        let mut mem2 = VillagerMemory::new();
+        mem2.upsert(MemoryKind::StoneDeposit, 80.0, 80.0, 0);
+        board.write_from_memory(&mem2, 0);
+
+        assert_eq!(board.posts.len(), 2);
+
+        // Third villager reports the wood source is depleted (same location)
+        let mut mem3 = VillagerMemory::new();
+        mem3.upsert(MemoryKind::ResourceDepleted, 10.0, 10.0, 10);
+        board.write_from_memory(&mem3, 10);
+
+        // Wood source should be cancelled, stone deposit should remain
+        assert!(
+            !board.posts.iter().any(|p| p.kind == MemoryKind::WoodSource),
+            "wood source near depleted location should be removed"
+        );
+        assert!(
+            board
+                .posts
+                .iter()
+                .any(|p| p.kind == MemoryKind::StoneDeposit),
+            "stone deposit far away should persist"
+        );
+    }
+
+    #[test]
+    fn bulletin_board_full_evicts_oldest() {
+        let mut board = BulletinBoard::default();
+
+        // Fill board to capacity with posts at different ticks
+        for i in 0..BULLETIN_BOARD_CAPACITY + 5 {
+            let mut mem = VillagerMemory::new();
+            mem.upsert(
+                MemoryKind::FoodSource,
+                i as f64 * 20.0, // far enough apart to avoid dedup
+                0.0,
+                i as u64,
+            );
+            board.write_from_memory(&mem, i as u64);
+        }
+
+        assert!(
+            board.posts.len() <= BULLETIN_BOARD_CAPACITY,
+            "board should enforce capacity limit, got {}",
+            board.posts.len()
+        );
+    }
+
+    #[test]
+    fn bulletin_secondhand_factor() {
+        let mut board = BulletinBoard::default();
+        let mut writer = VillagerMemory::new();
+        writer.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+        board.write_from_memory(&writer, 0);
+
+        // Reader learns from board
+        let mut reader = VillagerMemory::new();
+        board.read_into_memory(&mut reader, 0);
+
+        assert_eq!(reader.entry_count(), 1);
+        let entry = &reader.entries[0];
+        assert_eq!(entry.kind, MemoryKind::WoodSource);
+        // Secondhand confidence should be original * 0.8
+        let expected = 1.0 * BULLETIN_SECONDHAND_FACTOR;
+        assert!(
+            (entry.confidence - expected).abs() < 0.01,
+            "secondhand confidence should be {:.2}, got {:.2}",
+            expected,
+            entry.confidence
+        );
+    }
+
+    // ====================================================================
+    // Tick budgeting tests
+    // ====================================================================
+
+    #[test]
+    fn tick_priority_critical_states() {
+        assert_eq!(tick_priority(&BehaviorState::FleeHome { timer: 10 }), 1);
+        assert_eq!(tick_priority(&BehaviorState::Captured), 1);
+        assert_eq!(
+            tick_priority(&BehaviorState::Hunting {
+                target_x: 0.0,
+                target_y: 0.0
+            }),
+            1
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Building {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 0
+            }),
+            1
+        );
+    }
+
+    #[test]
+    fn tick_priority_active_states() {
+        assert_eq!(
+            tick_priority(&BehaviorState::Seek {
+                target_x: 0.0,
+                target_y: 0.0,
+                reason: SeekReason::Food,
+            }),
+            2
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Hauling {
+                target_x: 0.0,
+                target_y: 0.0,
+                resource_type: ResourceType::Wood,
+            }),
+            2
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Gathering {
+                timer: 0,
+                resource_type: ResourceType::Wood,
+            }),
+            2
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Exploring {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 0,
+            }),
+            2
+        );
+    }
+
+    #[test]
+    fn tick_priority_normal_states() {
+        assert_eq!(
+            tick_priority(&BehaviorState::Farming {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 0,
+            }),
+            4
+        );
+        assert_eq!(
+            tick_priority(&BehaviorState::Working {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 0,
+            }),
+            4
+        );
+        assert_eq!(tick_priority(&BehaviorState::Eating { timer: 0 }), 4);
+    }
+
+    #[test]
+    fn tick_priority_idle_states() {
+        assert_eq!(tick_priority(&BehaviorState::Wander { timer: 0 }), 8);
+        assert_eq!(tick_priority(&BehaviorState::Idle { timer: 0 }), 8);
+        assert_eq!(tick_priority(&BehaviorState::Sleeping { timer: 0 }), 8);
+        assert_eq!(tick_priority(&BehaviorState::AtHome { timer: 0 }), 8);
+    }
+
+    #[test]
+    fn tick_schedule_interval_changes_on_state_transition() {
+        // Idle -> Seek should change interval from 8 to 2
+        let idle = BehaviorState::Idle { timer: 0 };
+        let seek = BehaviorState::Seek {
+            target_x: 10.0,
+            target_y: 10.0,
+            reason: SeekReason::Food,
+        };
+        assert_eq!(tick_priority(&idle), 8);
+        assert_eq!(tick_priority(&seek), 2);
+    }
+
+    #[test]
+    fn tick_schedule_interrupt_forces_next_tick() {
+        let mut schedule = TickSchedule {
+            next_ai_tick: 100,
+            interval: 8,
+        };
+        let current_tick = 50;
+
+        // Simulate interrupt: force AI on next tick
+        schedule.next_ai_tick = current_tick + 1;
+        assert_eq!(
+            schedule.next_ai_tick, 51,
+            "interrupted villager should run AI on next tick"
+        );
+    }
+
+    #[test]
+    fn sleeping_villager_high_interval() {
+        let sleeping = BehaviorState::Sleeping { timer: 200 };
+        let interval = tick_priority(&sleeping);
+        assert_eq!(interval, 8, "sleeping villager should have interval 8");
+    }
+
+    // ====================================================================
+    // Functional tests (no game loop)
+    // ====================================================================
+
+    #[test]
+    fn memory_upsert_dedup_updates_tick_and_position() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+        mem.upsert(MemoryKind::WoodSource, 12.0, 10.0, 100); // within MEMORY_UPSERT_RADIUS=5
+        assert_eq!(
+            mem.entry_count(),
+            1,
+            "upsert should merge nearby same-kind entries"
+        );
+        assert_eq!(
+            mem.entries[0].tick_observed, 100,
+            "merged entry should have updated tick"
+        );
+        assert!(
+            (mem.entries[0].x - 12.0).abs() < 0.01,
+            "merged entry should have updated position"
+        );
+    }
+
+    #[test]
+    fn memory_far_entries_not_merged() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+        mem.upsert(MemoryKind::WoodSource, 50.0, 50.0, 100); // far away
+        assert_eq!(
+            mem.entry_count(),
+            2,
+            "far apart entries should not be merged"
+        );
+    }
+
+    #[test]
+    fn stale_memory_detection() {
+        // Villager has memory of forest at (10,10) but it's now a Stump
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+
+        let mut map = TileMap::new(20, 20, Terrain::Grass);
+        map.set(10, 10, Terrain::Stump); // Forest was harvested
+
+        // Check that the actual terrain contradicts memory
+        let terrain = map.get(10, 10).unwrap();
+        assert_eq!(
+            *terrain,
+            Terrain::Stump,
+            "terrain should be Stump after harvest"
+        );
+        // The memory says WoodSource but terrain is Stump — this is a mismatch
+        let best = mem.best_resource(MemoryKind::WoodSource, 0.0, 0.0);
+        assert!(
+            best.is_some(),
+            "memory still has the stale wood source (until decay)"
+        );
+    }
+
+    #[test]
+    fn bulletin_resource_depleted_clears_reader_memory() {
+        let mut board = BulletinBoard::default();
+
+        // Post a depleted notice
+        let mut writer = VillagerMemory::new();
+        writer.upsert(MemoryKind::ResourceDepleted, 10.0, 10.0, 100);
+        board.write_from_memory(&writer, 100);
+
+        // Reader has old memory of wood at that location
+        let mut reader = VillagerMemory::new();
+        reader.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+        assert_eq!(reader.entry_count(), 1);
+
+        // Reading the board should remove the contradicted wood source
+        board.read_into_memory(&mut reader, 100);
+        assert!(
+            !reader
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::WoodSource
+                    && (e.x - 10.0).abs() < MEMORY_UPSERT_RADIUS),
+            "reading ResourceDepleted should clear stale wood source from reader memory"
+        );
+    }
+
+    #[test]
+    fn stockpile_fullness_levels() {
+        assert_eq!(StockpileFullness::from_count(0), StockpileFullness::Empty);
+        assert_eq!(StockpileFullness::from_count(1), StockpileFullness::Low);
+        assert_eq!(StockpileFullness::from_count(4), StockpileFullness::Low);
+        assert_eq!(StockpileFullness::from_count(5), StockpileFullness::Medium);
+        assert_eq!(StockpileFullness::from_count(20), StockpileFullness::Medium);
+        assert_eq!(StockpileFullness::from_count(21), StockpileFullness::High);
+    }
+
+    #[test]
+    fn stockpile_fullness_scarcity() {
+        assert!(StockpileFullness::Empty.is_scarce());
+        assert!(StockpileFullness::Low.is_scarce());
+        assert!(!StockpileFullness::Medium.is_scarce());
+        assert!(!StockpileFullness::High.is_scarce());
+    }
+
+    #[test]
+    fn memory_decay_evicts_below_threshold() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::FoodSource, 10.0, 10.0, 0);
+        // Set confidence just above forget threshold
+        mem.entries[0].confidence = MEMORY_FORGET_THRESHOLD + 0.001;
+
+        // One more decay tick should drop below threshold and evict
+        mem.decay_tick();
+        assert_eq!(
+            mem.entry_count(),
+            0,
+            "entry below forget threshold should be evicted"
+        );
+    }
+
+    #[test]
+    fn path_cache_default_state() {
+        let cache = PathCache::default();
+        assert!(cache.waypoints.is_empty());
+        assert_eq!(cache.cursor, 0);
+        assert_eq!(cache.dest_x, 0.0);
+        assert_eq!(cache.dest_y, 0.0);
+        assert_eq!(cache.computed_tick, 0);
+    }
 }

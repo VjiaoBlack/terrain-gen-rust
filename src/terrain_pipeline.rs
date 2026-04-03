@@ -1351,4 +1351,105 @@ mod tests {
             wood_diff
         );
     }
+
+    // --- Resource map edge case tests ---
+
+    #[test]
+    fn resource_potential_water_tile_all_zeros() {
+        use crate::tilemap::Terrain;
+        let w = 10;
+        let h = 10;
+        let map = crate::tilemap::TileMap::new(w, h, Terrain::Water);
+        let heights = vec![0.1; w * h]; // low elevation = water
+        let moisture = vec![1.0; w * h];
+        let slope = vec![0.0; w * h];
+        let soil = vec![SoilType::Sand; w * h];
+        let river_mask = vec![false; w * h];
+
+        let resources = generate_resource_map(
+            &map,
+            &heights,
+            &moisture,
+            &slope,
+            &soil,
+            &river_mask,
+            w,
+            h,
+            42,
+        );
+        let pot = resources.get(5, 5);
+        assert_eq!(pot.stone, 0, "water tile should have 0 stone");
+        assert_eq!(pot.wood, 0, "water tile should have 0 wood");
+        assert_eq!(pot.fertility, 0, "water tile should have 0 fertility");
+    }
+
+    #[test]
+    fn resource_potential_desert_low_wood_moderate_stone() {
+        use crate::tilemap::Terrain;
+        let w = 10;
+        let h = 10;
+        let map = crate::tilemap::TileMap::new(w, h, Terrain::Desert);
+        let heights = vec![0.5; w * h];
+        let moisture = vec![0.1; w * h];
+        let slope = vec![0.0; w * h];
+        let soil = vec![SoilType::Sand; w * h];
+        let river_mask = vec![false; w * h];
+
+        let resources = generate_resource_map(
+            &map,
+            &heights,
+            &moisture,
+            &slope,
+            &soil,
+            &river_mask,
+            w,
+            h,
+            42,
+        );
+        let pot = resources.get(5, 5);
+        assert_eq!(pot.wood, 0, "desert tile should have 0 wood");
+        // Desert with Sand soil doesn't get stone unless slope > 0.1 or Rocky
+        // so stone should be 0 in this flat case
+        assert_eq!(
+            pot.stone, 0,
+            "flat desert with sand soil should have 0 stone"
+        );
+    }
+
+    #[test]
+    fn resource_potential_alluvial_soil_high_fertility() {
+        use crate::tilemap::Terrain;
+        let w = 10;
+        let h = 10;
+        let map = crate::tilemap::TileMap::new(w, h, Terrain::Grass);
+        let heights = vec![0.5; w * h];
+        let moisture = vec![0.5; w * h];
+        let slope = vec![0.0; w * h];
+        let mut soil = vec![SoilType::Rocky; w * h]; // low yield baseline
+        let river_mask = vec![true; w * h]; // river everywhere for max bonus
+
+        // Set one cell to Alluvial
+        soil[5 * w + 5] = SoilType::Alluvial;
+
+        let resources = generate_resource_map(
+            &map,
+            &heights,
+            &moisture,
+            &slope,
+            &soil,
+            &river_mask,
+            w,
+            h,
+            42,
+        );
+        let alluvial_fert = resources.get(5, 5).fertility;
+        let rocky_fert = resources.get(3, 3).fertility;
+
+        assert!(
+            alluvial_fert > rocky_fert,
+            "alluvial soil should have higher fertility ({}) than rocky ({})",
+            alluvial_fert,
+            rocky_fert
+        );
+    }
 }

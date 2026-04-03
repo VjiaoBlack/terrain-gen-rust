@@ -2074,4 +2074,167 @@ mod tests {
         let (ch, _) = entity_visual(Species::Prey, &state, 0.0, 0.0, &sprite);
         assert_eq!(ch, '.');
     }
+
+    // --- New hardening tests ---
+
+    #[test]
+    fn villager_states_produce_different_chars() {
+        let s = dummy_sprite();
+        let idle_ch = entity_visual(
+            Species::Villager,
+            &BehaviorState::Idle { timer: 10 },
+            0.0,
+            0.0,
+            &s,
+        )
+        .0;
+        let sleep_ch = entity_visual(
+            Species::Villager,
+            &BehaviorState::Sleeping { timer: 10 },
+            0.0,
+            0.0,
+            &s,
+        )
+        .0;
+        let build_ch = entity_visual(
+            Species::Villager,
+            &BehaviorState::Building {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 10,
+            },
+            0.0,
+            0.0,
+            &s,
+        )
+        .0;
+        let farm_ch = entity_visual(
+            Species::Villager,
+            &BehaviorState::Farming {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 10,
+            },
+            0.0,
+            0.0,
+            &s,
+        )
+        .0;
+
+        // Each state should produce a distinct character
+        let chars = [idle_ch, sleep_ch, build_ch, farm_ch];
+        for i in 0..chars.len() {
+            for j in (i + 1)..chars.len() {
+                assert_ne!(
+                    chars[i], chars[j],
+                    "states {} and {} should have different chars: '{}' vs '{}'",
+                    i, j, chars[i], chars[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wolf_hunting_vs_idle_different_chars() {
+        let wolf_sprite = Sprite {
+            ch: 'W',
+            fg: Color(160, 50, 50),
+        };
+        let (hunt_ch, hunt_color) = entity_visual(
+            Species::Predator,
+            &BehaviorState::Hunting {
+                target_x: 5.0,
+                target_y: 5.0,
+            },
+            1.0,
+            0.0,
+            &wolf_sprite,
+        );
+        let (idle_ch, idle_color) = entity_visual(
+            Species::Predator,
+            &BehaviorState::Idle { timer: 10 },
+            0.0,
+            0.0,
+            &wolf_sprite,
+        );
+
+        assert_ne!(
+            hunt_ch, idle_ch,
+            "hunting wolf should look different from idle wolf"
+        );
+        assert_ne!(
+            hunt_color, idle_color,
+            "hunting wolf color should differ from idle"
+        );
+    }
+
+    #[test]
+    fn direction_arrows_correct_for_cardinal_movements() {
+        // Moving right
+        assert_eq!(direction_char(1.0, 0.0), '>');
+        // Moving left
+        assert_eq!(direction_char(-1.0, 0.0), '<');
+        // Moving up (screen coords: negative Y = up)
+        assert_eq!(direction_char(0.0, -1.0), '^');
+        // Moving down
+        assert_eq!(direction_char(0.0, 1.0), 'v');
+    }
+
+    #[test]
+    fn villager_hauling_different_resources_same_direction_different_colors() {
+        let s = dummy_sprite();
+        let (_, wood_color) = entity_visual(
+            Species::Villager,
+            &BehaviorState::Hauling {
+                target_x: 10.0,
+                target_y: 0.0,
+                resource_type: ResourceType::Wood,
+            },
+            1.0,
+            0.0,
+            &s,
+        );
+        let (_, stone_color) = entity_visual(
+            Species::Villager,
+            &BehaviorState::Hauling {
+                target_x: 10.0,
+                target_y: 0.0,
+                resource_type: ResourceType::Stone,
+            },
+            1.0,
+            0.0,
+            &s,
+        );
+        let (_, food_color) = entity_visual(
+            Species::Villager,
+            &BehaviorState::Hauling {
+                target_x: 10.0,
+                target_y: 0.0,
+                resource_type: ResourceType::Food,
+            },
+            1.0,
+            0.0,
+            &s,
+        );
+
+        assert_ne!(
+            wood_color, stone_color,
+            "wood and stone haul colors should differ"
+        );
+        assert_ne!(
+            wood_color, food_color,
+            "wood and food haul colors should differ"
+        );
+        assert_ne!(
+            stone_color, food_color,
+            "stone and food haul colors should differ"
+        );
+    }
+
+    #[test]
+    fn villager_captured_shows_x() {
+        let s = dummy_sprite();
+        let (ch, _) = entity_visual(Species::Villager, &BehaviorState::Captured, 0.0, 0.0, &s);
+        assert_eq!(ch, 'X');
+    }
 }
