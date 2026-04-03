@@ -862,7 +862,23 @@ impl super::Game {
                 && (sx as u16) < w
                 && (sy as u16) < h.saturating_sub(status_h)
             {
-                renderer.draw(sx as u16, sy as u16, p.ch, p.fg, None);
+                // Apply color fade in final 40% of particle lifetime
+                let fg = if p.max_life > 0 {
+                    let age_fraction = 1.0 - (p.life as f64 / p.max_life as f64);
+                    if age_fraction > 0.6 {
+                        let fade = 1.0 - ((age_fraction - 0.6) / 0.4);
+                        Color(
+                            (p.fg.0 as f64 * fade) as u8,
+                            (p.fg.1 as f64 * fade) as u8,
+                            (p.fg.2 as f64 * fade) as u8,
+                        )
+                    } else {
+                        p.fg
+                    }
+                } else {
+                    p.fg
+                };
+                renderer.draw(sx as u16, sy as u16, p.ch, fg, None);
             }
         }
 

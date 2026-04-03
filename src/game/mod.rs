@@ -25,14 +25,18 @@ use crate::simulation::{
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
 
+pub const MAX_PARTICLES: usize = 200;
+
 pub struct Particle {
     pub x: f64,
     pub y: f64,
     pub ch: char,
     pub fg: Color,
     pub life: u32,
+    pub max_life: u32,
     pub dx: f64,
     pub dy: f64,
+    pub emissive: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2129,34 +2133,145 @@ impl Game {
                 }
                 self.particles.retain(|p| p.life > 0);
 
-                // Spawn smoke particles from active processing buildings
+                // Spawn activity particles from active processing buildings
                 {
                     let mut rng = rand::rng();
-                    let smoke_sources: Vec<(f64, f64)> = self
+                    let building_sources: Vec<(Recipe, f64, f64)> = self
                         .world
                         .query::<(&ProcessingBuilding, &Position)>()
                         .iter()
                         .filter(|(pb, _)| pb.worker_present)
-                        .map(|(_, pos)| (pos.x, pos.y))
+                        .map(|(pb, pos)| (pb.recipe, pos.x, pos.y))
                         .collect();
-                    for (px, py) in smoke_sources {
-                        // Spawn a smoke particle every ~3 ticks per building
-                        if rng.random_range(0..3) == 0 {
-                            let ch = if rng.random_bool(0.5) {
-                                '.'
-                            } else {
-                                '\u{00b0}'
+                    for (recipe, px, py) in building_sources {
+                        if self.particles.len() >= MAX_PARTICLES {
+                            break;
+                        }
+                        // Per-building-type particle signature
+                        let (spawn_rate, chars, fg, dx_range, dy_range, life_range, emissive) =
+                            match recipe {
+                                Recipe::WoodToPlanks => {
+                                    // Workshop: grey smoke, lazy drift
+                                    (
+                                        3u32,
+                                        &['.', '\u{00b0}', '\''][..],
+                                        Color(140, 130, 110),
+                                        (-0.05f64, 0.05f64),
+                                        (-0.15f64, -0.08f64),
+                                        (18u32, 28u32),
+                                        false,
+                                    )
+                                }
+                                Recipe::StoneToMasonry => {
+                                    // Smithy: orange sparks, fast rise, short life
+                                    (
+                                        2,
+                                        &['*', '\u{00b7}', '\''][..],
+                                        Color(255, 140, 40),
+                                        (-0.08, 0.08),
+                                        (-0.25, -0.10),
+                                        (10, 18),
+                                        true,
+                                    )
+                                }
+                                Recipe::FoodToGrain => {
+                                    // Granary: pale straw, minimal
+                                    (
+                                        4,
+                                        &['.', ','][..],
+                                        Color(180, 170, 120),
+                                        (-0.03, 0.03),
+                                        (-0.10, -0.05),
+                                        (12, 20),
+                                        false,
+                                    )
+                                }
+                                Recipe::GrainToBread => {
+                                    // Bakery: white steam plumes
+                                    (
+                                        2,
+                                        &['~', '\'', '.'][..],
+                                        Color(200, 200, 210),
+                                        (-0.06, 0.06),
+                                        (-0.12, -0.06),
+                                        (20, 35),
+                                        false,
+                                    )
+                                }
                             };
-                            let gray = rng.random_range(100u8..180u8);
+                        if rng.random_range(0..spawn_rate) == 0 {
+                            let ch = chars[rng.random_range(0..chars.len())];
+                            let life = rng.random_range(life_range.0..=life_range.1);
                             self.particles.push(Particle {
                                 x: px,
                                 y: py - 1.0,
                                 ch,
-                                fg: Color(gray, gray, gray),
-                                life: rng.random_range(15..=25),
-                                dx: rng.random_range(-0.05..0.05),
-                                dy: rng.random_range(-0.3..-0.1),
+                                fg,
+                                life,
+                                max_life: life,
+                                dx: rng.random_range(dx_range.0..dx_range.1),
+                                dy: rng.random_range(dy_range.0..dy_range.1),
+                                emissive,
                             });
+                        }
+                    }
+
+                    // Spawn villager activity particles (construction dust, mining sparkle)
+                    let villager_activities: Vec<(BehaviorState, f64, f64)> = self
+                        .world
+                        .query::<(&Behavior, &Position)>()
+                        .iter()
+                        .map(|(b, pos)| (b.state, pos.x, pos.y))
+                        .collect();
+                    for (state, vx, vy) in villager_activities {
+                        if self.particles.len() >= MAX_PARTICLES {
+                            break;
+                        }
+                        match state {
+                            BehaviorState::Building {
+                                target_x, target_y, ..
+                            } => {
+                                // Construction: yellow-brown dust at build site
+                                if rng.random_range(0..4) == 0 {
+                                    let chars = ['#', '.', '+'];
+                                    let ch = chars[rng.random_range(0..chars.len())];
+                                    let life = rng.random_range(6..=12);
+                                    self.particles.push(Particle {
+                                        x: target_x,
+                                        y: target_y,
+                                        ch,
+                                        fg: Color(220, 200, 100),
+                                        life,
+                                        max_life: life,
+                                        dx: rng.random_range(-0.15..0.15),
+                                        dy: rng.random_range(-0.10..0.10),
+                                        emissive: false,
+                                    });
+                                }
+                            }
+                            BehaviorState::Gathering {
+                                resource_type: ResourceType::Stone,
+                                ..
+                            } => {
+                                // Mining: white-blue sparkle
+                                if rng.random_range(0..3) == 0 {
+                                    let chars = ['*', '\'', '.'];
+                                    let ch = chars[rng.random_range(0..chars.len())];
+                                    let life = rng.random_range(4..=8);
+                                    self.particles.push(Particle {
+                                        x: vx,
+                                        y: vy,
+                                        ch,
+                                        fg: Color(200, 200, 220),
+                                        life,
+                                        max_life: life,
+                                        dx: rng.random_range(-0.20..0.20),
+                                        dy: rng.random_range(-0.15..0.05),
+                                        emissive: false,
+                                    });
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -3623,8 +3738,10 @@ mod tests {
             ch: '.',
             fg: Color(150, 150, 150),
             life: 1,
+            max_life: 1,
             dx: 0.0,
             dy: -0.2,
+            emissive: false,
         });
         assert_eq!(game.particles.len(), 1);
         let mut renderer = HeadlessRenderer::new(80, 24);
@@ -5047,5 +5164,316 @@ mod tests {
             "fire_tiles should be empty after burnout"
         );
         assert_eq!(game.map.get(50, 50), Some(&Terrain::Scorched));
+    }
+
+    #[test]
+    fn particle_types_differ_by_building_recipe() {
+        // Workshop (WoodToPlanks), Smithy (StoneToMasonry), Bakery (GrainToBread)
+        // should produce particles with distinct colors.
+        let mut game = Game::new(60, 42);
+        let cx = 130.0;
+        let cy = 130.0;
+        // Spawn one of each active processing building
+        game.world.spawn((
+            Position { x: cx, y: cy },
+            ProcessingBuilding {
+                recipe: Recipe::WoodToPlanks,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+                material_needed: None,
+            },
+        ));
+        game.world.spawn((
+            Position {
+                x: cx + 10.0,
+                y: cy,
+            },
+            ProcessingBuilding {
+                recipe: Recipe::StoneToMasonry,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+                material_needed: None,
+            },
+        ));
+        game.world.spawn((
+            Position {
+                x: cx + 20.0,
+                y: cy,
+            },
+            ProcessingBuilding {
+                recipe: Recipe::GrainToBread,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+                material_needed: None,
+            },
+        ));
+
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..30 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+
+        // Workshop particles: warm grey (r=140, g=130, b=110)
+        let workshop: Vec<_> = game
+            .particles
+            .iter()
+            .filter(|p| (p.x - cx).abs() < 1.0)
+            .collect();
+        // Smithy particles: orange (r=255, g=140, b=40)
+        let smithy: Vec<_> = game
+            .particles
+            .iter()
+            .filter(|p| (p.x - (cx + 10.0)).abs() < 1.0)
+            .collect();
+        // Bakery particles: white steam (r=200, g=200, b=210)
+        let bakery: Vec<_> = game
+            .particles
+            .iter()
+            .filter(|p| (p.x - (cx + 20.0)).abs() < 1.0)
+            .collect();
+
+        assert!(!workshop.is_empty(), "workshop should produce particles");
+        assert!(!smithy.is_empty(), "smithy should produce particles");
+        assert!(!bakery.is_empty(), "bakery should produce particles");
+
+        // Smithy red channel > 200 (orange sparks)
+        for p in &smithy {
+            assert!(
+                p.fg.0 > 200,
+                "smithy particle red should be > 200, got {}",
+                p.fg.0
+            );
+        }
+        // Workshop grey: all channels < 180
+        for p in &workshop {
+            assert!(
+                p.fg.0 <= 180 && p.fg.1 <= 180 && p.fg.2 <= 180,
+                "workshop particle should be warm grey, got {:?}",
+                p.fg
+            );
+        }
+        // Bakery: all channels > 190
+        for p in &bakery {
+            assert!(
+                p.fg.0 >= 190 && p.fg.1 >= 190 && p.fg.2 >= 190,
+                "bakery particle should be white steam, got {:?}",
+                p.fg
+            );
+        }
+    }
+
+    #[test]
+    fn smithy_particles_are_emissive() {
+        let mut game = Game::new(60, 42);
+        game.world.spawn((
+            Position { x: 130.0, y: 130.0 },
+            ProcessingBuilding {
+                recipe: Recipe::StoneToMasonry,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+                material_needed: None,
+            },
+        ));
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        let smithy_particles: Vec<_> = game.particles.iter().filter(|p| p.emissive).collect();
+        assert!(
+            !smithy_particles.is_empty(),
+            "smithy particles should be emissive"
+        );
+    }
+
+    #[test]
+    fn workshop_particles_not_emissive() {
+        let mut game = Game::new(60, 42);
+        game.world.spawn((
+            Position { x: 130.0, y: 130.0 },
+            ProcessingBuilding {
+                recipe: Recipe::WoodToPlanks,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+                material_needed: None,
+            },
+        ));
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        // Filter to workshop-area particles only
+        let workshop_particles: Vec<_> = game
+            .particles
+            .iter()
+            .filter(|p| (p.x - 130.0).abs() < 1.0)
+            .collect();
+        assert!(
+            !workshop_particles.is_empty(),
+            "should have workshop particles"
+        );
+        for p in &workshop_particles {
+            assert!(!p.emissive, "workshop particles should not be emissive");
+        }
+    }
+
+    #[test]
+    fn particle_max_life_set_at_spawn() {
+        let mut game = Game::new(60, 42);
+        game.world.spawn((
+            Position { x: 130.0, y: 130.0 },
+            ProcessingBuilding {
+                recipe: Recipe::WoodToPlanks,
+                progress: 0,
+                required: 100,
+                worker_present: true,
+                material_needed: None,
+            },
+        ));
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        for p in &game.particles {
+            assert!(p.max_life > 0, "max_life should be set at spawn");
+            assert!(
+                p.life <= p.max_life,
+                "life ({}) should be <= max_life ({})",
+                p.life,
+                p.max_life
+            );
+        }
+    }
+
+    #[test]
+    fn particle_cap_at_max_particles() {
+        let mut game = Game::new(60, 42);
+        // Fill particles to MAX_PARTICLES
+        for i in 0..MAX_PARTICLES {
+            game.particles.push(Particle {
+                x: 128.0,
+                y: 128.0,
+                ch: '.',
+                fg: Color(150, 150, 150),
+                life: 100, // long life so they don't expire
+                max_life: 100,
+                dx: 0.0,
+                dy: 0.0,
+                emissive: false,
+            });
+        }
+        // Spawn many active buildings
+        for i in 0..10 {
+            game.world.spawn((
+                Position {
+                    x: 130.0 + i as f64,
+                    y: 130.0,
+                },
+                ProcessingBuilding {
+                    recipe: Recipe::WoodToPlanks,
+                    progress: 0,
+                    required: 100,
+                    worker_present: true,
+                    material_needed: None,
+                },
+            ));
+        }
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        game.step(GameInput::None, &mut renderer).unwrap();
+        // Should not exceed MAX_PARTICLES (some old particles still alive)
+        assert!(
+            game.particles.len() <= MAX_PARTICLES,
+            "particle count {} should not exceed MAX_PARTICLES {}",
+            game.particles.len(),
+            MAX_PARTICLES
+        );
+    }
+
+    #[test]
+    fn construction_dust_particles_spawn() {
+        let mut game = Game::new(60, 42);
+        // Spawn a villager in Building state
+        let tx = 130.0;
+        let ty = 130.0;
+        game.world.spawn((
+            Position { x: tx + 1.0, y: ty },
+            Behavior {
+                state: BehaviorState::Building {
+                    target_x: tx,
+                    target_y: ty,
+                    timer: 50,
+                },
+                speed: 1.0,
+            },
+            Creature {
+                species: Species::Villager,
+                hunger: 0.0,
+                home_x: tx,
+                home_y: ty,
+                sight_range: 10.0,
+            },
+            Sprite {
+                ch: 'v',
+                fg: Color(200, 200, 200),
+            },
+        ));
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        let dust: Vec<_> = game
+            .particles
+            .iter()
+            .filter(|p| p.fg.0 == 220 && p.fg.1 == 200 && p.fg.2 == 100)
+            .collect();
+        assert!(
+            !dust.is_empty(),
+            "construction should produce yellow-brown dust particles"
+        );
+    }
+
+    #[test]
+    fn mining_sparkle_particles_spawn() {
+        let mut game = Game::new(60, 42);
+        let vx = 130.0;
+        let vy = 130.0;
+        game.world.spawn((
+            Position { x: vx, y: vy },
+            Behavior {
+                state: BehaviorState::Gathering {
+                    timer: 50,
+                    resource_type: ResourceType::Stone,
+                },
+                speed: 1.0,
+            },
+            Creature {
+                species: Species::Villager,
+                hunger: 0.0,
+                home_x: vx,
+                home_y: vy,
+                sight_range: 10.0,
+            },
+            Sprite {
+                ch: 'v',
+                fg: Color(200, 200, 200),
+            },
+        ));
+        let mut renderer = HeadlessRenderer::new(80, 24);
+        for _ in 0..20 {
+            game.step(GameInput::None, &mut renderer).unwrap();
+        }
+        let sparkle: Vec<_> = game
+            .particles
+            .iter()
+            .filter(|p| p.fg.0 == 200 && p.fg.1 == 200 && p.fg.2 == 220)
+            .collect();
+        assert!(
+            !sparkle.is_empty(),
+            "mining should produce white-blue sparkle particles"
+        );
     }
 }
