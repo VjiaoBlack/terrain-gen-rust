@@ -122,6 +122,8 @@ pub enum GameInput {
     GotoSettlement,
     Demolish,
     CycleSpeed,
+    /// Advance exactly one sim tick (like '.' in Dwarf Fortress)
+    StepOneTick,
     /// Mouse click at screen coordinates (x, y)
     MouseClick {
         x: u16,
@@ -1777,6 +1779,11 @@ impl Game {
                 };
                 self.notify(format!("Speed: {}x", self.game_speed));
             }
+            GameInput::StepOneTick => {
+                // Advance exactly one tick then pause (like '.' in DF)
+                self.paused = true;
+                // Flag handled below in the sim loop
+            }
             GameInput::Demolish => {
                 if self.build_mode {
                     self.demolish_at(self.build_cursor_x, self.build_cursor_y);
@@ -1799,11 +1806,14 @@ impl Game {
         // update simulation (skip when paused)
         // At speed 1 with half_speed_base enabled, sim runs every other frame
         // for a more deliberate pace (still 60fps rendering). Speed 2+ runs normally.
+        // StepOneTick forces exactly 1 tick even when paused.
         self.frame_count += 1;
+        let step_one = input == GameInput::StepOneTick;
         let skip_this_frame =
             self.game_speed == 1 && self.half_speed_base && self.frame_count % 2 != 0;
-        if !self.paused && !skip_this_frame {
-            for _speed_tick in 0..self.game_speed {
+        let ticks_this_frame = if step_one { 1 } else { self.game_speed };
+        if step_one || (!self.paused && !skip_this_frame) {
+            for _speed_tick in 0..ticks_this_frame {
                 self.tick += 1;
 
                 // Safety teleport: rescue entities stranded on impassable tiles
