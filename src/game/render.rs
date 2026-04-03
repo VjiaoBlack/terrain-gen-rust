@@ -1980,6 +1980,35 @@ impl super::Game {
                 if inf > 0.01 {
                     lines.push(format!("influence: {:.2}", inf));
                 }
+                // Pipeline data for biome debugging
+                let idx = uy * self.map.width + ux;
+                if idx < self.pipeline_temperature.len() {
+                    lines.push(format!("temp: {:.2}", self.pipeline_temperature[idx]));
+                }
+                if idx < self.pipeline_slope.len() {
+                    lines.push(format!("slope: {:.3}", self.pipeline_slope[idx]));
+                }
+                if idx < self.pipeline_moisture.len() {
+                    lines.push(format!("p_moist: {:.2}", self.pipeline_moisture[idx]));
+                }
+                if idx < self.soil.len() {
+                    lines.push(format!("soil: {:?}", self.soil[idx]));
+                }
+                lines.push(format!("fertility: {:.2}", self.soil_fertility.get(ux, uy)));
+                // River proximity
+                if idx < self.river_mask.len() && self.river_mask[idx] {
+                    lines.push("RIVER".to_string());
+                }
+                // Traffic
+                let traffic = self.traffic.get(ux, uy);
+                if traffic > 1.0 {
+                    lines.push(format!("traffic: {:.0}", traffic));
+                }
+                // Danger scent
+                let danger = self.danger_scent.get(ux, uy);
+                if danger > 0.01 {
+                    lines.push(format!("danger: {:.2}", danger));
+                }
             } else {
                 lines.push(format!("({},{}) out of bounds", wx, wy));
             }
