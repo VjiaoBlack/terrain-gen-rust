@@ -266,11 +266,94 @@ impl Terrain {
         }
     }
 
-    /// Landscape Mode character: deterministic texture from position hash.
-    pub fn landscape_ch(&self, wx: usize, wy: usize) -> char {
-        let pool = self.landscape_texture_pool();
-        let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
-        pool[idx]
+    /// Landscape Mode character: driven by vegetation density + position noise.
+    /// High vegetation = dense chars, low = sparse, zero = bare dirt.
+    pub fn landscape_ch(&self, wx: usize, wy: usize, vegetation: f64) -> char {
+        // Base position noise (cheap hash, avoids visible diagonal stripes)
+        let noise =
+            ((wx.wrapping_mul(31) ^ wy.wrapping_mul(17) ^ wx.wrapping_mul(wy).wrapping_add(7))
+                % 256) as f64
+                / 256.0;
+
+        // For terrain types that don't care about vegetation, use noise-based pool selection
+        match self {
+            Terrain::Water
+            | Terrain::FloodWater
+            | Terrain::Ford
+            | Terrain::Ice
+            | Terrain::Road
+            | Terrain::BuildingFloor
+            | Terrain::BuildingWall
+            | Terrain::Bridge
+            | Terrain::Burning
+            | Terrain::Quarry
+            | Terrain::QuarryDeep
+            | Terrain::ScarredGround
+            | Terrain::Scorched
+            | Terrain::Stump => {
+                let pool = self.landscape_texture_pool();
+                let idx = (noise * pool.len() as f64) as usize % pool.len();
+                return pool[idx];
+            }
+            _ => {}
+        }
+
+        // Vegetation-driven selection for natural terrain
+        // Combine vegetation with noise for organic variation
+        let v = (vegetation + noise * 0.3 - 0.15).clamp(0.0, 1.0);
+
+        if v < 0.1 {
+            // Bare dirt / exposed soil
+            match noise {
+                n if n < 0.3 => '.',
+                n if n < 0.6 => ' ',
+                _ => ',',
+            }
+        } else if v < 0.3 {
+            // Sparse — thin grass, scrub
+            match noise {
+                n if n < 0.25 => '\'',
+                n if n < 0.5 => ',',
+                n if n < 0.75 => '.',
+                _ => ' ',
+            }
+        } else if v < 0.6 {
+            // Medium — grass, light vegetation
+            match self {
+                Terrain::Forest | Terrain::Sapling => match noise {
+                    n if n < 0.3 => ':',
+                    n if n < 0.6 => ';',
+                    _ => '"',
+                },
+                _ => match noise {
+                    n if n < 0.3 => '\'',
+                    n if n < 0.5 => ',',
+                    n if n < 0.7 => '.',
+                    _ => ':',
+                },
+            }
+        } else {
+            // Dense — thick vegetation, forest canopy
+            match self {
+                Terrain::Forest => match noise {
+                    n if n < 0.25 => '%',
+                    n if n < 0.5 => '#',
+                    n if n < 0.75 => '"',
+                    _ => ':',
+                },
+                Terrain::Mountain | Terrain::Cliff => match noise {
+                    n if n < 0.3 => '^',
+                    n if n < 0.6 => '#',
+                    _ => '%',
+                },
+                _ => match noise {
+                    n if n < 0.2 => '"',
+                    n if n < 0.4 => ':',
+                    n if n < 0.7 => '\'',
+                    _ => ',',
+                },
+            }
+        }
     }
 
     /// Landscape Mode foreground: close to bg for low character contrast.

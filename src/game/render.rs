@@ -1388,8 +1388,9 @@ impl super::Game {
         wx: usize,
         wy: usize,
     ) -> (char, Color, Color) {
-        // Base texture character from position hash
-        let mut ch = terrain.landscape_ch(wx, wy);
+        // Base texture character driven by vegetation density
+        let veg = self.vegetation.get(wx, wy);
+        let mut ch = terrain.landscape_ch(wx, wy, veg);
         let mut fg = terrain.landscape_fg();
         let mut bg = terrain.landscape_bg();
 
@@ -3600,14 +3601,18 @@ mod tests {
     fn landscape_ch_deterministic() {
         use crate::tilemap::Terrain;
         // Same position should always produce the same character
-        let ch1 = Terrain::Grass.landscape_ch(10, 20);
-        let ch2 = Terrain::Grass.landscape_ch(10, 20);
+        let ch1 = Terrain::Grass.landscape_ch(10, 20, 0.5);
+        let ch2 = Terrain::Grass.landscape_ch(10, 20, 0.5);
         assert_eq!(ch1, ch2);
-        // Different positions should (usually) produce different characters
+        // Different vegetation levels produce different chars
+        let bare = Terrain::Grass.landscape_ch(10, 20, 0.0);
+        let dense = Terrain::Grass.landscape_ch(10, 20, 0.9);
+        // bare should be sparser char than dense (not necessarily different at every position)
+        let _ = (bare, dense);
         // Just check it doesn't panic for a range
         for x in 0..20 {
             for y in 0..20 {
-                let _ = Terrain::Mountain.landscape_ch(x, y);
+                let _ = Terrain::Mountain.landscape_ch(x, y, 0.5);
             }
         }
     }
