@@ -1258,7 +1258,7 @@ pub(super) fn ai_villager(
                 );
             }
             let d = dist(pos.x, pos.y, *target_x, *target_y);
-            if d > 2.5 {
+            if d > 1.0 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                 move_toward_cached_with_danger(
                     pos,
@@ -1337,7 +1337,7 @@ pub(super) fn ai_villager(
                 );
             }
             let d = dist(pos.x, pos.y, *target_x, *target_y);
-            if d > 2.5 {
+            if d > 1.0 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
                 move_toward_cached_with_danger(
                     pos,
@@ -1573,7 +1573,7 @@ pub(super) fn ai_villager(
                     .nearest(pos.x, pos.y, creature.sight_range, category::HUT)
                     .map(|(e, d)| (e.x, e.y, d));
                 if let Some((hx, hy, d)) = nearest_hut {
-                    if d < 1.5 {
+                    if d < 1.0 {
                         return (
                             BehaviorState::Sleeping { timer: 200 },
                             0.0,
