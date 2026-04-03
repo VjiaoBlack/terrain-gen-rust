@@ -136,6 +136,11 @@ pub enum OverlayMode {
     Territory, // Show settlement influence/culture borders
 }
 
+/// Default raid strength for backward-compatible deserialization of old saves.
+fn default_raid_strength() -> f64 {
+    9.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GameEvent {
     Drought {
@@ -159,6 +164,9 @@ pub enum GameEvent {
     },
     BanditRaid {
         stolen: bool,
+        /// Raider party strength (count * 3.0). Higher = harder to repel.
+        #[serde(default = "default_raid_strength")]
+        strength: f64,
     },
 }
 
@@ -203,6 +211,38 @@ pub struct MilestoneBanner {
 pub struct DifficultyState {
     pub threat_level: f64,
     pub milestones: Vec<Milestone>,
+}
+
+/// Threat tiers driven by settlement wealth (threat_score).
+/// Higher tiers unlock more dangerous threat types and larger groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreatTier {
+    /// Score 0-14: occasional lone wolf.
+    Quiet,
+    /// Score 15-29: wolf packs of 2-3.
+    Growing,
+    /// Score 30-49: scout raiders appear.
+    Established,
+    /// Score 50-74: raiding parties.
+    Prosperous,
+    /// Score 75+: coordinated assaults.
+    Empire,
+}
+
+impl ThreatTier {
+    pub fn from_score(score: f64) -> Self {
+        if score >= 75.0 {
+            ThreatTier::Empire
+        } else if score >= 50.0 {
+            ThreatTier::Prosperous
+        } else if score >= 30.0 {
+            ThreatTier::Established
+        } else if score >= 15.0 {
+            ThreatTier::Growing
+        } else {
+            ThreatTier::Quiet
+        }
+    }
 }
 
 /// Colony-level knowledge of the world — shared across all villagers.
@@ -392,6 +432,11 @@ pub struct Game {
     /// Set to true when terrain changes (building placed/demolished) to trigger
     /// chokepoint recomputation on the next relevant tick.
     pub chokepoints_dirty: bool,
+    /// Wealth-based threat score, recomputed every 100 ticks from population,
+    /// resources, and building count. Drives threat tier and spawn scaling.
+    pub threat_score: f64,
+    /// Tick of the last threat spawn, used to enforce a minimum cooldown between threats.
+    pub last_threat_tick: u64,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -1101,6 +1146,8 @@ impl Game {
             fire_tiles: Vec::new(),
             chokepoint_map: chokepoint::ChokepointMap::empty(map_width, map_height),
             chokepoints_dirty: true, // will be computed on first access
+            threat_score: 0.0,
+            last_threat_tick: 0,
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -3897,15 +3944,29 @@ mod tests {
         game.resources.wood = 80;
         game.resources.stone = 60;
 
-        game.events
-            .active_events
-            .push(GameEvent::BanditRaid { stolen: false });
+        game.events.active_events.push(GameEvent::BanditRaid {
+            stolen: false,
+            strength: 30.0, // overwhelming force to guarantee theft
+        });
         game.step(GameInput::None, &mut renderer).unwrap();
 
-        // Bandits steal 25% of resources
-        assert!(game.resources.food <= 75, "bandits should steal food");
-        assert!(game.resources.wood <= 60, "bandits should steal wood");
-        assert!(game.resources.stone <= 45, "bandits should steal stone");
+        // Bandits steal resources, reduced by defense rating.
+        // With strength 30.0, steal_fraction is high despite starting defenses.
+        assert!(
+            game.resources.food < 100,
+            "bandits should steal some food, got {}",
+            game.resources.food
+        );
+        assert!(
+            game.resources.wood < 80,
+            "bandits should steal some wood, got {}",
+            game.resources.wood
+        );
+        assert!(
+            game.resources.stone < 60,
+            "bandits should steal some stone, got {}",
+            game.resources.stone
+        );
     }
 
     #[test]
