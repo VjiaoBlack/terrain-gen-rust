@@ -309,6 +309,8 @@ pub struct SaveState {
     pub events: EventSystem,
     #[serde(default)]
     pub traffic: TrafficMap,
+    #[serde(default)]
+    pub resource_map: Option<crate::terrain_pipeline::ResourceMap>,
 }
 
 /// Terminal chars are ~2x taller than wide. Each world tile gets this many
@@ -356,6 +358,7 @@ pub struct Game {
     pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub river_mask: Vec<bool>,
+    pub resource_map: crate::terrain_pipeline::ResourceMap,
     pub knowledge: SettlementKnowledge,
     pub spatial_grid: crate::ecs::spatial::SpatialHashGrid,
     pub difficulty: DifficultyState,
@@ -733,19 +736,103 @@ impl Game {
             Recipe::FoodToGrain,
         );
 
-        // Berry bushes near settlement so villagers have food access
-        for &(bsx, bsy) in &[
-            (scx.wrapping_sub(1), scy.wrapping_sub(1)),
-            (scx + 1, scy + 2),
-        ] {
-            let (bx, by) = find_walkable(&map, bsx, bsy);
-            ecs::spawn_berry_bush(&mut world, bx, by);
+        // Spawn berry bushes from ResourceMap: pick the 2 best (fertility / distance)
+        // tiles within 8 tiles of settlement that are walkable.
+        {
+            let mut berry_candidates: Vec<(u32, usize, usize)> = Vec::new();
+            let scan_r = 8i32;
+            for dy in -scan_r..=scan_r {
+                for dx in -scan_r..=scan_r {
+                    let tx = scx as i32 + dx;
+                    let ty = scy as i32 + dy;
+                    if tx < 0 || ty < 0 || tx >= map_width as i32 || ty >= map_height as i32 {
+                        continue;
+                    }
+                    let ux = tx as usize;
+                    let uy = ty as usize;
+                    let pot = result.resources.get(ux, uy);
+                    if pot.fertility > 0 && map.is_walkable(tx as f64, ty as f64) {
+                        // Score: fertility weighted by proximity (closer = better)
+                        let dist = (dx.abs() + dy.abs()).max(1) as u32;
+                        let score = pot.fertility as u32 * 10 / dist;
+                        berry_candidates.push((score, ux, uy));
+                    }
+                }
+            }
+            berry_candidates.sort_by(|a, b| b.0.cmp(&a.0));
+            // Spatial sampling: skip candidates within 3 tiles of an already-placed bush
+            let mut placed_bushes: Vec<(usize, usize)> = Vec::new();
+            for (_, bx, by) in &berry_candidates {
+                if placed_bushes.len() >= 2 {
+                    break;
+                }
+                let too_close = placed_bushes.iter().any(|(px, py)| {
+                    let ddx = (*bx as i32 - *px as i32).abs();
+                    let ddy = (*by as i32 - *py as i32).abs();
+                    ddx + ddy < 3
+                });
+                if !too_close {
+                    ecs::spawn_berry_bush(&mut world, *bx as f64, *by as f64);
+                    placed_bushes.push((*bx, *by));
+                }
+            }
+            // Fallback: if no high-fertility tile found, use old approach
+            if placed_bushes.is_empty() {
+                for &(bsx, bsy) in &[
+                    (scx.wrapping_sub(1), scy.wrapping_sub(1)),
+                    (scx + 1, scy + 2),
+                ] {
+                    let (bx, by) = find_walkable(&map, bsx, bsy);
+                    ecs::spawn_berry_bush(&mut world, bx, by);
+                }
+            }
         }
 
-        // Stone deposits near settlement so villagers can gather stone
-        for &(dsx, dsy) in &[(scx.wrapping_sub(3), scy), (scx + 3, scy + 1)] {
-            let (dx, dy) = find_walkable(&map, dsx, dsy);
-            ecs::spawn_stone_deposit(&mut world, dx, dy);
+        // Spawn stone deposits from ResourceMap: pick the 2 best (stone / distance)
+        // tiles within 12 tiles of settlement that are walkable.
+        {
+            let mut stone_candidates: Vec<(u32, usize, usize)> = Vec::new();
+            let scan_r = 12i32;
+            for dy in -scan_r..=scan_r {
+                for dx in -scan_r..=scan_r {
+                    let tx = scx as i32 + dx;
+                    let ty = scy as i32 + dy;
+                    if tx < 0 || ty < 0 || tx >= map_width as i32 || ty >= map_height as i32 {
+                        continue;
+                    }
+                    let ux = tx as usize;
+                    let uy = ty as usize;
+                    let pot = result.resources.get(ux, uy);
+                    if pot.stone > 0 && map.is_walkable(tx as f64, ty as f64) {
+                        let dist = (dx.abs() + dy.abs()).max(1) as u32;
+                        let score = pot.stone as u32 * 10 / dist;
+                        stone_candidates.push((score, ux, uy));
+                    }
+                }
+            }
+            stone_candidates.sort_by(|a, b| b.0.cmp(&a.0));
+            let mut placed_deposits: Vec<(usize, usize)> = Vec::new();
+            for (_, sx_c, sy_c) in &stone_candidates {
+                if placed_deposits.len() >= 2 {
+                    break;
+                }
+                let too_close = placed_deposits.iter().any(|(px, py)| {
+                    let ddx = (*sx_c as i32 - *px as i32).abs();
+                    let ddy = (*sy_c as i32 - *py as i32).abs();
+                    ddx + ddy < 3
+                });
+                if !too_close {
+                    ecs::spawn_stone_deposit(&mut world, *sx_c as f64, *sy_c as f64);
+                    placed_deposits.push((*sx_c, *sy_c));
+                }
+            }
+            // Fallback: if no stone-rich tile found, use old approach
+            if placed_deposits.is_empty() {
+                for &(dsx, dsy) in &[(scx.wrapping_sub(3), scy), (scx + 3, scy + 1)] {
+                    let (ddx, ddy) = find_walkable(&map, dsx, dsy);
+                    ecs::spawn_stone_deposit(&mut world, ddx, ddy);
+                }
+            }
         }
 
         // Spawn 3 prey dens 8-40 tiles from settlement center (forest/grass tiles preferred).
@@ -827,6 +914,7 @@ impl Game {
             game_speed: 1,
             soil: result.soil,
             river_mask: result.river_mask,
+            resource_map: result.resources,
             knowledge: SettlementKnowledge::default(),
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_width, map_height, 16),
             difficulty: DifficultyState::default(),

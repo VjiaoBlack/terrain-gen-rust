@@ -26,6 +26,7 @@ impl Game {
             terrain_config: serde_json::from_value(serde_json::to_value(&self.terrain_config)?)?,
             events: self.events.clone(),
             traffic: serde_json::from_value(serde_json::to_value(&self.traffic)?)?,
+            resource_map: Some(self.resource_map.clone()),
         };
         let file = std::fs::File::create(path)?;
         serde_json::to_writer(file, &state)?;
@@ -78,6 +79,9 @@ impl Game {
             game_speed: 1,
             soil: vec![crate::terrain_pipeline::SoilType::Loam; map_w * map_h],
             river_mask: vec![false; map_w * map_h],
+            resource_map: state
+                .resource_map
+                .unwrap_or_else(|| crate::terrain_pipeline::ResourceMap::new(map_w, map_h)),
             knowledge: super::SettlementKnowledge::default(),
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_w, map_h, 16),
             difficulty: super::DifficultyState::default(),

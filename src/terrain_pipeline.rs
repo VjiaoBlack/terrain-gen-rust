@@ -88,6 +88,44 @@ impl Default for SoilType {
     }
 }
 
+// ─── Resource Map ────────────────────────────────────────────────────────────
+
+/// Per-tile geological resource potential, computed at world-gen time.
+/// Values 0-255: higher = richer deposit at this location.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub struct ResourcePotential {
+    pub stone: u8,     // higher near mountains, cliffs, rocky soil
+    pub wood: u8,      // higher in forests
+    pub fertility: u8, // from soil yield_multiplier + river proximity
+}
+
+/// Precomputed resource map for the entire world. Ground-truth resource data
+/// derived from terrain pipeline outputs (elevation, biome, soil, rivers).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceMap {
+    pub width: usize,
+    pub height: usize,
+    pub potentials: Vec<ResourcePotential>,
+}
+
+impl ResourceMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            potentials: vec![ResourcePotential::default(); width * height],
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> &ResourcePotential {
+        &self.potentials[y * self.width + x]
+    }
+
+    pub fn get_mut(&mut self, x: usize, y: usize) -> &mut ResourcePotential {
+        &mut self.potentials[y * self.width + x]
+    }
+}
+
 pub struct PipelineResult {
     pub map: TileMap,
     pub heights: Vec<f64>,
@@ -96,6 +134,7 @@ pub struct PipelineResult {
     pub soil: Vec<SoilType>,
     pub river_mask: Vec<bool>,
     pub slope: Vec<f64>,
+    pub resources: ResourceMap,
 }
 
 // ─── Stage 2: Terrace + Thermal Erosion ──────────────────────────────────────
@@ -802,6 +841,130 @@ pub fn assign_soil(
     soil
 }
 
+// ─── Stage 8: Resource Map ───────────────────────────────────────────────────
+
+/// Generate a precomputed resource map from terrain pipeline outputs.
+/// Stone: high on Mountain tiles, moderate near Cliff, bonus from Perlin noise for veins.
+/// Wood: matches Forest tiles, moderate near forest edges.
+/// Fertility: from SoilType yield_multiplier + river proximity.
+pub fn generate_resource_map(
+    map: &TileMap,
+    heights: &[f64],
+    moisture: &[f64],
+    slope: &[f64],
+    soil: &[SoilType],
+    river_mask: &[bool],
+    w: usize,
+    h: usize,
+    seed: u32,
+) -> ResourceMap {
+    let stone_noise = Perlin::new(seed.wrapping_add(5000));
+    let n = w * h;
+    let mut resources = ResourceMap::new(w, h);
+
+    // BFS distance from rivers for fertility calculation
+    let mut dist_to_river = vec![u32::MAX; n];
+    {
+        let mut queue = std::collections::VecDeque::new();
+        for i in 0..n {
+            if river_mask[i] {
+                dist_to_river[i] = 0;
+                queue.push_back(i);
+            }
+        }
+        let dirs: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        while let Some(ci) = queue.pop_front() {
+            let cx = ci % w;
+            let cy = ci / w;
+            let cd = dist_to_river[ci];
+            if cd >= 12 {
+                continue;
+            }
+            for &(dx, dy) in &dirs {
+                let nx = cx as i32 + dx;
+                let ny = cy as i32 + dy;
+                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                    continue;
+                }
+                let ni = ny as usize * w + nx as usize;
+                if dist_to_river[ni] == u32::MAX {
+                    dist_to_river[ni] = cd + 1;
+                    queue.push_back(ni);
+                }
+            }
+        }
+    }
+
+    for y_pos in 0..h {
+        for x_pos in 0..w {
+            let i = y_pos * w + x_pos;
+            let terrain = match map.get(x_pos, y_pos) {
+                Some(t) => *t,
+                None => continue,
+            };
+
+            let pot = &mut resources.potentials[i];
+
+            // ── Stone potential ──
+            // Base: Mountain tiles get high stone, Cliff gets moderate
+            let stone_base = match terrain {
+                Terrain::Mountain => 180.0,
+                Terrain::Cliff => 120.0,
+                _ if soil[i] == SoilType::Rocky => 80.0,
+                _ if slope[i] > 0.10 => 50.0,
+                _ => 0.0,
+            };
+            if stone_base > 0.0 {
+                // Add Perlin noise for vein variation (±40%)
+                let noise_val = stone_noise.get([x_pos as f64 * 0.08, y_pos as f64 * 0.08]);
+                let noise_mult = 0.6 + 0.4 * (noise_val + 1.0) / 2.0; // range [0.6, 1.0]
+                // Elevation bonus: higher = richer
+                let elev_bonus = 0.7 + 0.3 * heights[i].min(1.0);
+                let stone_val = (stone_base * noise_mult * elev_bonus).round();
+                pot.stone = (stone_val as u16).min(255) as u8;
+            }
+
+            // ── Wood potential ──
+            // Forest tiles get high wood, edges get moderate
+            let wood_base = match terrain {
+                Terrain::Forest => 200.0,
+                Terrain::Sapling => 60.0,
+                _ => 0.0,
+            };
+            if wood_base > 0.0 {
+                // Moisture bonus: wetter forests are denser
+                let moisture_mult = 0.6 + 0.4 * moisture[i].min(1.0);
+                let wood_val = (wood_base * moisture_mult).round();
+                pot.wood = (wood_val as u16).min(255) as u8;
+            }
+
+            // ── Fertility potential ──
+            // Based on soil yield_multiplier + river proximity
+            let soil_yield = soil[i].yield_multiplier(); // 0.4 - 1.25
+            let river_bonus = if dist_to_river[i] < 12 {
+                1.0 - (dist_to_river[i] as f64 / 12.0) // 1.0 at river, 0.0 at dist 12
+            } else {
+                0.0
+            };
+            // Only compute fertility for potentially farmable terrain
+            let is_farmable = matches!(
+                terrain,
+                Terrain::Grass
+                    | Terrain::Sand
+                    | Terrain::Forest
+                    | Terrain::Marsh
+                    | Terrain::Scrubland
+            );
+            if is_farmable {
+                let fert_val = ((soil_yield * 0.6 + river_bonus * 0.4) * 255.0).round();
+                pot.fertility = (fert_val as u16).min(255) as u8;
+            }
+        }
+    }
+
+    resources
+}
+
 // ─── Orchestrator ────────────────────────────────────────────────────────────
 
 pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResult {
@@ -883,6 +1046,19 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         config.terrain.water_level,
     );
 
+    // Stage 8: Resource map
+    let resources = generate_resource_map(
+        &map,
+        &heights,
+        &moisture,
+        &slope,
+        &soil,
+        &river_mask,
+        w,
+        h,
+        config.terrain.seed,
+    );
+
     PipelineResult {
         map,
         heights,
@@ -891,6 +1067,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         soil,
         river_mask,
         slope,
+        resources,
     }
 }
 
@@ -989,5 +1166,189 @@ mod tests {
                 let _ = result.soil[i]; // just verify it's assigned
             }
         }
+    }
+
+    #[test]
+    fn resource_map_has_correct_dimensions() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(64, 64, &config);
+        assert_eq!(result.resources.width, 64);
+        assert_eq!(result.resources.height, 64);
+        assert_eq!(result.resources.potentials.len(), 64 * 64);
+    }
+
+    #[test]
+    fn resource_map_stone_correlates_with_mountains() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(128, 128, &config);
+        let mut mountain_stone_sum = 0u64;
+        let mut mountain_count = 0u64;
+        let mut grass_stone_sum = 0u64;
+        let mut grass_count = 0u64;
+        for y in 0..128 {
+            for x in 0..128 {
+                let i = y * 128 + x;
+                let pot = &result.resources.potentials[i];
+                match result.map.get(x, y) {
+                    Some(Terrain::Mountain) => {
+                        mountain_stone_sum += pot.stone as u64;
+                        mountain_count += 1;
+                    }
+                    Some(Terrain::Grass) => {
+                        grass_stone_sum += pot.stone as u64;
+                        grass_count += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if mountain_count > 0 && grass_count > 0 {
+            let mountain_avg = mountain_stone_sum as f64 / mountain_count as f64;
+            let grass_avg = grass_stone_sum as f64 / grass_count as f64;
+            assert!(
+                mountain_avg > grass_avg,
+                "mountain tiles should have higher avg stone ({}) than grass ({})",
+                mountain_avg,
+                grass_avg
+            );
+        }
+    }
+
+    #[test]
+    fn resource_map_wood_correlates_with_forests() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(128, 128, &config);
+        let mut forest_wood_sum = 0u64;
+        let mut forest_count = 0u64;
+        let mut non_forest_wood_sum = 0u64;
+        let mut non_forest_count = 0u64;
+        for y in 0..128 {
+            for x in 0..128 {
+                let i = y * 128 + x;
+                let pot = &result.resources.potentials[i];
+                match result.map.get(x, y) {
+                    Some(Terrain::Forest) => {
+                        forest_wood_sum += pot.wood as u64;
+                        forest_count += 1;
+                    }
+                    Some(Terrain::Grass) | Some(Terrain::Sand) | Some(Terrain::Mountain) => {
+                        non_forest_wood_sum += pot.wood as u64;
+                        non_forest_count += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if forest_count > 0 {
+            let forest_avg = forest_wood_sum as f64 / forest_count as f64;
+            assert!(
+                forest_avg > 100.0,
+                "forest tiles should have high avg wood ({})",
+                forest_avg
+            );
+        }
+        if non_forest_count > 0 {
+            let non_forest_avg = non_forest_wood_sum as f64 / non_forest_count as f64;
+            assert!(
+                non_forest_avg < 10.0,
+                "non-forest tiles should have low avg wood ({})",
+                non_forest_avg
+            );
+        }
+    }
+
+    #[test]
+    fn resource_map_fertility_near_rivers() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(128, 128, &config);
+        let mut near_river_fert = 0u64;
+        let mut near_river_count = 0u64;
+        let mut far_fert = 0u64;
+        let mut far_count = 0u64;
+        for y in 0..128 {
+            for x in 0..128 {
+                let i = y * 128 + x;
+                let pot = &result.resources.potentials[i];
+                if pot.fertility == 0 {
+                    continue;
+                }
+                // Check if river is within 3 tiles
+                let mut near_river = false;
+                for dy in -3i32..=3 {
+                    for dx in -3i32..=3 {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && ny >= 0 && nx < 128 && ny < 128 {
+                            if result.river_mask[ny as usize * 128 + nx as usize] {
+                                near_river = true;
+                            }
+                        }
+                    }
+                }
+                if near_river {
+                    near_river_fert += pot.fertility as u64;
+                    near_river_count += 1;
+                } else {
+                    far_fert += pot.fertility as u64;
+                    far_count += 1;
+                }
+            }
+        }
+        if near_river_count > 0 && far_count > 0 {
+            let near_avg = near_river_fert as f64 / near_river_count as f64;
+            let far_avg = far_fert as f64 / far_count as f64;
+            assert!(
+                near_avg > far_avg,
+                "tiles near rivers should have higher avg fertility ({}) than far tiles ({})",
+                near_avg,
+                far_avg
+            );
+        }
+    }
+
+    #[test]
+    fn resource_map_geographic_asymmetry() {
+        // Two different seeds should produce meaningfully different resource distributions
+        let config42 = PipelineConfig {
+            terrain: crate::terrain_gen::TerrainGenConfig {
+                seed: 42,
+                scale: 0.015,
+                ..Default::default()
+            },
+            ..PipelineConfig::default()
+        };
+        let config137 = PipelineConfig {
+            terrain: crate::terrain_gen::TerrainGenConfig {
+                seed: 137,
+                scale: 0.015,
+                ..Default::default()
+            },
+            ..PipelineConfig::default()
+        };
+        let r42 = run_pipeline(64, 64, &config42);
+        let r137 = run_pipeline(64, 64, &config137);
+
+        let sum_stone = |r: &PipelineResult| -> u64 {
+            r.resources.potentials.iter().map(|p| p.stone as u64).sum()
+        };
+        let sum_wood = |r: &PipelineResult| -> u64 {
+            r.resources.potentials.iter().map(|p| p.wood as u64).sum()
+        };
+
+        let s42 = sum_stone(&r42);
+        let s137 = sum_stone(&r137);
+        let w42 = sum_wood(&r42);
+        let w137 = sum_wood(&r137);
+
+        // At least one of stone or wood totals should differ by >10%
+        let stone_diff = (s42 as f64 - s137 as f64).abs() / (s42.max(s137).max(1) as f64);
+        let wood_diff = (w42 as f64 - w137 as f64).abs() / (w42.max(w137).max(1) as f64);
+        assert!(
+            stone_diff > 0.1 || wood_diff > 0.1,
+            "seeds 42 and 137 should produce different resource distributions: \
+             stone_diff={:.2}, wood_diff={:.2}",
+            stone_diff,
+            wood_diff
+        );
     }
 }
