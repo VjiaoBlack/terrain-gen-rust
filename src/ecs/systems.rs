@@ -130,6 +130,15 @@ pub fn system_ai(
         .map(|(e, pos, site)| (e, pos.x, pos.y, site.assigned))
         .collect();
 
+    // Phase 0 (local awareness): compute StockpileFullness from global resource counts.
+    // This is the data-path change — villager AI reads fullness tiers instead of raw u32.
+    // For now the raw counts are still passed through; Phase 2 will remove them.
+    let stockpile_fullness = StockpileState {
+        food: StockpileFullness::from_count(stockpile_food),
+        wood: StockpileFullness::from_count(stockpile_wood),
+        stone: StockpileFullness::from_count(stockpile_stone),
+    };
+
     // Phase 2: collect entity IDs with Behavior
     let entities: Vec<Entity> = world
         .query::<(Entity, &Behavior)>()
@@ -238,6 +247,7 @@ pub fn system_ai(
                     &mut rng,
                     is_night,
                     frontier,
+                    &stockpile_fullness,
                 );
 
                 // Villager just started eating near stockpile: grain → bread → food

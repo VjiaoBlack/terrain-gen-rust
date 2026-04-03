@@ -2953,4 +2953,132 @@ mod tests {
             "depleted stone deposit tile should become ScarredGround"
         );
     }
+
+    // --- Phase 0: StockpileFullness ---
+
+    #[test]
+    fn stockpile_fullness_from_count() {
+        assert_eq!(StockpileFullness::from_count(0), StockpileFullness::Empty);
+        assert_eq!(StockpileFullness::from_count(1), StockpileFullness::Low);
+        assert_eq!(StockpileFullness::from_count(4), StockpileFullness::Low);
+        assert_eq!(StockpileFullness::from_count(5), StockpileFullness::Medium);
+        assert_eq!(StockpileFullness::from_count(20), StockpileFullness::Medium);
+        assert_eq!(StockpileFullness::from_count(21), StockpileFullness::High);
+        assert_eq!(StockpileFullness::from_count(100), StockpileFullness::High);
+    }
+
+    #[test]
+    fn stockpile_fullness_is_scarce() {
+        assert!(StockpileFullness::Empty.is_scarce());
+        assert!(StockpileFullness::Low.is_scarce());
+        assert!(!StockpileFullness::Medium.is_scarce());
+        assert!(!StockpileFullness::High.is_scarce());
+    }
+
+    #[test]
+    fn stockpile_state_computed_before_ai() {
+        // Verify that StockpileState is correctly constructed from resource counts
+        let state = StockpileState {
+            food: StockpileFullness::from_count(0),
+            wood: StockpileFullness::from_count(3),
+            stone: StockpileFullness::from_count(25),
+        };
+        assert_eq!(state.food, StockpileFullness::Empty);
+        assert_eq!(state.wood, StockpileFullness::Low);
+        assert_eq!(state.stone, StockpileFullness::High);
+    }
+
+    // --- Phase 1: Sight-range filtering ---
+
+    #[test]
+    fn villager_does_not_seek_hut_beyond_sight_range() {
+        // Place a villager and a hut far apart; villager should sleep outdoors
+        let mut world = World::new();
+        let map = walkable_map(200, 200);
+
+        // Villager at (10, 10) with sight_range 22
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Hut at (100, 100) — well beyond sight range
+        let _hut = world.spawn((
+            Position { x: 100.0, y: 100.0 },
+            HutBuilding {
+                capacity: 4,
+                occupants: 0,
+            },
+        ));
+
+        let grid = make_grid(&world, &map);
+        // Run AI at night — villager should sleep outdoors (timer 100) not seek hut
+        let _result = system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.4,
+            10,
+            10,
+            10,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            true, // is_night
+            &[],
+        );
+
+        let behavior = world.get::<&Behavior>(v).unwrap();
+        // Should be sleeping outdoors (timer=100) not seeking a hut
+        match behavior.state {
+            BehaviorState::Sleeping { timer } => {
+                assert_eq!(timer, 100, "should sleep outdoors with short timer");
+            }
+            _ => panic!("expected Sleeping outdoors, got {:?}", behavior.state),
+        }
+    }
+
+    #[test]
+    fn villager_seeks_hut_within_sight_range() {
+        let mut world = World::new();
+        let map = walkable_map(200, 200);
+
+        // Villager at (10, 10) with sight_range 22
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+
+        // Hut at (20, 10) — within sight range (distance 10)
+        let _hut = world.spawn((
+            Position { x: 20.0, y: 10.0 },
+            HutBuilding {
+                capacity: 4,
+                occupants: 0,
+            },
+        ));
+
+        let grid = make_grid(&world, &map);
+        let _result = system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.4,
+            10,
+            10,
+            10,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            true, // is_night
+            &[],
+        );
+
+        let behavior = world.get::<&Behavior>(v).unwrap();
+        // Should be seeking the hut or sleeping in it
+        match behavior.state {
+            BehaviorState::Seek {
+                reason: SeekReason::Hut,
+                ..
+            } => {} // correct: heading to the hut
+            BehaviorState::Sleeping { timer: 200 } => {} // correct: arrived at hut
+            other => panic!("expected Seek{{Hut}} or Sleeping{{200}}, got {:?}", other),
+        }
+    }
 }

@@ -471,6 +471,7 @@ pub(super) fn ai_villager(
     rng: &mut impl rand::RngExt,
     is_night: bool,
     frontier: &[(usize, usize)],
+    stockpile_fullness: &StockpileState,
 ) -> (
     BehaviorState,
     f64,
@@ -994,8 +995,10 @@ pub(super) fn ai_villager(
             // Night shelter-seeking: villagers look for huts to sleep in at night.
             // Exception: critically hungry villagers eat before sleeping (starvation override).
             if is_night && hunger <= 0.6 {
+                // Phase 1 (local awareness): villagers only find huts within
+                // their actual sight range — no 2× bonus.
                 let nearest_hut = grid
-                    .nearest(pos.x, pos.y, creature.sight_range * 2.0, category::HUT)
+                    .nearest(pos.x, pos.y, creature.sight_range, category::HUT)
                     .map(|(e, d)| (e.x, e.y, d));
                 if let Some((hx, hy, d)) = nearest_hut {
                     if d < 1.5 {
@@ -1173,7 +1176,9 @@ pub(super) fn ai_villager(
             let food_urgent = stockpile_food < 5 || (has_stockpile_food && stockpile_food < 10);
             // Use 1.5× sight range for build sites so villagers actively seek out
             // builds placed at the edge of the auto-build search radius.
-            let build_sight = creature.sight_range * 1.5;
+            // Phase 1 (local awareness): villagers only see build sites within
+            // their actual sight range — no 1.5× bonus.
+            let build_sight = creature.sight_range;
             let build_available = hunger < 0.4
                 && build_sites
                     .iter()
@@ -1272,14 +1277,9 @@ pub(super) fn ai_villager(
 
             // Gather resources: pick whichever resource is most needed
             if hunger < 0.4 {
-                // When wood is critically low, search beyond normal sight range so
-                // villagers find forest even when no trees are nearby. This prevents
-                // the (None, Some(_)) fallback to stone gathering when wood=0-5.
-                let wood_search_range = if stockpile_wood < 5 {
-                    creature.sight_range * 1.5
-                } else {
-                    creature.sight_range
-                };
+                // Phase 1 (local awareness): villagers search for wood within
+                // their actual sight range only — no 1.5× bonus when wood is low.
+                let wood_search_range = creature.sight_range;
                 let wood_target =
                     find_nearest_terrain(pos, map, Terrain::Forest, wood_search_range)
                         .map(|(fx, fy)| (fx, fy, dist(pos.x, pos.y, fx, fy)));
@@ -1371,26 +1371,38 @@ pub(super) fn ai_villager(
 
             // Exploration: when stockpiles are low and no local resources found,
             // send villager to explore frontier tiles to discover new resource areas.
+            // Phase 1 (local awareness): only consider frontier tiles within sight range.
+            // Villagers explore toward what they can see at the edge, not teleport-targeting
+            // random frontier tiles across the map.
             let resources_scarce = stockpile_wood < 10 || stockpile_stone < 10;
             if resources_scarce && !frontier.is_empty() && hunger < 0.4 {
-                let idx = rng.random_range(0..frontier.len() as u32) as usize;
-                let (fx, fy) = frontier[idx];
-                let tx = fx as f64;
-                let ty = fy as f64;
-                let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_astar(pos, tx, ty, speed, &mut vel, map);
-                return (
-                    BehaviorState::Exploring {
-                        target_x: tx,
-                        target_y: ty,
-                        timer: 300,
-                    },
-                    vel.dx,
-                    vel.dy,
-                    hunger,
-                    None,
-                    None,
-                );
+                let visible_frontier: Vec<(usize, usize)> = frontier
+                    .iter()
+                    .filter(|&&(fx, fy)| {
+                        dist(pos.x, pos.y, fx as f64, fy as f64) <= creature.sight_range
+                    })
+                    .copied()
+                    .collect();
+                if !visible_frontier.is_empty() {
+                    let idx = rng.random_range(0..visible_frontier.len() as u32) as usize;
+                    let (fx, fy) = visible_frontier[idx];
+                    let tx = fx as f64;
+                    let ty = fy as f64;
+                    let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                    move_toward_astar(pos, tx, ty, speed, &mut vel, map);
+                    return (
+                        BehaviorState::Exploring {
+                            target_x: tx,
+                            target_y: ty,
+                            timer: 300,
+                        },
+                        vel.dx,
+                        vel.dy,
+                        hunger,
+                        None,
+                        None,
+                    );
+                }
             }
 
             // Default: wander

@@ -78,6 +78,42 @@ pub enum ResourceType {
     Grain,
 }
 
+/// Visual fullness state of a resource in the stockpile.
+/// Villagers read this when they can SEE the stockpile, not globally.
+/// Phase 0: computed from global Resources counts; later will be per-stockpile.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StockpileFullness {
+    Empty,  // 0 of this resource
+    Low,    // 1..=4
+    Medium, // 5..=20
+    High,   // > 20
+}
+
+impl StockpileFullness {
+    pub fn from_count(count: u32) -> Self {
+        match count {
+            0 => StockpileFullness::Empty,
+            1..=4 => StockpileFullness::Low,
+            5..=20 => StockpileFullness::Medium,
+            _ => StockpileFullness::High,
+        }
+    }
+
+    /// Returns true if the resource level is critically low (Empty or Low).
+    pub fn is_scarce(&self) -> bool {
+        matches!(self, StockpileFullness::Empty | StockpileFullness::Low)
+    }
+}
+
+/// Aggregate visual state of a stockpile's resources.
+/// Replaces raw u32 counts for AI decision-making.
+#[derive(Debug, Clone, Copy)]
+pub struct StockpileState {
+    pub food: StockpileFullness,
+    pub wood: StockpileFullness,
+    pub stone: StockpileFullness,
+}
+
 /// Marker for stockpile location (where villagers deposit resources).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Stockpile;
