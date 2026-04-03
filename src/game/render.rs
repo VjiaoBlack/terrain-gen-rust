@@ -6,7 +6,7 @@ use crate::ecs::{
 };
 use crate::renderer::{Color, Renderer};
 use crate::simulation::Season;
-use crate::tilemap::Terrain;
+use crate::tilemap::{Terrain, blend_vegetation};
 
 /// Compute directional character from a movement vector.
 /// Returns `>`, `<`, `^`, or `v` based on the dominant axis.
@@ -781,8 +781,26 @@ impl super::Game {
 
                             renderer.draw(sx, sy, ch, fg, bg);
                         } else {
-                            let fg = self.season_tint(terrain.fg(), terrain);
-                            let bg = terrain.bg().map(|c| self.season_tint(c, terrain));
+                            // Blend soil + vegetation for natural terrain types
+                            let (fg, bg) = if terrain.has_vegetation_blending() {
+                                let veg = self.vegetation.get(wx as usize, wy as usize);
+                                let fg =
+                                    blend_vegetation(terrain.soil_fg(), terrain.veg_color(), veg);
+                                let bg_color = blend_vegetation(
+                                    terrain.soil_bg().unwrap_or(Color(0, 0, 0)),
+                                    terrain.veg_bg_color(),
+                                    veg,
+                                );
+                                (
+                                    self.season_tint(fg, terrain),
+                                    Some(self.season_tint(bg_color, terrain)),
+                                )
+                            } else {
+                                (
+                                    self.season_tint(terrain.fg(), terrain),
+                                    terrain.bg().map(|c| self.season_tint(c, terrain)),
+                                )
+                            };
                             // Apply worn terrain visual from foot traffic
                             let base_bg = bg.unwrap_or(Color(0, 0, 0));
                             let (ch, fg, worn_bg) = self.worn_terrain_override(
@@ -832,12 +850,21 @@ impl super::Game {
                         };
                         let fg = self.season_tint(fg, &Terrain::Forest);
                         let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
-                        // Keep terrain bg underneath vegetation
-                        let bg = self
-                            .map
-                            .get(wx as usize, wy as usize)
-                            .and_then(|t| t.bg())
-                            .map(|c| self.day_night.apply_lighting(c, wx as usize, wy as usize));
+                        // Background: use blended soil+vegetation color
+                        let bg = self.map.get(wx as usize, wy as usize).map(|t| {
+                            if t.has_vegetation_blending() {
+                                let bg_color = blend_vegetation(
+                                    t.soil_bg().unwrap_or(Color(0, 0, 0)),
+                                    t.veg_bg_color(),
+                                    v,
+                                );
+                                self.day_night
+                                    .apply_lighting(bg_color, wx as usize, wy as usize)
+                            } else {
+                                let c = t.bg().unwrap_or(Color(0, 0, 0));
+                                self.day_night.apply_lighting(c, wx as usize, wy as usize)
+                            }
+                        });
                         renderer.draw(sx, sy, ch, fg, bg);
                     }
                 }
@@ -1391,10 +1418,26 @@ impl super::Game {
         // Base texture character driven by vegetation density
         let veg = self.vegetation.get(wx, wy);
         let mut ch = terrain.landscape_ch(wx, wy, veg);
-        let mut fg = terrain.landscape_fg();
-        let mut bg = terrain.landscape_bg();
 
-        // Vegetation overlay: dense vegetation overrides base texture
+        // Blend soil base with landscape vegetation color based on vegetation density.
+        // For vegetation-sensitive terrains, landscape_fg/bg serve as the "fully
+        // vegetated" target and soil_fg/bg as the bare-ground base.
+        let mut fg = if terrain.has_vegetation_blending() {
+            blend_vegetation(terrain.soil_fg(), terrain.landscape_fg(), veg)
+        } else {
+            terrain.landscape_fg()
+        };
+        let mut bg = if terrain.has_vegetation_blending() {
+            blend_vegetation(
+                terrain.soil_bg().unwrap_or(Color(0, 0, 0)),
+                terrain.landscape_bg(),
+                veg,
+            )
+        } else {
+            terrain.landscape_bg()
+        };
+
+        // Vegetation overlay: dense vegetation overrides base texture chars
         if matches!(
             terrain,
             Terrain::Grass | Terrain::Scrubland | Terrain::Bare | Terrain::Sapling
@@ -1406,22 +1449,16 @@ impl super::Game {
                     let pool: &[char] = &['%', '#', '&', '@'];
                     let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
                     ch = pool[idx];
-                    fg = Color(18, 65, 15);
-                    bg = Color(10, 45, 8);
                 } else if v > 0.5 {
                     // Brush, young trees
                     let pool: &[char] = &['%', ':', '"', ';'];
                     let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
                     ch = pool[idx];
-                    fg = Color(30, 95, 28);
-                    bg = Color(18, 60, 15);
                 } else if v > 0.2 {
                     // Light scrub
                     let pool: &[char] = &['"', ',', '\'', ';'];
                     let idx = (wx.wrapping_mul(7).wrapping_add(wy.wrapping_mul(13))) % pool.len();
                     ch = pool[idx];
-                    fg = Color(48, 125, 42);
-                    bg = Color(28, 78, 24);
                 }
             }
         }

@@ -142,6 +142,95 @@ impl Terrain {
         }
     }
 
+    // --- Soil / vegetation color separation ---
+    // Soil colors represent the bare ground with NO vegetation.
+    // Vegetation overlay is blended on top based on VegetationMap density.
+
+    /// Bare soil/rock/sand foreground color — what the ground looks like
+    /// with zero vegetation. Vegetation-sensitive terrains return earthy
+    /// browns/tans/greys; non-vegetation terrains delegate to `fg()`.
+    pub fn soil_fg(&self) -> Color {
+        match self {
+            Terrain::Grass => Color(90, 70, 40),       // tan-brown dirt
+            Terrain::Forest => Color(40, 30, 15),      // dark forest loam
+            Terrain::Sand => Color(170, 150, 100),     // pale tan sand
+            Terrain::Desert => Color(185, 165, 110),   // warm tan
+            Terrain::Tundra => Color(140, 135, 125),   // grey-brown permafrost
+            Terrain::Scrubland => Color(120, 100, 55), // dry tan-olive
+            Terrain::Marsh => Color(55, 50, 35),       // dark mud
+            Terrain::Bare => Color(80, 70, 45),        // exposed dirt
+            Terrain::Sapling => Color(75, 60, 35),     // young soil
+            // Non-vegetation terrains: soil IS the displayed color
+            _ => self.fg(),
+        }
+    }
+
+    /// Bare soil background color — darker version of `soil_fg()`.
+    pub fn soil_bg(&self) -> Option<Color> {
+        match self {
+            Terrain::Grass => Some(Color(60, 48, 28)),
+            Terrain::Forest => Some(Color(25, 18, 8)),
+            Terrain::Sand => Some(Color(145, 125, 80)),
+            Terrain::Desert => Some(Color(160, 140, 90)),
+            Terrain::Tundra => Some(Color(115, 110, 100)),
+            Terrain::Scrubland => Some(Color(95, 78, 40)),
+            Terrain::Marsh => Some(Color(35, 32, 22)),
+            Terrain::Bare => Some(Color(52, 45, 28)),
+            Terrain::Sapling => Some(Color(48, 38, 22)),
+            _ => self.bg(),
+        }
+    }
+
+    /// Vegetation color when fully vegetated (vegetation = 1.0).
+    /// Each biome has a characteristic green hue.
+    pub fn veg_color(&self) -> Color {
+        match self {
+            Terrain::Forest => Color(30, 120, 20),    // deep forest green
+            Terrain::Grass => Color(50, 160, 40),     // bright meadow green
+            Terrain::Marsh => Color(40, 100, 30),     // dark olive
+            Terrain::Scrubland => Color(70, 130, 45), // dry olive-green
+            Terrain::Tundra => Color(60, 110, 50),    // cold grey-green
+            Terrain::Sand => Color(70, 140, 50),      // oasis green (rare)
+            Terrain::Desert => Color(60, 130, 40),    // irrigated green (rare)
+            Terrain::Bare => Color(45, 140, 35),      // regrowth green
+            Terrain::Sapling => Color(40, 135, 30),   // young tree green
+            // Non-vegetation terrains don't blend, but provide a fallback
+            _ => Color(50, 140, 40),
+        }
+    }
+
+    /// Vegetation background color when fully vegetated — darker version of `veg_color()`.
+    pub fn veg_bg_color(&self) -> Color {
+        match self {
+            Terrain::Forest => Color(15, 70, 12),
+            Terrain::Grass => Color(30, 100, 25),
+            Terrain::Marsh => Color(25, 62, 18),
+            Terrain::Scrubland => Color(45, 80, 28),
+            Terrain::Tundra => Color(38, 68, 32),
+            Terrain::Sand => Color(45, 88, 32),
+            Terrain::Desert => Color(38, 80, 25),
+            Terrain::Bare => Color(28, 88, 22),
+            Terrain::Sapling => Color(25, 82, 18),
+            _ => Color(30, 85, 25),
+        }
+    }
+
+    /// Whether this terrain type should have vegetation color blending applied.
+    pub fn has_vegetation_blending(&self) -> bool {
+        matches!(
+            self,
+            Terrain::Grass
+                | Terrain::Forest
+                | Terrain::Sand
+                | Terrain::Desert
+                | Terrain::Tundra
+                | Terrain::Scrubland
+                | Terrain::Marsh
+                | Terrain::Bare
+                | Terrain::Sapling
+        )
+    }
+
     // --- Map Mode rendering: flat symbolic glyphs, no lighting ---
 
     /// Map Mode glyph: one semantic symbol per terrain type.
@@ -495,6 +584,17 @@ impl Terrain {
                 | Terrain::FloodWater
         )
     }
+}
+
+/// Linearly interpolate between soil color and vegetation color based on
+/// vegetation density (0.0 = pure soil, 1.0 = full vegetation green).
+pub fn blend_vegetation(soil: Color, veg: Color, vegetation: f64) -> Color {
+    let t = vegetation.clamp(0.0, 1.0);
+    Color(
+        (soil.0 as f64 * (1.0 - t) + veg.0 as f64 * t) as u8,
+        (soil.1 as f64 * (1.0 - t) + veg.1 as f64 * t) as u8,
+        (soil.2 as f64 * (1.0 - t) + veg.2 as f64 * t) as u8,
+    )
 }
 
 #[derive(Serialize, Deserialize)]
