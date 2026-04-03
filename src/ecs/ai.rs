@@ -53,6 +53,87 @@ pub(super) fn move_toward_astar(
     d
 }
 
+/// Move toward target using cached A* path. Recomputes only when cache is invalid.
+/// Falls back to direct movement if A* fails. See docs/design/pillar5_scale/path_caching.md.
+pub(super) fn move_toward_cached(
+    pos: &Position,
+    tx: f64,
+    ty: f64,
+    speed: f64,
+    vel: &mut Velocity,
+    map: &TileMap,
+    cache: &mut PathCache,
+    current_tick: u64,
+) -> f64 {
+    let d = dist(pos.x, pos.y, tx, ty);
+    if d < 0.5 {
+        return d;
+    }
+
+    // Short distance: direct A* (no caching overhead)
+    if d <= 3.0 {
+        return move_toward_astar(pos, tx, ty, speed, vel, map);
+    }
+
+    // Check if cache is valid
+    let cache_valid = cache.cursor < cache.waypoints.len()
+        && (cache.dest_x - tx).abs() < 0.5
+        && (cache.dest_y - ty).abs() < 0.5
+        && (current_tick - cache.computed_tick) < 120;
+
+    // Entity drift: if next waypoint is >3 tiles away, invalidate
+    let cache_valid = cache_valid && {
+        let (wx, wy) = cache.waypoints[cache.cursor];
+        dist(pos.x, pos.y, wx, wy) < 3.0
+    };
+
+    // Blocked waypoint check: scan up to 3 waypoints ahead
+    let cache_valid = cache_valid && {
+        let end = cache.waypoints.len().min(cache.cursor + 3);
+        (cache.cursor..end).all(|i| {
+            let (wx, wy) = cache.waypoints[i];
+            map.is_walkable(wx, wy)
+        })
+    };
+
+    if !cache_valid {
+        // Recompute
+        let budget = (d as usize * 4).min(600);
+        if let Some(path) = map.astar_full_path(pos.x, pos.y, tx, ty, budget) {
+            cache.waypoints = path;
+            cache.dest_x = tx;
+            cache.dest_y = ty;
+            cache.computed_tick = current_tick;
+            cache.cursor = 0;
+        } else {
+            // No path found -- fall back to direct movement
+            return move_toward(pos, tx, ty, speed, vel);
+        }
+    }
+
+    // Follow next waypoint
+    if cache.cursor >= cache.waypoints.len() {
+        return move_toward(pos, tx, ty, speed, vel);
+    }
+
+    let (wx, wy) = cache.waypoints[cache.cursor];
+    let wd = dist(pos.x, pos.y, wx, wy);
+
+    if wd < 0.8 {
+        // Reached this waypoint, advance
+        cache.cursor += 1;
+        if cache.cursor >= cache.waypoints.len() {
+            // At final waypoint, move toward actual destination
+            return move_toward(pos, tx, ty, speed, vel);
+        }
+        let (wx2, wy2) = cache.waypoints[cache.cursor];
+        move_toward(pos, wx2, wy2, speed, vel);
+    } else {
+        move_toward(pos, wx, wy, speed, vel);
+    }
+    d
+}
+
 pub(super) fn wander(
     pos: &Position,
     vel: &mut Velocity,
@@ -472,6 +553,8 @@ pub(super) fn ai_villager(
     is_night: bool,
     frontier: &[(usize, usize)],
     stockpile_fullness: &StockpileState,
+    cache: &mut PathCache,
+    current_tick: u64,
 ) -> (
     BehaviorState,
     f64,
@@ -538,7 +621,8 @@ pub(super) fn ai_villager(
                 .unwrap_or((creature.home_x, creature.home_y));
 
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward_astar(pos, hx, hy, speed * 1.5, &mut vel, map);
+            let d =
+                move_toward_cached(pos, hx, hy, speed * 1.5, &mut vel, map, cache, current_tick);
             if d < 1.5 {
                 (
                     BehaviorState::Idle {
@@ -582,7 +666,7 @@ pub(super) fn ai_villager(
                     .map(|(e, _)| (e.x, e.y))
                     .unwrap_or((creature.home_x, creature.home_y));
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_astar(pos, hx, hy, speed, &mut vel, map);
+                move_toward_cached(pos, hx, hy, speed, &mut vel, map, cache, current_tick);
                 (
                     BehaviorState::Hauling {
                         target_x: hx,
@@ -615,7 +699,16 @@ pub(super) fn ai_villager(
             resource_type,
         } => {
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
+            let d = move_toward_cached(
+                pos,
+                *target_x,
+                *target_y,
+                speed,
+                &mut vel,
+                map,
+                cache,
+                current_tick,
+            );
             if d < 1.5 {
                 // Deposited resource at stockpile — short idle then re-evaluate
                 (
@@ -755,7 +848,16 @@ pub(super) fn ai_villager(
             let d = dist(pos.x, pos.y, *target_x, *target_y);
             if d > 2.5 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
+                move_toward_cached(
+                    pos,
+                    *target_x,
+                    *target_y,
+                    speed,
+                    &mut vel,
+                    map,
+                    cache,
+                    current_tick,
+                );
                 (
                     BehaviorState::Farming {
                         target_x: *target_x,
@@ -823,7 +925,16 @@ pub(super) fn ai_villager(
             let d = dist(pos.x, pos.y, *target_x, *target_y);
             if d > 2.5 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
+                move_toward_cached(
+                    pos,
+                    *target_x,
+                    *target_y,
+                    speed,
+                    &mut vel,
+                    map,
+                    cache,
+                    current_tick,
+                );
                 (
                     BehaviorState::Working {
                         target_x: *target_x,
@@ -885,7 +996,7 @@ pub(super) fn ai_villager(
             if stockpile_wood < 10 {
                 if let Some((fx, fy)) = wood_nearby {
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_astar(pos, fx, fy, speed, &mut vel, map);
+                    move_toward_cached(pos, fx, fy, speed, &mut vel, map, cache, current_tick);
                     return (
                         BehaviorState::Seek {
                             target_x: fx,
@@ -903,7 +1014,7 @@ pub(super) fn ai_villager(
             if stockpile_stone < 10 {
                 if let Some((dx, dy, _)) = stone_nearby {
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_astar(pos, dx, dy, speed, &mut vel, map);
+                    move_toward_cached(pos, dx, dy, speed, &mut vel, map, cache, current_tick);
                     return (
                         BehaviorState::Seek {
                             target_x: dx,
@@ -931,7 +1042,16 @@ pub(super) fn ai_villager(
                 );
             }
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
+            move_toward_cached(
+                pos,
+                *target_x,
+                *target_y,
+                speed,
+                &mut vel,
+                map,
+                cache,
+                current_tick,
+            );
             (
                 BehaviorState::Exploring {
                     target_x: *target_x,
@@ -972,7 +1092,16 @@ pub(super) fn ai_villager(
                                     && t != Some(&Terrain::BuildingWall)
                                 {
                                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                                    move_toward_astar(pos, nx, ny, speed, &mut vel, map);
+                                    move_toward_cached(
+                                        pos,
+                                        nx,
+                                        ny,
+                                        speed,
+                                        &mut vel,
+                                        map,
+                                        cache,
+                                        current_tick,
+                                    );
                                     return (
                                         BehaviorState::Seek {
                                             target_x: nx,
@@ -1012,7 +1141,7 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_astar(pos, hx, hy, speed, &mut vel, map);
+                        move_toward_cached(pos, hx, hy, speed, &mut vel, map, cache, current_tick);
                         return (
                             BehaviorState::Seek {
                                 target_x: hx,
@@ -1070,7 +1199,7 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_astar(pos, fx, fy, speed, &mut vel, map);
+                        move_toward_cached(pos, fx, fy, speed, &mut vel, map, cache, current_tick);
                         return (
                             BehaviorState::Seek {
                                 target_x: fx,
@@ -1104,7 +1233,16 @@ pub(super) fn ai_villager(
                             );
                         } else {
                             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                            move_toward_astar(pos, sx, sy, speed, &mut vel, map);
+                            move_toward_cached(
+                                pos,
+                                sx,
+                                sy,
+                                speed,
+                                &mut vel,
+                                map,
+                                cache,
+                                current_tick,
+                            );
                             return (
                                 BehaviorState::Seek {
                                     target_x: sx,
@@ -1154,7 +1292,7 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_astar(pos, dx, dy, speed, &mut vel, map);
+                        move_toward_cached(pos, dx, dy, speed, &mut vel, map, cache, current_tick);
                         return (
                             BehaviorState::Seek {
                                 target_x: dx,
@@ -1221,7 +1359,7 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_astar(pos, bx, by, speed, &mut vel, map);
+                        move_toward_cached(pos, bx, by, speed, &mut vel, map, cache, current_tick);
                         return (
                             BehaviorState::Seek {
                                 target_x: bx,
@@ -1258,7 +1396,7 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_astar(pos, fx, fy, speed, &mut vel, map);
+                        move_toward_cached(pos, fx, fy, speed, &mut vel, map, cache, current_tick);
                         return (
                             BehaviorState::Seek {
                                 target_x: fx,
@@ -1352,7 +1490,7 @@ pub(super) fn ai_villager(
                             ResourceType::Stone => SeekReason::Stone,
                             _ => SeekReason::Food,
                         };
-                        move_toward_astar(pos, tx, ty, speed, &mut vel, map);
+                        move_toward_cached(pos, tx, ty, speed, &mut vel, map, cache, current_tick);
                         return (
                             BehaviorState::Seek {
                                 target_x: tx,
@@ -1389,7 +1527,7 @@ pub(super) fn ai_villager(
                     let tx = fx as f64;
                     let ty = fy as f64;
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_astar(pos, tx, ty, speed, &mut vel, map);
+                    move_toward_cached(pos, tx, ty, speed, &mut vel, map, cache, current_tick);
                     return (
                         BehaviorState::Exploring {
                             target_x: tx,

@@ -273,6 +273,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
         }
@@ -313,6 +314,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
         }
@@ -355,6 +357,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
         }
@@ -396,6 +399,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
@@ -465,6 +469,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -506,6 +511,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -542,6 +548,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -581,6 +588,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -620,6 +628,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -663,6 +672,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
 
@@ -731,6 +741,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
 
@@ -801,6 +812,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
@@ -837,6 +849,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -879,6 +892,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -921,6 +935,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -967,6 +982,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1024,6 +1040,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
@@ -1097,6 +1114,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1146,6 +1164,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1266,6 +1285,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             system_movement(&mut world, &map);
         }
@@ -1609,6 +1629,7 @@ mod tests {
                 false,
                 false,
                 &[],
+                0,
             );
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
@@ -1670,6 +1691,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1715,6 +1737,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -2120,6 +2143,7 @@ mod tests {
             true,
             false,
             &[],
+            0,
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2167,6 +2191,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2311,6 +2336,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         if result.grain_consumed > 0 || result.food_consumed > 0 {
@@ -2432,6 +2458,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
@@ -2478,6 +2505,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         assert!(
@@ -2536,6 +2564,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         assert!(
@@ -2933,6 +2962,7 @@ mod tests {
             false,
             false,
             &[],
+            0,
         );
 
         assert!(
@@ -3024,6 +3054,7 @@ mod tests {
             false,
             true, // is_night
             &[],
+            0,
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3068,6 +3099,7 @@ mod tests {
             false,
             true, // is_night
             &[],
+            0,
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3080,5 +3112,281 @@ mod tests {
             BehaviorState::Sleeping { timer: 200 } => {} // correct: arrived at hut
             other => panic!("expected Seek{{Hut}} or Sleeping{{200}}, got {:?}", other),
         }
+    }
+
+    // --- Path caching tests ---
+
+    #[test]
+    fn path_cache_populated_on_villager_movement() {
+        let mut world = World::new();
+        let map = walkable_map(40, 40);
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        spawn_stockpile(&mut world, 30.0, 30.0);
+
+        // Make villager hungry so it seeks food/stockpile
+        world.get::<&mut Creature>(v).unwrap().hunger = 0.6;
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            10,
+            10,
+            10,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            100,
+        );
+
+        // Villager should have a PathCache with content
+        let cache = world.get::<&PathCache>(v).unwrap();
+        // If villager is seeking something far away, cache should have waypoints
+        let behavior = world.get::<&Behavior>(v).unwrap();
+        if matches!(behavior.state, BehaviorState::Seek { .. }) {
+            assert!(
+                !cache.waypoints.is_empty() || cache.computed_tick == 0,
+                "cache should be populated or be default for short distances"
+            );
+        }
+    }
+
+    #[test]
+    fn path_cache_reused_across_ticks() {
+        let mut world = World::new();
+        let map = walkable_map(50, 50);
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        spawn_stockpile(&mut world, 40.0, 40.0);
+
+        // Force hauling state with a distant target to ensure cache usage
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Hauling {
+            target_x: 40.0,
+            target_y: 40.0,
+            resource_type: ResourceType::Wood,
+        };
+
+        // Tick 100: first call computes cache
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            100,
+        );
+        system_movement(&mut world, &map);
+
+        let cache_after_first = (*world.get::<&PathCache>(v).unwrap()).clone();
+        assert!(
+            !cache_after_first.waypoints.is_empty(),
+            "cache should have waypoints after first tick"
+        );
+        assert_eq!(cache_after_first.computed_tick, 100);
+
+        // Tick 101: cache should be reused (same destination, not stale)
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            101,
+        );
+
+        let cache_after_second = (*world.get::<&PathCache>(v).unwrap()).clone();
+        // computed_tick should still be 100 (reused, not recomputed)
+        assert_eq!(
+            cache_after_second.computed_tick, 100,
+            "cache should be reused, not recomputed"
+        );
+    }
+
+    #[test]
+    fn path_cache_invalidated_on_destination_change() {
+        let mut world = World::new();
+        let map = walkable_map(50, 50);
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        spawn_stockpile(&mut world, 40.0, 40.0);
+
+        // First destination
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Hauling {
+            target_x: 40.0,
+            target_y: 40.0,
+            resource_type: ResourceType::Wood,
+        };
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            100,
+        );
+
+        let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
+        assert_eq!(cache_first.dest_x, 40.0);
+
+        // Change destination
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Hauling {
+            target_x: 10.0,
+            target_y: 10.0,
+            resource_type: ResourceType::Stone,
+        };
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            101,
+        );
+
+        let cache_second = (*world.get::<&PathCache>(v).unwrap()).clone();
+        // Should have been recomputed for new destination
+        assert_eq!(cache_second.computed_tick, 101);
+        assert!((cache_second.dest_x - 10.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn path_cache_invalidated_on_staleness() {
+        let mut world = World::new();
+        let map = walkable_map(50, 50);
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+
+        // Set up hauling with a path cache that was computed long ago
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Hauling {
+            target_x: 40.0,
+            target_y: 40.0,
+            resource_type: ResourceType::Wood,
+        };
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            100,
+        );
+
+        let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
+        assert_eq!(cache_first.computed_tick, 100);
+
+        // Jump to tick 300 (>120 ticks stale)
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            300,
+        );
+
+        let cache_after = (*world.get::<&PathCache>(v).unwrap()).clone();
+        // Should have been recomputed due to staleness
+        assert_eq!(
+            cache_after.computed_tick, 300,
+            "cache should be recomputed after staleness timeout"
+        );
+    }
+
+    #[test]
+    fn path_cache_short_distance_bypasses_cache() {
+        let mut world = World::new();
+        let map = walkable_map(20, 20);
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+
+        // Hauling to very close target (d < 3.0)
+        world.get::<&mut Behavior>(v).unwrap().state = BehaviorState::Hauling {
+            target_x: 6.0,
+            target_y: 5.0,
+            resource_type: ResourceType::Wood,
+        };
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            100,
+        );
+
+        let cache = world.get::<&PathCache>(v).unwrap();
+        // Cache should remain empty/default for short distances
+        assert!(
+            cache.waypoints.is_empty(),
+            "short distance should bypass cache"
+        );
     }
 }

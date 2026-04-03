@@ -371,6 +371,164 @@ impl TileMap {
         None // no path found
     }
 
+    /// A* pathfinding returning the full path as waypoints (start excluded, destination included).
+    /// Returns None if no path found within search budget.
+    pub fn astar_full_path(
+        &self,
+        sx: f64,
+        sy: f64,
+        gx: f64,
+        gy: f64,
+        max_steps: usize,
+    ) -> Option<Vec<(f64, f64)>> {
+        use std::cmp::Ordering;
+        use std::collections::BinaryHeap;
+
+        let si = sx.round() as i32;
+        let sj = sy.round() as i32;
+        let gi = gx.round() as i32;
+        let gj = gy.round() as i32;
+
+        if si == gi && sj == gj {
+            return Some(vec![(gx, gy)]);
+        }
+
+        #[derive(Clone)]
+        struct Node {
+            cost: f64,
+            heuristic: f64,
+            x: i32,
+            y: i32,
+            parent: usize,
+        }
+        impl PartialEq for Node {
+            fn eq(&self, o: &Self) -> bool {
+                self.cost + self.heuristic == o.cost + o.heuristic
+            }
+        }
+        impl Eq for Node {}
+        impl PartialOrd for Node {
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for Node {
+            fn cmp(&self, o: &Self) -> Ordering {
+                let a = self.cost + self.heuristic;
+                let b = o.cost + o.heuristic;
+                b.partial_cmp(&a).unwrap_or(Ordering::Equal)
+            }
+        }
+
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let mut visited = vec![false; self.width * self.height];
+        let mut nodes: Vec<Node> = Vec::new();
+        struct HeapEntry(Node, usize);
+        impl PartialEq for HeapEntry {
+            fn eq(&self, o: &Self) -> bool {
+                self.0 == o.0
+            }
+        }
+        impl Eq for HeapEntry {}
+        impl PartialOrd for HeapEntry {
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for HeapEntry {
+            fn cmp(&self, o: &Self) -> Ordering {
+                self.0.cmp(&o.0)
+            }
+        }
+        let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::new();
+
+        let heuristic =
+            |x: i32, y: i32| -> f64 { ((x - gi) as f64).abs() + ((y - gj) as f64).abs() };
+
+        let start = Node {
+            cost: 0.0,
+            heuristic: heuristic(si, sj),
+            x: si,
+            y: sj,
+            parent: usize::MAX,
+        };
+        nodes.push(start.clone());
+        heap.push(HeapEntry(start, 0));
+
+        const DIRS: [(i32, i32); 8] = [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ];
+
+        let mut steps = 0;
+        while let Some(HeapEntry(node, idx)) = heap.pop() {
+            if steps >= max_steps {
+                break;
+            }
+            steps += 1;
+
+            let vx = node.x as usize;
+            let vy = node.y as usize;
+            if vx >= self.width || vy >= self.height {
+                continue;
+            }
+            if visited[vy * self.width + vx] {
+                continue;
+            }
+            visited[vy * self.width + vx] = true;
+
+            if node.x == gi && node.y == gj {
+                // Trace back full path
+                let mut path = Vec::new();
+                let mut cur = idx;
+                while nodes[cur].parent != usize::MAX {
+                    path.push((nodes[cur].x as f64, nodes[cur].y as f64));
+                    cur = nodes[cur].parent;
+                }
+                path.reverse();
+                return Some(path);
+            }
+
+            for &(dx, dy) in &DIRS {
+                let nx = node.x + dx;
+                let ny = node.y + dy;
+                if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                    continue;
+                }
+                let ni = ny as usize * self.width + nx as usize;
+                if visited[ni] {
+                    continue;
+                }
+
+                let terrain = &self.tiles[ni];
+                if !terrain.is_walkable() {
+                    continue;
+                }
+
+                let step_cost = terrain.move_cost() * if dx != 0 && dy != 0 { 1.414 } else { 1.0 };
+                let new_cost = node.cost + step_cost;
+                let new_node = Node {
+                    cost: new_cost,
+                    heuristic: heuristic(nx, ny),
+                    x: nx,
+                    y: ny,
+                    parent: idx,
+                };
+                let new_idx = nodes.len();
+                nodes.push(new_node.clone());
+                heap.push(HeapEntry(new_node, new_idx));
+            }
+        }
+        None
+    }
+
     /// Check if a world position is walkable (in-bounds and walkable terrain).
     pub fn is_walkable(&self, x: f64, y: f64) -> bool {
         let ix = x.round() as i64;
@@ -787,5 +945,90 @@ mod tests {
     fn mine_count_out_of_bounds_returns_zero() {
         let map = TileMap::new(5, 5, Terrain::Grass);
         assert_eq!(map.mine_count(10, 10), 0);
+    }
+
+    // --- astar_full_path tests ---
+
+    #[test]
+    fn astar_full_path_same_position() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        let path = map.astar_full_path(5.0, 5.0, 5.0, 5.0, 100);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0], (5.0, 5.0));
+    }
+
+    #[test]
+    fn astar_full_path_adjacent() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        let path = map.astar_full_path(5.0, 5.0, 6.0, 5.0, 100);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0], (6.0, 5.0));
+    }
+
+    #[test]
+    fn astar_full_path_straight_line() {
+        let map = TileMap::new(20, 20, Terrain::Grass);
+        let path = map.astar_full_path(2.0, 5.0, 10.0, 5.0, 500);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        // Path should end at or near destination
+        let (lx, ly) = path.last().unwrap();
+        assert_eq!(*lx, 10.0);
+        assert_eq!(*ly, 5.0);
+        // Path length should be roughly the manhattan distance
+        assert!(path.len() >= 5, "path should have multiple waypoints");
+    }
+
+    #[test]
+    fn astar_full_path_around_wall() {
+        let mut map = TileMap::new(20, 10, Terrain::Grass);
+        // Wall across middle with one gap
+        for x in 0..20 {
+            map.set(x, 5, Terrain::BuildingWall);
+        }
+        map.set(15, 5, Terrain::Grass); // gap at x=15
+        let path = map.astar_full_path(2.0, 2.0, 2.0, 8.0, 500);
+        assert!(path.is_some(), "should find path through corridor gap");
+        let path = path.unwrap();
+        // Path must go through x=15 gap
+        assert!(
+            path.iter().any(|&(x, _)| x >= 14.0),
+            "path should route through gap at x=15"
+        );
+    }
+
+    #[test]
+    fn astar_full_path_unreachable() {
+        let mut map = TileMap::new(10, 10, Terrain::Grass);
+        // Surround target with walls
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                map.set((5 + dx) as usize, (5 + dy) as usize, Terrain::BuildingWall);
+            }
+        }
+        let path = map.astar_full_path(0.0, 0.0, 5.0, 5.0, 500);
+        assert!(path.is_none(), "should return None for unreachable target");
+    }
+
+    #[test]
+    fn astar_full_path_reaches_destination_when_walked() {
+        let map = TileMap::new(20, 20, Terrain::Grass);
+        let path = map.astar_full_path(2.0, 2.0, 17.0, 17.0, 500);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        let (lx, ly) = path.last().unwrap();
+        assert_eq!(*lx, 17.0);
+        assert_eq!(*ly, 17.0);
+        // Verify monotonic progress
+        for i in 1..path.len() {
+            let (px, py) = path[i - 1];
+            let (cx, cy) = path[i];
+            let step = ((cx - px).abs().max((cy - py).abs())) as i32;
+            assert!(step <= 2, "each step should be at most 1 tile away");
+        }
     }
 }

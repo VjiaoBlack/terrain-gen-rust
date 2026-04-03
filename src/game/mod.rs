@@ -1180,6 +1180,7 @@ impl Game {
                     settlement_defended,
                     self.day_night.is_night(),
                     &self.knowledge.frontier,
+                    self.tick,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -2233,6 +2234,7 @@ mod tests {
             false,
             true,
             &[],
+            0,
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;

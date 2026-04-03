@@ -40,6 +40,23 @@ pub struct AiResult {
     pub depleted_stone_positions: Vec<(f64, f64)>,
 }
 
+// --- Path Caching ---
+
+/// Per-entity cached A* path. Stores waypoints so A* runs once per trip instead of every tick.
+/// See docs/design/pillar5_scale/path_caching.md for design details.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PathCache {
+    /// Waypoints from current position to destination, in order.
+    pub waypoints: Vec<(f64, f64)>,
+    /// Index of next waypoint to follow (avoids Vec::remove(0) cost).
+    pub cursor: usize,
+    /// The destination these waypoints lead to (for invalidation).
+    pub dest_x: f64,
+    pub dest_y: f64,
+    /// Tick when this path was computed (for staleness check).
+    pub computed_tick: u64,
+}
+
 // --- Components ---
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

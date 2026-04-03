@@ -133,6 +133,7 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
             home_y: y,
             sight_range: 22.0,
         },
+        PathCache::default(),
     ))
 }
 

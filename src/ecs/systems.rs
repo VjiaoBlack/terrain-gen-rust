@@ -87,6 +87,7 @@ pub fn system_ai(
     settlement_defended: bool,
     is_night: bool,
     frontier: &[(usize, usize)],
+    current_tick: u64,
 ) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
@@ -230,6 +231,13 @@ pub fn system_ai(
                 let was_eating = matches!(behavior_state, BehaviorState::Eating { .. });
                 let near_food_source = grid.any_within(pos.x, pos.y, 2.0, category::FOOD_SOURCE);
 
+                // Get or create PathCache for this villager
+                let mut path_cache = world
+                    .get::<&PathCache>(e)
+                    .ok()
+                    .map(|c| (*c).clone())
+                    .unwrap_or_default();
+
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos,
                     &creature,
@@ -248,7 +256,17 @@ pub fn system_ai(
                     is_night,
                     frontier,
                     &stockpile_fullness,
+                    &mut path_cache,
+                    current_tick,
                 );
+
+                // Write back PathCache
+                if let Ok(mut cache) = world.get::<&mut PathCache>(e) {
+                    *cache = path_cache;
+                } else {
+                    // Entity doesn't have PathCache yet (old save); add it
+                    let _ = world.insert_one(e, path_cache);
+                }
 
                 // Villager just started eating near stockpile: grain → bread → food
                 if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
