@@ -436,6 +436,7 @@ impl Game {
         let cy = map_height / 2;
         let mut start_cx = cx;
         let mut start_cy = cy;
+        let mut used_fallback = false;
 
         'search: for r in 0..80usize {
             for dy in -(r as i32)..=(r as i32) {
@@ -553,10 +554,38 @@ impl Game {
                             if buildable_count >= 8 {
                                 start_cx = ux;
                                 start_cy = uy;
+                                used_fallback = true;
                                 break 'fallback;
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Fallback forest planting: when the fallback spawn search was used (no nearby forest),
+        // plant 4-6 Forest tiles within 5-8 tiles of spawn so villagers have a wood source.
+        // Think of it as settlers choosing a spot near a small copse of trees.
+        if used_fallback {
+            let mut rng = rand::rng();
+            let trees_to_plant = rng.random_range(4u32..=6);
+            let mut planted = 0u32;
+            for _ in 0..200 {
+                if planted >= trees_to_plant {
+                    break;
+                }
+                let angle = rng.random_range(0.0f64..std::f64::consts::TAU);
+                let radius = rng.random_range(5.0f64..8.0);
+                let tx = (start_cx as f64 + angle.cos() * radius).round() as i32;
+                let ty = (start_cy as f64 + angle.sin() * radius).round() as i32;
+                if tx < 0 || ty < 0 || tx as usize >= map_width || ty as usize >= map_height {
+                    continue;
+                }
+                let ux = tx as usize;
+                let uy = ty as usize;
+                if matches!(map.get(ux, uy), Some(Terrain::Grass | Terrain::Sand)) {
+                    map.set(ux, uy, Terrain::Forest);
+                    planted += 1;
                 }
             }
         }
@@ -608,7 +637,8 @@ impl Game {
         let scx = start_cx;
         let scy = start_cy;
 
-        // Helper: find a spot where an NxM building fits on natural terrain (no buildings).
+        // Helper: find a spot where an NxM building fits on natural terrain (no buildings)
+        // with a 1-tile walkable gap around the footprint so buildings don't block each other.
         // Prefers Grass/Sand positions to avoid consuming Forest tiles that villagers need for
         // wood gathering. Falls back to allowing Forest only if no Grass/Sand spot exists.
         let find_building_spot = |map: &TileMap,
@@ -617,6 +647,31 @@ impl Game {
                                   bw: usize,
                                   bh: usize|
          -> (f64, f64) {
+            // Check that all footprint tiles match the terrain predicate AND a 1-tile
+            // border around the footprint has no BuildingFloor/BuildingWall tiles.
+            let has_gap = |map: &TileMap, x: i32, y: i32, bw: i32, bh: i32| -> bool {
+                for fy in -1..bh + 1 {
+                    for fx in -1..bw + 1 {
+                        // Skip interior — only check the 1-tile border
+                        if fx >= 0 && fx < bw && fy >= 0 && fy < bh {
+                            continue;
+                        }
+                        let tx = x + fx;
+                        let ty = y + fy;
+                        if tx < 0 || ty < 0 {
+                            continue; // map edge is fine
+                        }
+                        if matches!(
+                            map.get(tx as usize, ty as usize),
+                            Some(Terrain::BuildingFloor | Terrain::BuildingWall)
+                        ) {
+                            return false;
+                        }
+                    }
+                }
+                true
+            };
+
             // First pass: only Grass/Sand (preserve nearby forest for wood gathering)
             for r in 0..30usize {
                 for dy in -(r as i32)..=(r as i32) {
@@ -636,7 +691,7 @@ impl Game {
                                 matches!(map.get(tx, ty), Some(Terrain::Grass | Terrain::Sand))
                             })
                         });
-                        if fits {
+                        if fits && has_gap(map, x, y, bw as i32, bh as i32) {
                             return (x as f64, y as f64);
                         }
                     }
@@ -664,7 +719,7 @@ impl Game {
                                 )
                             })
                         });
-                        if fits {
+                        if fits && has_gap(map, x, y, bw as i32, bh as i32) {
                             return (x as f64, y as f64);
                         }
                     }

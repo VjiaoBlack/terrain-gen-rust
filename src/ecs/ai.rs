@@ -1322,20 +1322,12 @@ pub(super) fn ai_villager(
                     .iter()
                     .any(|&(_, bx, by, _)| dist(pos.x, pos.y, bx, by) < build_sight);
 
-            // When food is critically low, skip building and gather food/resources instead
-            // (unless the build site IS a farm — always prioritize farm construction)
-            let should_build = if build_available && hunger < 0.4 {
-                if food_urgent {
-                    // Only build farms when food is urgent
-                    build_sites.iter().any(|&(_, bx, by, assigned)| {
-                        !assigned && dist(pos.x, pos.y, bx, by) < build_sight
-                    })
-                } else {
-                    true
-                }
-            } else {
-                false
-            };
+            // Build if a site is available and villager isn't too hungry.
+            // Note: previously this blocked building when food was urgent, but that
+            // caused villagers to never complete buildings (assigned flag was never
+            // cleared after a building round). Buildings are critical infrastructure
+            // — farms, huts, workshops all help the settlement survive.
+            let should_build = build_available && hunger < 0.4;
 
             if should_build {
                 let nearest_site = build_sites

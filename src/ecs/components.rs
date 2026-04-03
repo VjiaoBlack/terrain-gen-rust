@@ -394,33 +394,34 @@ impl Default for TickSchedule {
 }
 
 /// Maps a BehaviorState to a tick interval for AI scheduling.
-/// - Critical (1): FleeHome, Captured, Building within 3 tiles of site
-/// - Active (2): Seek, Hauling, Gathering, Exploring
-/// - Normal (4): Farming, Working, Eating
-/// - Idle (8): Wander, Idle, Sleeping, AtHome
+/// Timer-based states (Sleeping, Eating, Gathering, Building) must run every tick
+/// so their countdowns work correctly. Only decision-making states can be slowed.
+/// - Critical (1): All timer-based states + urgent states
+/// - Active (2): Movement states (Seek, Hauling, Exploring)
+/// - Normal (4): Farming, Working (lease-based, not timer-based)
+/// - Idle (8): Wander, Idle, AtHome (just waiting)
 pub fn tick_priority(state: &BehaviorState) -> u8 {
     match state {
-        // Critical: every tick
+        // Critical: every tick (timer-based or urgent)
         BehaviorState::FleeHome { .. }
         | BehaviorState::Captured
-        | BehaviorState::Hunting { .. } => 1,
-        BehaviorState::Building { .. } => 1, // always critical (close to site by definition)
+        | BehaviorState::Hunting { .. }
+        | BehaviorState::Building { .. }
+        | BehaviorState::Sleeping { .. }
+        | BehaviorState::Eating { .. }
+        | BehaviorState::Gathering { .. } => 1,
 
-        // Active: every 2 ticks
+        // Active: every 2 ticks (movement/pathfinding)
         BehaviorState::Seek { .. }
         | BehaviorState::Hauling { .. }
-        | BehaviorState::Gathering { .. }
         | BehaviorState::Exploring { .. } => 2,
 
-        // Normal: every 4 ticks
-        BehaviorState::Farming { .. }
-        | BehaviorState::Working { .. }
-        | BehaviorState::Eating { .. } => 4,
+        // Normal: every 4 ticks (lease-based work)
+        BehaviorState::Farming { .. } | BehaviorState::Working { .. } => 4,
 
-        // Idle: every 8 ticks
+        // Idle: every 8 ticks (just waiting, no urgency)
         BehaviorState::Wander { .. }
         | BehaviorState::Idle { .. }
-        | BehaviorState::Sleeping { .. }
         | BehaviorState::AtHome { .. } => 8,
     }
 }

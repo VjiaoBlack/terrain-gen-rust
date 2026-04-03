@@ -146,6 +146,13 @@ pub fn system_ai(
         .map(|(e, p, _, b)| (e, p.x, p.y, matches!(b.state, BehaviorState::Captured)))
         .collect();
 
+    // Reset assigned flags each tick — they are re-set when a villager claims a site
+    // during this tick's AI evaluation. Without this reset, sites stay permanently
+    // assigned after the first building round, blocking further construction.
+    for (_, site) in world.query_mut::<(&Position, &mut BuildSite)>() {
+        site.assigned = false;
+    }
+
     let build_site_positions: Vec<(Entity, f64, f64, bool)> = world
         .query::<(Entity, &Position, &BuildSite)>()
         .iter()

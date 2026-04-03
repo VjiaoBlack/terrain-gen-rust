@@ -3416,6 +3416,17 @@ mod tests {
             1
         );
 
+        // Critical (timer-based)
+        assert_eq!(tick_priority(&BehaviorState::Sleeping { timer: 10 }), 1);
+        assert_eq!(tick_priority(&BehaviorState::Eating { timer: 10 }), 1);
+        assert_eq!(
+            tick_priority(&BehaviorState::Gathering {
+                timer: 10,
+                resource_type: ResourceType::Wood,
+            }),
+            1
+        );
+
         // Active
         assert_eq!(
             tick_priority(&BehaviorState::Seek {
@@ -3429,13 +3440,6 @@ mod tests {
             tick_priority(&BehaviorState::Hauling {
                 target_x: 0.0,
                 target_y: 0.0,
-                resource_type: ResourceType::Wood,
-            }),
-            2
-        );
-        assert_eq!(
-            tick_priority(&BehaviorState::Gathering {
-                timer: 10,
                 resource_type: ResourceType::Wood,
             }),
             2
@@ -3466,12 +3470,10 @@ mod tests {
             }),
             4
         );
-        assert_eq!(tick_priority(&BehaviorState::Eating { timer: 10 }), 4);
 
         // Idle
         assert_eq!(tick_priority(&BehaviorState::Wander { timer: 10 }), 8);
         assert_eq!(tick_priority(&BehaviorState::Idle { timer: 10 }), 8);
-        assert_eq!(tick_priority(&BehaviorState::Sleeping { timer: 10 }), 8);
         assert_eq!(tick_priority(&BehaviorState::AtHome { timer: 10 }), 8);
     }
 
@@ -4648,13 +4650,6 @@ mod tests {
             2
         );
         assert_eq!(
-            tick_priority(&BehaviorState::Gathering {
-                timer: 0,
-                resource_type: ResourceType::Wood,
-            }),
-            2
-        );
-        assert_eq!(
             tick_priority(&BehaviorState::Exploring {
                 target_x: 0.0,
                 target_y: 0.0,
@@ -4682,14 +4677,12 @@ mod tests {
             }),
             4
         );
-        assert_eq!(tick_priority(&BehaviorState::Eating { timer: 0 }), 4);
     }
 
     #[test]
     fn tick_priority_idle_states() {
         assert_eq!(tick_priority(&BehaviorState::Wander { timer: 0 }), 8);
         assert_eq!(tick_priority(&BehaviorState::Idle { timer: 0 }), 8);
-        assert_eq!(tick_priority(&BehaviorState::Sleeping { timer: 0 }), 8);
         assert_eq!(tick_priority(&BehaviorState::AtHome { timer: 0 }), 8);
     }
 
@@ -4723,10 +4716,13 @@ mod tests {
     }
 
     #[test]
-    fn sleeping_villager_high_interval() {
+    fn sleeping_villager_critical_interval() {
         let sleeping = BehaviorState::Sleeping { timer: 200 };
         let interval = tick_priority(&sleeping);
-        assert_eq!(interval, 8, "sleeping villager should have interval 8");
+        assert_eq!(
+            interval, 1,
+            "sleeping villager should have interval 1 (timer-based)"
+        );
     }
 
     // ====================================================================
