@@ -1,6 +1,7 @@
 mod ai;
 pub mod components;
 pub mod serialize;
+pub mod spatial;
 pub mod spawn;
 pub mod systems;
 
