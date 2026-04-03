@@ -171,6 +171,7 @@ pub fn system_ai(
     let mut build_progress: Vec<(f64, f64)> = Vec::new(); // positions where building work happened
     let mut harvest_positions: Vec<(f64, f64, ResourceType)> = Vec::new(); // where harvests completed
     let mut wood_harvest_pos: Vec<(f64, f64)> = Vec::new(); // wood harvest positions for deforestation
+    let mut stone_harvest_pos: Vec<(f64, f64)> = Vec::new(); // mountain mining positions for terrain changes
     for e in entities {
         // Read position (copy) and check if it's a creature
         let Some(pos) = world.get::<&Position>(e).ok().map(|p| *p) else {
@@ -436,6 +437,9 @@ pub fn system_ai(
                     if ry.remaining == 0 {
                         to_deplete_despawn.push(e);
                     }
+                } else {
+                    // No StoneDeposit entity nearby — this was mountain mining
+                    stone_harvest_pos.push((hx, hy));
                 }
             }
             ResourceType::Wood => {
@@ -444,8 +448,15 @@ pub fn system_ai(
             _ => {} // Refined resources not gathered from terrain
         }
     }
-    for e in to_deplete_despawn {
-        let _ = world.despawn(e);
+    let mut depleted_stone_positions: Vec<(f64, f64)> = Vec::new();
+    for e in &to_deplete_despawn {
+        // Record depleted stone deposit positions for ScarredGround conversion
+        if world.get::<&StoneDeposit>(*e).is_ok() {
+            if let Ok(pos) = world.get::<&Position>(*e) {
+                depleted_stone_positions.push((pos.x, pos.y));
+            }
+        }
+        let _ = world.despawn(*e);
     }
 
     AiResult {
@@ -458,6 +469,8 @@ pub fn system_ai(
         woodcutting_ticks,
         building_ticks,
         wood_harvest_positions: wood_harvest_pos,
+        stone_harvest_positions: stone_harvest_pos,
+        depleted_stone_positions,
     }
 }
 

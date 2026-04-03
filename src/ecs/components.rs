@@ -34,6 +34,10 @@ pub struct AiResult {
     pub building_ticks: u32,
     /// Positions where wood was harvested (Forest tiles to convert to Stump).
     pub wood_harvest_positions: Vec<(f64, f64)>,
+    /// Positions where stone was harvested from Mountain tiles (for mining terrain changes).
+    pub stone_harvest_positions: Vec<(f64, f64)>,
+    /// Positions where StoneDeposit entities were fully depleted (for ScarredGround conversion).
+    pub depleted_stone_positions: Vec<(f64, f64)>,
 }
 
 // --- Components ---

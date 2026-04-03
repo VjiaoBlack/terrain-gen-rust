@@ -18,6 +18,9 @@ pub enum Terrain {
     Stump,
     Bare,
     Sapling,
+    Quarry,
+    QuarryDeep,
+    ScarredGround,
     BuildingFloor,
     BuildingWall,
     Road,
@@ -48,6 +51,9 @@ impl Terrain {
             Terrain::Stump => '%',
             Terrain::Bare => '.',
             Terrain::Sapling => '!',
+            Terrain::Quarry => 'U',
+            Terrain::QuarryDeep => 'V',
+            Terrain::ScarredGround => '.',
             Terrain::BuildingFloor => '░',
             Terrain::BuildingWall => '█',
             Terrain::Road => '=',
@@ -71,6 +77,9 @@ impl Terrain {
             Terrain::Stump => Color(100, 80, 40),
             Terrain::Bare => Color(90, 80, 50),
             Terrain::Sapling => Color(30, 120, 30),
+            Terrain::Quarry => Color(140, 130, 115),
+            Terrain::QuarryDeep => Color(110, 100, 90),
+            Terrain::ScarredGround => Color(145, 135, 120),
             Terrain::BuildingFloor => Color(140, 120, 90),
             Terrain::BuildingWall => Color(160, 140, 110),
             Terrain::Road => Color(160, 130, 80),
@@ -94,6 +103,9 @@ impl Terrain {
             Terrain::Stump => Some(Color(40, 90, 30)),
             Terrain::Bare => Some(Color(55, 90, 40)),
             Terrain::Sapling => Some(Color(35, 95, 30)),
+            Terrain::Quarry => Some(Color(90, 80, 70)),
+            Terrain::QuarryDeep => Some(Color(65, 58, 50)),
+            Terrain::ScarredGround => Some(Color(115, 105, 90)),
             Terrain::BuildingFloor => Some(Color(100, 80, 60)),
             Terrain::BuildingWall => Some(Color(120, 100, 80)),
             Terrain::Road => Some(Color(130, 105, 65)),
@@ -105,10 +117,12 @@ impl Terrain {
         match self {
             Terrain::Road => 1.5,
             Terrain::Grass | Terrain::BuildingFloor | Terrain::Scrubland => 1.0,
+            Terrain::ScarredGround => 0.9,
             Terrain::Bare => 0.9,
             Terrain::Desert | Terrain::Tundra => 0.8,
             Terrain::Sand | Terrain::Stump => 0.8,
-            Terrain::Sapling => 0.7,
+            Terrain::Sapling | Terrain::Quarry => 0.7,
+            Terrain::QuarryDeep => 0.5,
             Terrain::Forest => 0.6,
             Terrain::Snow => 0.4,
             Terrain::Marsh => 0.3,
@@ -123,9 +137,11 @@ impl Terrain {
         match self {
             Terrain::Road => 0.7,
             Terrain::Grass | Terrain::BuildingFloor | Terrain::Scrubland | Terrain::Bare => 1.0,
+            Terrain::ScarredGround => 1.1,
             Terrain::Stump => 1.2,
             Terrain::Sand | Terrain::Desert | Terrain::Tundra => 1.3,
-            Terrain::Sapling => 1.4,
+            Terrain::Sapling | Terrain::Quarry => 1.4,
+            Terrain::QuarryDeep => 2.0,
             Terrain::Forest => 1.7,
             Terrain::Snow => 2.5,
             Terrain::Marsh => 3.0,
@@ -141,6 +157,10 @@ pub struct TileMap {
     pub width: usize,
     pub height: usize,
     tiles: Vec<Terrain>,
+    /// Per-tile mining counter for mountain mining progression.
+    /// Tracks how many times each tile has been mined.
+    #[serde(default)]
+    mine_counts: Vec<u8>,
 }
 
 impl TileMap {
@@ -149,6 +169,7 @@ impl TileMap {
             width,
             height,
             tiles: vec![fill; width * height],
+            mine_counts: vec![0u8; width * height],
         }
     }
 
@@ -163,6 +184,30 @@ impl TileMap {
     pub fn set(&mut self, x: usize, y: usize, terrain: Terrain) {
         if x < self.width && y < self.height {
             self.tiles[y * self.width + x] = terrain;
+        }
+    }
+
+    /// Get the mining counter for a tile.
+    pub fn mine_count(&self, x: usize, y: usize) -> u8 {
+        if x < self.width && y < self.height && !self.mine_counts.is_empty() {
+            self.mine_counts[y * self.width + x]
+        } else {
+            0
+        }
+    }
+
+    /// Increment the mining counter for a tile and return the new count.
+    pub fn increment_mine_count(&mut self, x: usize, y: usize) -> u8 {
+        if x < self.width && y < self.height {
+            // Ensure mine_counts is initialized (for old saves with default empty vec)
+            if self.mine_counts.is_empty() {
+                self.mine_counts = vec![0u8; self.width * self.height];
+            }
+            let idx = y * self.width + x;
+            self.mine_counts[idx] = self.mine_counts[idx].saturating_add(1);
+            self.mine_counts[idx]
+        } else {
+            0
         }
     }
 
@@ -651,5 +696,96 @@ mod tests {
         let (nx, ny) = next.unwrap();
         assert_eq!(nx, 6.0);
         assert_eq!(ny, 5.0);
+    }
+
+    #[test]
+    fn quarry_terrain_properties() {
+        assert!(Terrain::Quarry.is_walkable());
+        assert_eq!(Terrain::Quarry.ch(), 'U');
+        assert_eq!(Terrain::Quarry.speed_multiplier(), 0.7);
+        assert_eq!(Terrain::Quarry.move_cost(), 1.4);
+        assert!(Terrain::Quarry.bg().is_some());
+    }
+
+    #[test]
+    fn quarry_deep_terrain_properties() {
+        assert!(Terrain::QuarryDeep.is_walkable());
+        assert_eq!(Terrain::QuarryDeep.ch(), 'V');
+        assert_eq!(Terrain::QuarryDeep.speed_multiplier(), 0.5);
+        assert_eq!(Terrain::QuarryDeep.move_cost(), 2.0);
+        assert!(Terrain::QuarryDeep.bg().is_some());
+    }
+
+    #[test]
+    fn scarred_ground_terrain_properties() {
+        assert!(Terrain::ScarredGround.is_walkable());
+        assert_eq!(Terrain::ScarredGround.ch(), '.');
+        assert_eq!(Terrain::ScarredGround.speed_multiplier(), 0.9);
+        assert_eq!(Terrain::ScarredGround.move_cost(), 1.1);
+        assert!(Terrain::ScarredGround.bg().is_some());
+    }
+
+    #[test]
+    fn mine_count_increment_and_get() {
+        let mut map = TileMap::new(10, 10, Terrain::Mountain);
+        assert_eq!(map.mine_count(5, 5), 0);
+        let count = map.increment_mine_count(5, 5);
+        assert_eq!(count, 1);
+        assert_eq!(map.mine_count(5, 5), 1);
+        for _ in 0..5 {
+            map.increment_mine_count(5, 5);
+        }
+        assert_eq!(map.mine_count(5, 5), 6);
+    }
+
+    #[test]
+    fn mine_count_threshold_transitions() {
+        let mut map = TileMap::new(10, 10, Terrain::Mountain);
+        // Increment to 6 -> should become Quarry
+        for _ in 0..6 {
+            let count = map.increment_mine_count(5, 5);
+            if count >= 6 {
+                map.set(5, 5, Terrain::Quarry);
+            }
+        }
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::Quarry);
+
+        // Increment to 12 -> should become QuarryDeep
+        for _ in 0..6 {
+            let count = map.increment_mine_count(5, 5);
+            if count >= 12 {
+                map.set(5, 5, Terrain::QuarryDeep);
+            }
+        }
+        assert_eq!(*map.get(5, 5).unwrap(), Terrain::QuarryDeep);
+    }
+
+    #[test]
+    fn mine_count_saturates_at_u8_max() {
+        let mut map = TileMap::new(5, 5, Terrain::Mountain);
+        for _ in 0..260 {
+            map.increment_mine_count(2, 2);
+        }
+        assert_eq!(map.mine_count(2, 2), 255);
+    }
+
+    #[test]
+    fn astar_routes_through_quarry() {
+        let mut map = TileMap::new(20, 5, Terrain::Grass);
+        // Wall of mountains from (10,0) to (10,4)
+        for y in 0..5 {
+            map.set(10, y, Terrain::Mountain);
+        }
+        // No path through mountains (Mountain is walkable but cost 4.0)
+        // Convert one tile to Quarry (cost 1.4) -- A* should prefer it
+        map.set(10, 2, Terrain::Quarry);
+        let next = map.astar_next(5.0, 2.0, 15.0, 2.0, 500);
+        assert!(next.is_some(), "should find path through quarry gap");
+    }
+
+    #[test]
+    fn mine_count_out_of_bounds_returns_zero() {
+        let map = TileMap::new(5, 5, Terrain::Grass);
+        assert_eq!(map.mine_count(10, 10), 0);
     }
 }

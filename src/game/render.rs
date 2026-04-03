@@ -1508,6 +1508,9 @@ impl super::Game {
                     Some(Terrain::Stump) => Color(80, 70, 40),
                     Some(Terrain::Bare) => Color(70, 65, 45),
                     Some(Terrain::Sapling) => Color(35, 90, 35),
+                    Some(Terrain::Quarry) => Color(90, 80, 70),
+                    Some(Terrain::QuarryDeep) => Color(65, 58, 50),
+                    Some(Terrain::ScarredGround) => Color(115, 105, 90),
                     Some(Terrain::Mountain) => Color(120, 110, 100),
                     Some(Terrain::Snow) => Color(200, 200, 220),
                     Some(Terrain::BuildingFloor) | Some(Terrain::BuildingWall) => {
@@ -1590,6 +1593,9 @@ impl super::Game {
                         Terrain::Stump => ('%', Color(100, 80, 40)),
                         Terrain::Bare => ('.', Color(90, 80, 50)),
                         Terrain::Sapling => ('!', Color(40, 140, 40)),
+                        Terrain::Quarry => ('Q', Color(140, 130, 115)),
+                        Terrain::QuarryDeep => ('V', Color(110, 100, 90)),
+                        Terrain::ScarredGround => ('s', Color(145, 135, 120)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }

@@ -2800,4 +2800,89 @@ mod tests {
             "year 10: 3 wolves should raid (threshold 3, clamped)"
         );
     }
+
+    #[test]
+    fn mining_terrain_quarry_quarrydeep_properties() {
+        // Verify basic properties of Quarry, QuarryDeep, ScarredGround
+        assert!(Terrain::Quarry.is_walkable());
+        assert!(Terrain::QuarryDeep.is_walkable());
+        assert!(Terrain::ScarredGround.is_walkable());
+
+        assert_eq!(Terrain::Quarry.ch(), 'U');
+        assert_eq!(Terrain::QuarryDeep.ch(), 'V');
+        assert_eq!(Terrain::ScarredGround.ch(), '.');
+
+        // Speed: ScarredGround > Quarry > QuarryDeep
+        assert!(Terrain::ScarredGround.speed_multiplier() > Terrain::Quarry.speed_multiplier());
+        assert!(Terrain::Quarry.speed_multiplier() > Terrain::QuarryDeep.speed_multiplier());
+
+        // Cost: QuarryDeep > Quarry > ScarredGround
+        assert!(Terrain::QuarryDeep.move_cost() > Terrain::Quarry.move_cost());
+        assert!(Terrain::Quarry.move_cost() > Terrain::ScarredGround.move_cost());
+
+        // All have bg colors
+        assert!(Terrain::Quarry.bg().is_some());
+        assert!(Terrain::QuarryDeep.bg().is_some());
+        assert!(Terrain::ScarredGround.bg().is_some());
+    }
+
+    #[test]
+    fn stone_deposit_depletion_reports_position() {
+        // When a StoneDeposit is depleted, system_ai should report its position
+        // so the caller can set ScarredGround.
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+
+        // Create a stone deposit with 1 remaining
+        spawn_stone_deposit(&mut world, 10.0, 10.0);
+        // Set remaining to 1 so it depletes on next harvest
+        for (_, mut ry) in world.query::<(&StoneDeposit, &mut ResourceYield)>().iter() {
+            ry.remaining = 1;
+        }
+
+        let villager = spawn_villager(&mut world, 10.0, 11.0);
+        spawn_stockpile(&mut world, 15.0, 15.0);
+
+        // Put villager in Gathering Stone state with timer at 0 (ready to transition to Hauling)
+        {
+            let mut b = world.get::<&mut Behavior>(villager).unwrap();
+            b.state = BehaviorState::Gathering {
+                timer: 0,
+                resource_type: ResourceType::Stone,
+            };
+        }
+
+        let result = system_ai(
+            &mut world,
+            &map,
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+        );
+
+        assert!(
+            !result.depleted_stone_positions.is_empty(),
+            "should report depleted stone deposit position"
+        );
+
+        // Simulate what Game::step does: convert to ScarredGround
+        for (sx, sy) in &result.depleted_stone_positions {
+            let ix = sx.round() as usize;
+            let iy = sy.round() as usize;
+            map.set(ix, iy, Terrain::ScarredGround);
+        }
+
+        assert_eq!(
+            map.get(10, 10).copied(),
+            Some(Terrain::ScarredGround),
+            "depleted stone deposit tile should become ScarredGround"
+        );
+    }
 }
