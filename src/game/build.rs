@@ -256,6 +256,66 @@ impl super::Game {
     }
 
     /// Check for completed build sites and apply their tiles to the map.
+    /// Reclassify natural terrain tiles based on current avg moisture.
+    /// Only changes tiles that are "natural" (not buildings, roads, etc.).
+    /// Uses the same classify_biome function as the pipeline but with
+    /// current avg_moisture instead of frozen pipeline moisture.
+    pub(super) fn reclassify_biomes(&mut self) {
+        use crate::terrain_pipeline::classify_biome;
+        use crate::tilemap::Terrain;
+
+        let w = self.map.width;
+        let h = self.map.height;
+        let water_level = self.terrain_config.water_level;
+
+        for y in 0..h {
+            for x in 0..w {
+                let idx = y * w + x;
+                let current = match self.map.get(x, y) {
+                    Some(t) => *t,
+                    None => continue,
+                };
+                // Only reclassify natural terrain — skip buildings, roads,
+                // stumps, quarries, and other player-modified tiles
+                let is_natural = matches!(
+                    current,
+                    Terrain::Grass
+                        | Terrain::Forest
+                        | Terrain::Sand
+                        | Terrain::Desert
+                        | Terrain::Tundra
+                        | Terrain::Scrubland
+                        | Terrain::Marsh
+                        | Terrain::Mountain
+                        | Terrain::Snow
+                );
+                if !is_natural {
+                    continue;
+                }
+
+                let height = self.heights[idx];
+                let temp = if idx < self.pipeline_temperature.len() {
+                    self.pipeline_temperature[idx]
+                } else {
+                    0.5
+                };
+                let avg_m = self.moisture.get_avg(x, y);
+                let slope = if idx < self.pipeline_slope.len() {
+                    self.pipeline_slope[idx]
+                } else {
+                    0.0
+                };
+
+                let new_biome = classify_biome(height, temp, avg_m, slope, water_level);
+
+                // Only update if biome actually changed
+                if new_biome != current {
+                    self.map.set(x, y, new_biome);
+                }
+            }
+        }
+    }
+
     pub(super) fn check_build_completion(&mut self) {
         let mut completed: Vec<(hecs::Entity, Position, BuildSite)> = Vec::new();
         for (e, (pos, site)) in self

@@ -2048,6 +2048,23 @@ impl super::Game {
                 if idx < self.pipeline_moisture.len() {
                     lines.push(format!("p_moist: {:.2}", self.pipeline_moisture[idx]));
                 }
+                let avg_m = self.moisture.get_avg(ux, uy);
+                lines.push(format!("avg_moist: {:.2}", avg_m));
+                // Show what biome this tile WOULD be if reclassified now
+                if idx < self.pipeline_temperature.len() && idx < self.pipeline_slope.len() {
+                    let would_be = crate::terrain_pipeline::classify_biome(
+                        self.heights[idx],
+                        self.pipeline_temperature[idx],
+                        avg_m, // use average moisture instead of frozen pipeline moisture
+                        self.pipeline_slope[idx],
+                        0.35, // water_level default
+                    );
+                    if let Some(current) = self.map.get(ux, uy) {
+                        if *current != would_be {
+                            lines.push(format!("→ would be: {:?}", would_be));
+                        }
+                    }
+                }
                 if idx < self.soil.len() {
                     lines.push(format!("soil: {:?}", self.soil[idx]));
                 }

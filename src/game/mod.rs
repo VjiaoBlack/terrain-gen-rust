@@ -2570,6 +2570,11 @@ impl Game {
                     );
                 }
 
+                // Reclassify biomes based on current conditions (every 500 ticks)
+                if self.tick.is_multiple_of(500) {
+                    self.reclassify_biomes();
+                }
+
                 // Check for completed buildings
                 self.check_build_completion();
 
