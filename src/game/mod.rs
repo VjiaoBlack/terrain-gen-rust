@@ -5865,9 +5865,13 @@ mod tests {
                 ch: 'v',
                 fg: Color(200, 200, 200),
             },
+            ecs::TickSchedule::default(),
+            ecs::VillagerMemory::default(),
+            ecs::PathCache::default(),
         ));
         let mut renderer = HeadlessRenderer::new(80, 24);
-        for _ in 0..20 {
+        // Run enough ticks for particle spawning (every 3rd tick for mining)
+        for _ in 0..50 {
             game.step(GameInput::None, &mut renderer).unwrap();
         }
         let sparkle: Vec<_> = game
