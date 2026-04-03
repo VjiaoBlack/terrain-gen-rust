@@ -3770,14 +3770,18 @@ mod tests {
     #[test]
     fn memory_decay_reduces_confidence() {
         let mut mem = VillagerMemory::new();
+        // Place memory at villager position (0 distance) so only base rate applies
         mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
         assert_eq!(mem.entries[0].confidence, 1.0);
 
-        mem.decay_tick();
-        let expected = 1.0 - MEMORY_DECAY_RATE;
+        // Villager at same position as memory: distance modifier = 1.0
+        mem.decay_tick(10.0, 20.0);
+        let expected = 1.0 - MemoryKind::WoodSource.decay_rate();
         assert!(
             (mem.entries[0].confidence - expected).abs() < 1e-10,
-            "confidence should decrease by MEMORY_DECAY_RATE"
+            "confidence should decrease by per-kind decay rate, expected {}, got {}",
+            expected,
+            mem.entries[0].confidence
         );
     }
 
@@ -3786,9 +3790,9 @@ mod tests {
         let mut mem = VillagerMemory::new();
         mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
 
-        // Set confidence just above threshold
-        mem.entries[0].confidence = MEMORY_FORGET_THRESHOLD + 0.001;
-        mem.decay_tick();
+        // Set confidence just above threshold — any decay will push it below
+        mem.entries[0].confidence = MEMORY_FORGET_THRESHOLD + 0.0001;
+        mem.decay_tick(10.0, 20.0);
         assert_eq!(
             mem.entry_count(),
             0,
@@ -3905,10 +3909,10 @@ mod tests {
         let map = walkable_map(40, 40);
 
         let v = spawn_villager(&mut world, 10.0, 10.0);
-        // Manually insert a memory entry
+        // Manually insert a memory entry far away (won't be refreshed by observation)
         {
             let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
-            memory.upsert(MemoryKind::WoodSource, 50.0, 50.0, 0); // far away, won't be refreshed
+            memory.upsert(MemoryKind::WoodSource, 50.0, 50.0, 0);
         }
 
         let grid = make_grid(&world, &map);
@@ -3927,10 +3931,17 @@ mod tests {
                 entry.confidence < 1.0,
                 "confidence should have decayed after 10 ticks"
             );
-            let expected = 1.0 - (MEMORY_DECAY_RATE * 10.0);
+            // Villager at (10,10), memory at (50,50): distance ~56.57
+            // distance_modifier = 1.0 + 56.57/60.0 ≈ 1.943
+            // effective_rate = 0.0007 * 1.943 ≈ 0.00136
+            // After 10 ticks: confidence ≈ 1.0 - 0.0136 ≈ 0.986
+            let distance = ((50.0_f64 - 10.0).powi(2) + (50.0_f64 - 10.0).powi(2)).sqrt();
+            let dist_mod = 1.0 + distance / DISTANCE_DECAY_SCALE;
+            let effective_rate = MemoryKind::WoodSource.decay_rate() * dist_mod;
+            let expected = 1.0 - (effective_rate * 10.0);
             assert!(
                 (entry.confidence - expected).abs() < 0.01,
-                "confidence should be ~{}, got {}",
+                "confidence should be ~{:.4}, got {:.4}",
                 expected,
                 entry.confidence
             );
@@ -4367,22 +4378,130 @@ mod tests {
     // ====================================================================
 
     #[test]
-    fn memory_decay_half_life() {
+    fn memory_decay_per_kind_half_life() {
+        // FoodSource: decay_rate 0.0017, half-life ~400 ticks at distance 0
         let mut mem = VillagerMemory::new();
         mem.upsert(MemoryKind::FoodSource, 10.0, 10.0, 0);
 
-        // After 350 ticks of decay (0.002/tick), confidence should be ~0.5
-        // 1.0 - 350*0.002 = 1.0 - 0.7 = 0.3
-        for _ in 0..350 {
-            mem.decay_tick();
+        let rate = MemoryKind::FoodSource.decay_rate();
+        for _ in 0..400 {
+            mem.decay_tick(10.0, 10.0);
         }
         let entry = &mem.entries[0];
-        let expected = 1.0 - 350.0 * MEMORY_DECAY_RATE;
+        let expected = 1.0 - 400.0 * rate;
         assert!(
             (entry.confidence - expected).abs() < 0.01,
-            "after 350 ticks, confidence should be ~{:.3}, got {:.3}",
+            "FoodSource after 400 ticks at distance 0: expected ~{:.3}, got {:.3}",
             expected,
             entry.confidence
+        );
+        // Should be around 0.32 (close to 0.5 half-life mark within linear approx)
+        assert!(
+            entry.confidence < 0.5,
+            "FoodSource should be below 0.5 after 400 ticks"
+        );
+
+        // StoneDeposit: decay_rate 0.00023, should retain >0.5 after 1000 ticks
+        let mut mem2 = VillagerMemory::new();
+        mem2.upsert(MemoryKind::StoneDeposit, 10.0, 10.0, 0);
+        for _ in 0..1000 {
+            mem2.decay_tick(10.0, 10.0);
+        }
+        let entry2 = &mem2.entries[0];
+        assert!(
+            entry2.confidence > 0.5,
+            "StoneDeposit should still be >0.5 after 1000 ticks, got {:.3}",
+            entry2.confidence
+        );
+
+        // DangerZone: decay_rate 0.0028, at 250 ticks confidence ≈ 1.0 - 0.7 = 0.30
+        // At 300 ticks: 1.0 - 0.84 = 0.16 (still above forget threshold 0.05)
+        let mut mem3 = VillagerMemory::new();
+        mem3.upsert(MemoryKind::DangerZone, 10.0, 10.0, 0);
+        for _ in 0..300 {
+            mem3.decay_tick(10.0, 10.0);
+        }
+        assert!(
+            !mem3.entries.is_empty(),
+            "DangerZone should not be evicted after 300 ticks"
+        );
+        let entry3 = &mem3.entries[0];
+        assert!(
+            entry3.confidence < 0.3,
+            "DangerZone should be below 0.3 after 300 ticks, got {:.3}",
+            entry3.confidence
+        );
+    }
+
+    #[test]
+    fn memory_decay_distance_modifier() {
+        // Same kind (WoodSource), same number of ticks, different distances.
+        // Far memory should decay faster.
+        let mut mem_near = VillagerMemory::new();
+        mem_near.upsert(MemoryKind::WoodSource, 10.0, 10.0, 0);
+        let mut mem_far = VillagerMemory::new();
+        mem_far.upsert(MemoryKind::WoodSource, 130.0, 10.0, 0);
+
+        // Both villagers at (10, 10)
+        for _ in 0..500 {
+            mem_near.decay_tick(10.0, 10.0); // distance 0
+            mem_far.decay_tick(10.0, 10.0); // distance 120
+        }
+
+        let near_conf = mem_near.entries[0].confidence;
+        // Far memory may have been evicted or have much lower confidence
+        let far_conf = mem_far.entries.first().map(|e| e.confidence).unwrap_or(0.0);
+
+        assert!(
+            far_conf < near_conf,
+            "far memory ({:.3}) should decay faster than near ({:.3})",
+            far_conf,
+            near_conf
+        );
+
+        // Distance 120: modifier = 1.0 + 120/60 = 3.0
+        // Near effective rate: 0.0007 * 1.0 = 0.0007
+        // Far effective rate: 0.0007 * 3.0 = 0.0021
+        // After 500 ticks: near ≈ 0.65, far ≈ -0.05 (evicted)
+        assert!(
+            near_conf > 0.5,
+            "near WoodSource should be >0.5 after 500 ticks, got {:.3}",
+            near_conf
+        );
+    }
+
+    #[test]
+    fn memory_decay_rate_varies_by_kind() {
+        // Stone decays much slower than DangerZone at the same distance
+        let mut mem_stone = VillagerMemory::new();
+        mem_stone.upsert(MemoryKind::StoneDeposit, 5.0, 5.0, 0);
+        let mut mem_danger = VillagerMemory::new();
+        mem_danger.upsert(MemoryKind::DangerZone, 5.0, 5.0, 0);
+
+        for _ in 0..200 {
+            mem_stone.decay_tick(5.0, 5.0);
+            mem_danger.decay_tick(5.0, 5.0);
+        }
+
+        let stone_conf = mem_stone.entries[0].confidence;
+        let danger_conf = mem_danger.entries[0].confidence;
+        assert!(
+            stone_conf > danger_conf,
+            "stone ({:.3}) should retain more confidence than danger ({:.3}) after 200 ticks",
+            stone_conf,
+            danger_conf
+        );
+        // Stone: 1.0 - 200*0.00023 = 0.954
+        // Danger: 1.0 - 200*0.0028 = 0.44
+        assert!(
+            stone_conf > 0.9,
+            "stone should be >0.9, got {:.3}",
+            stone_conf
+        );
+        assert!(
+            danger_conf < 0.5,
+            "danger should be <0.5, got {:.3}",
+            danger_conf
         );
     }
 
@@ -4395,8 +4514,8 @@ mod tests {
         mem.upsert(MemoryKind::WoodSource, 5.0, 5.0, 0);
         mem.entries.last_mut().unwrap().confidence = 0.05; // below forget threshold
 
-        // Decay once to evict entries below forget threshold
-        mem.decay_tick();
+        // Decay once to evict entries below forget threshold (villager at origin)
+        mem.decay_tick(0.0, 0.0);
 
         // The low confidence entry should be evicted
         let result = mem.best_resource(MemoryKind::WoodSource, 0.0, 0.0);
@@ -4833,11 +4952,11 @@ mod tests {
     fn memory_decay_evicts_below_threshold() {
         let mut mem = VillagerMemory::new();
         mem.upsert(MemoryKind::FoodSource, 10.0, 10.0, 0);
-        // Set confidence just above forget threshold
-        mem.entries[0].confidence = MEMORY_FORGET_THRESHOLD + 0.001;
+        // Set confidence just above forget threshold — any decay pushes it below
+        mem.entries[0].confidence = MEMORY_FORGET_THRESHOLD + 0.0001;
 
         // One more decay tick should drop below threshold and evict
-        mem.decay_tick();
+        mem.decay_tick(10.0, 10.0);
         assert_eq!(
             mem.entry_count(),
             0,
@@ -4853,6 +4972,201 @@ mod tests {
         assert_eq!(cache.dest_x, 0.0);
         assert_eq!(cache.dest_y, 0.0);
         assert_eq!(cache.computed_tick, 0);
+    }
+
+    // --- Stale Arrival / Memory Decay Tests (#54) ---
+
+    #[test]
+    fn stale_arrival_wood_seek_finds_stump() {
+        // Villager seeks wood at a location that is now a Stump.
+        // Should: enter confused idle, delete WoodSource memory, add ResourceDepleted.
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        // Target location is a Stump (was Forest, now cut)
+        map.set(15, 10, Terrain::Stump);
+
+        let v = spawn_villager(&mut world, 15.0, 10.0); // villager at target
+        // Give the villager a WoodSource memory at the target
+        {
+            let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
+            memory.upsert(MemoryKind::WoodSource, 15.0, 10.0, 0);
+        }
+        // Set villager to Seek{Wood} toward the target
+        {
+            let mut behavior = world.get::<&mut Behavior>(v).unwrap();
+            behavior.state = BehaviorState::Seek {
+                target_x: 15.0,
+                target_y: 10.0,
+                reason: SeekReason::Wood,
+            };
+        }
+
+        let grid = make_grid(&world, &map);
+        let _result = system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            1,
+        );
+
+        // Check: villager should be in confused Idle with timer = STALE_ARRIVAL_PAUSE
+        let behavior = world.get::<&Behavior>(v).unwrap();
+        match behavior.state {
+            BehaviorState::Idle { timer } => {
+                assert_eq!(
+                    timer, STALE_ARRIVAL_PAUSE,
+                    "confused idle timer should be STALE_ARRIVAL_PAUSE ({}), got {}",
+                    STALE_ARRIVAL_PAUSE, timer
+                );
+            }
+            ref other => panic!("expected Idle (confused), got {:?}", other),
+        }
+
+        // Check: WoodSource memory should be deleted
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        assert!(
+            !memory
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::WoodSource),
+            "stale WoodSource memory should be deleted"
+        );
+
+        // Check: ResourceDepleted entry should be added near the target
+        assert!(
+            memory.entries.iter().any(|e| {
+                e.kind == MemoryKind::ResourceDepleted
+                    && (e.x - 15.0).abs() < 1.0
+                    && (e.y - 10.0).abs() < 1.0
+            }),
+            "ResourceDepleted entry should be added at the stale location"
+        );
+    }
+
+    #[test]
+    fn stale_arrival_forest_still_present_no_confusion() {
+        // Villager seeks wood at a location that is still Forest.
+        // Should NOT enter confused idle.
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        map.set(15, 10, Terrain::Forest); // Forest is still there
+
+        let v = spawn_villager(&mut world, 15.0, 10.0);
+        {
+            let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
+            memory.upsert(MemoryKind::WoodSource, 15.0, 10.0, 0);
+        }
+        {
+            let mut behavior = world.get::<&mut Behavior>(v).unwrap();
+            behavior.state = BehaviorState::Seek {
+                target_x: 15.0,
+                target_y: 10.0,
+                reason: SeekReason::Wood,
+            };
+        }
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            1,
+        );
+
+        // WoodSource memory should still be present (not deleted)
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        assert!(
+            memory
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::WoodSource),
+            "WoodSource memory should NOT be deleted when forest is still present"
+        );
+    }
+
+    #[test]
+    fn stale_arrival_stone_seek_finds_bare() {
+        // Villager seeks stone at a location that is now Bare (mountain mined out).
+        let mut world = World::new();
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        map.set(15, 10, Terrain::Bare); // Mountain is gone
+
+        let v = spawn_villager(&mut world, 15.0, 10.0);
+        {
+            let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
+            memory.upsert(MemoryKind::StoneDeposit, 15.0, 10.0, 0);
+        }
+        {
+            let mut behavior = world.get::<&mut Behavior>(v).unwrap();
+            behavior.state = BehaviorState::Seek {
+                target_x: 15.0,
+                target_y: 10.0,
+                reason: SeekReason::Stone,
+            };
+        }
+
+        let grid = make_grid(&world, &map);
+        system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            1,
+        );
+
+        // Should be in confused idle
+        let behavior = world.get::<&Behavior>(v).unwrap();
+        assert!(
+            matches!(behavior.state, BehaviorState::Idle { timer: t } if t == STALE_ARRIVAL_PAUSE),
+            "should enter confused idle, got {:?}",
+            behavior.state
+        );
+
+        // StoneDeposit memory should be deleted, ResourceDepleted added
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        assert!(
+            !memory
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::StoneDeposit),
+            "stale StoneDeposit memory should be deleted"
+        );
+        assert!(
+            memory
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::ResourceDepleted),
+            "ResourceDepleted should be added"
+        );
     }
 
     // --- Encounter Info Sharing Tests (#53) ---

@@ -313,6 +313,21 @@ pub fn system_ai(
                     let _ = world.insert_one(e, path_cache);
                 }
 
+                // Stale arrival detection: villager was seeking a resource,
+                // arrived at target, but the terrain doesn't match expectations.
+                // Enter confused idle, delete stale memory, add ResourceDepleted.
+                let (s, vx, vy) = check_stale_arrival(
+                    behavior_state,
+                    &pos,
+                    s,
+                    vx,
+                    vy,
+                    map,
+                    world,
+                    e,
+                    current_tick,
+                );
+
                 // Villager just started eating near stockpile: grain → bread → food
                 if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
                     if remaining_grain > 0 {
@@ -1269,6 +1284,101 @@ pub fn system_wolf_raids(
     false
 }
 
+/// Check if a villager just arrived at a Seek target for a resource but found
+/// the terrain doesn't match (stale memory). If so, enter 8-tick "confused" idle,
+/// delete the bad memory, and add a ResourceDepleted entry.
+///
+/// Returns (possibly overridden state, vx, vy).
+fn check_stale_arrival(
+    old_state: BehaviorState,
+    pos: &Position,
+    new_state: BehaviorState,
+    vx: f64,
+    vy: f64,
+    map: &TileMap,
+    world: &mut World,
+    entity: Entity,
+    current_tick: u64,
+) -> (BehaviorState, f64, f64) {
+    // Only trigger when the old state was Seek for a resource
+    let (target_x, target_y, reason) = match old_state {
+        BehaviorState::Seek {
+            target_x,
+            target_y,
+            reason,
+        } if matches!(
+            reason,
+            SeekReason::Wood | SeekReason::Stone | SeekReason::Food
+        ) =>
+        {
+            (target_x, target_y, reason)
+        }
+        _ => return (new_state, vx, vy),
+    };
+
+    // Check arrival: villager must be close to the target
+    let dx = pos.x - target_x;
+    let dy = pos.y - target_y;
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist > 2.0 {
+        return (new_state, vx, vy);
+    }
+
+    // Check terrain at target location
+    let tx = target_x.round() as usize;
+    let ty = target_y.round() as usize;
+    let terrain = map.get(tx, ty);
+
+    let resource_present = match reason {
+        SeekReason::Wood => matches!(terrain, Some(Terrain::Forest)),
+        SeekReason::Stone => matches!(terrain, Some(Terrain::Mountain)),
+        // Food: checking terrain isn't reliable (food entities handled by grid),
+        // so don't override for food here — the AI re-evaluation handles it.
+        SeekReason::Food => true,
+        _ => true,
+    };
+
+    if resource_present {
+        return (new_state, vx, vy);
+    }
+
+    // Stale arrival detected! Modify memory: delete stale entry, add ResourceDepleted.
+    let memory_kind = match reason {
+        SeekReason::Wood => MemoryKind::WoodSource,
+        SeekReason::Stone => MemoryKind::StoneDeposit,
+        _ => return (new_state, vx, vy),
+    };
+
+    if let Ok(mut memory) = world.get::<&mut VillagerMemory>(entity) {
+        // Remove the stale memory entry near the target
+        memory.entries.retain(|e| {
+            if e.kind == memory_kind {
+                let edx = e.x - target_x;
+                let edy = e.y - target_y;
+                (edx * edx + edy * edy).sqrt() >= MEMORY_UPSERT_RADIUS
+            } else {
+                true
+            }
+        });
+        // Add a ResourceDepleted entry so others can learn via bulletin board
+        memory.upsert(
+            MemoryKind::ResourceDepleted,
+            target_x,
+            target_y,
+            current_tick,
+        );
+    }
+
+    // Enter confused idle for STALE_ARRIVAL_PAUSE ticks
+    (
+        BehaviorState::Idle {
+            timer: STALE_ARRIVAL_PAUSE,
+        },
+        0.0,
+        0.0,
+    )
+}
+
 /// Per-villager memory observation and decay system.
 /// Each tick, villagers observe their surroundings and record memories.
 /// Confidence on all entries decays, and stale entries are evicted.
@@ -1395,8 +1505,8 @@ pub fn system_update_memories(
             }
         }
 
-        // Decay all entries
-        memory.decay_tick();
+        // Decay all entries (per-kind rates + distance modifier)
+        memory.decay_tick(pos_x, pos_y);
     }
 }
 

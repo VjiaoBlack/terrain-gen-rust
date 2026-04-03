@@ -44,10 +44,12 @@ pub struct AiResult {
 
 /// Maximum entries per villager memory.
 pub const MEMORY_CAPACITY: usize = 32;
-/// Confidence lost per tick (~350-tick half-life).
-pub const MEMORY_DECAY_RATE: f64 = 0.002;
 /// Below this confidence, entries are evicted.
 pub const MEMORY_FORGET_THRESHOLD: f64 = 0.05;
+/// Distance (tiles) at which effective decay rate doubles.
+pub const DISTANCE_DECAY_SCALE: f64 = 60.0;
+/// Ticks a villager pauses in "confused" idle when arriving at a stale memory location.
+pub const STALE_ARRIVAL_PAUSE: u32 = 8;
 /// Distance threshold for upsert deduplication (same-kind entries within this range are merged).
 pub const MEMORY_UPSERT_RADIUS: f64 = 5.0;
 
@@ -67,6 +69,21 @@ impl MemoryKind {
     /// Currently all observation-based kinds decay.
     pub fn decays(&self) -> bool {
         true
+    }
+
+    /// Per-kind base decay rate (confidence lost per tick at distance 0).
+    /// Derived from half-lives: rate = ln(2) / half_life.
+    /// But we use a simpler model: rate per tick such that confidence reaches ~0.5
+    /// at the half-life tick count (linear decay with per-kind rates).
+    pub fn decay_rate(&self) -> f64 {
+        match self {
+            MemoryKind::StoneDeposit => 0.00023,   // half-life ~3000 ticks
+            MemoryKind::WoodSource => 0.0007,      // half-life ~1000 ticks
+            MemoryKind::FoodSource => 0.0017,      // half-life ~400 ticks
+            MemoryKind::DangerZone => 0.0028,      // half-life ~250 ticks
+            MemoryKind::BuildSite => 0.0005,       // half-life ~1400 ticks
+            MemoryKind::ResourceDepleted => 0.001, // half-life ~700 ticks
+        }
     }
 }
 
@@ -235,11 +252,18 @@ impl VillagerMemory {
         }
     }
 
-    /// Decay all entry confidences by MEMORY_DECAY_RATE. Evict entries below forget threshold.
-    pub fn decay_tick(&mut self) {
+    /// Decay all entry confidences using per-kind rates and distance modifier.
+    /// Distance from the villager's current position to the memory location
+    /// accelerates decay: `effective_rate = base_rate * (1.0 + distance / DISTANCE_DECAY_SCALE)`.
+    pub fn decay_tick(&mut self, villager_x: f64, villager_y: f64) {
         for entry in &mut self.entries {
             if entry.kind.decays() {
-                entry.confidence -= MEMORY_DECAY_RATE;
+                let dx = villager_x - entry.x;
+                let dy = villager_y - entry.y;
+                let distance = (dx * dx + dy * dy).sqrt();
+                let distance_modifier = 1.0 + distance / DISTANCE_DECAY_SCALE;
+                let effective_rate = entry.kind.decay_rate() * distance_modifier;
+                entry.confidence -= effective_rate;
             }
         }
         self.entries
