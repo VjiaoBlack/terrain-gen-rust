@@ -162,10 +162,20 @@ impl RenderMode {
     /// Short status bar label.
     pub fn label(self) -> &'static str {
         match self {
-            RenderMode::Normal => "-",
-            RenderMode::Map => "M",
-            RenderMode::Landscape => "L",
-            RenderMode::Debug => "D",
+            RenderMode::Normal => "Normal",
+            RenderMode::Map => "Map",
+            RenderMode::Landscape => "Landscape",
+            RenderMode::Debug => "Debug",
+        }
+    }
+
+    /// Descriptive subtitle shown in notifications when the view changes.
+    pub fn description(self) -> &'static str {
+        match self {
+            RenderMode::Normal => "atmospheric, full lighting",
+            RenderMode::Map => "symbolic, no lighting",
+            RenderMode::Landscape => "painterly",
+            RenderMode::Debug => "raw data",
         }
     }
 }
@@ -1620,6 +1630,11 @@ impl Game {
             GameInput::ToggleDebugView => {
                 self.render_mode = self.render_mode.next();
                 self.dirty.mark_all();
+                self.notify(format!(
+                    "View: {} ({})",
+                    self.render_mode.label(),
+                    self.render_mode.description()
+                ));
             }
             GameInput::TogglePause => self.paused = !self.paused,
             GameInput::ToggleQueryMode => {

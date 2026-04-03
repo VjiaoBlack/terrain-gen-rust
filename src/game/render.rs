@@ -931,6 +931,9 @@ impl super::Game {
             }
         } // end Territory overlay
 
+        // Building center glyphs: show building-type icon on center tile
+        self.draw_building_center_overlays(renderer, true);
+
         // draw entities (offset by camera) — world→screen X is multiplied by aspect
         // Skip AtHome (hidden in den for prey), use entity_visual() for state-based rendering.
         for (e, (pos, sprite)) in self
@@ -1281,6 +1284,10 @@ impl super::Game {
             }
         }
 
+        // Building center glyphs: show building-type icon on center tile
+        // Landscape mode has no day/night lighting applied to terrain, so skip lighting.
+        self.draw_building_center_overlays(renderer, false);
+
         // --- Entity pass: saturated colors pop against muted terrain ---
         for (e, (pos, sprite)) in self
             .world
@@ -1610,6 +1617,98 @@ impl super::Game {
                 color,
                 Some(Terrain::BuildingFloor.map_bg()),
             );
+        }
+    }
+
+    /// Draw building center glyphs for Normal and Landscape modes.
+    /// Overlays the building-type glyph on the center tile of each completed
+    /// building so the player can identify building types at a glance.
+    fn draw_building_center_overlays(&self, renderer: &mut dyn Renderer, apply_lighting: bool) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH;
+
+        // Helper closure to draw one building center glyph
+        let mut draw_center = |pos: &Position, bt: &BuildingType| {
+            let (bw, bh) = bt.size();
+            let cx = pos.x.round() as i32 + bw / 2;
+            let cy = pos.y.round() as i32 + bh / 2;
+            if !self.exploration.is_revealed(cx as usize, cy as usize) {
+                return;
+            }
+            let sx_i = (cx - self.camera.x) * aspect + panel_w as i32;
+            let sy_i = cy - self.camera.y;
+            if sx_i >= panel_w as i32
+                && sy_i >= 0
+                && (sx_i as u16) < w
+                && (sy_i as u16) < h.saturating_sub(status_h)
+            {
+                let (glyph, mut color) = map_building_center_glyph(bt);
+                // Brighten the glyph color for visibility in Normal/Landscape modes
+                color = Color(
+                    (color.0 as u16 + 40).min(255) as u8,
+                    (color.1 as u16 + 40).min(255) as u8,
+                    (color.2 as u16 + 40).min(255) as u8,
+                );
+                if apply_lighting {
+                    color = self
+                        .day_night
+                        .apply_lighting(color, cx as usize, cy as usize);
+                }
+                // Use the building floor bg for contrast
+                let bg = if apply_lighting {
+                    self.day_night.apply_lighting_bg(
+                        Terrain::BuildingFloor.bg(),
+                        cx as usize,
+                        cy as usize,
+                    )
+                } else {
+                    Some(Terrain::BuildingFloor.bg().unwrap_or(Color(100, 80, 60)))
+                };
+                renderer.draw(sx_i as u16, sy_i as u16, glyph, color, bg);
+            }
+        };
+
+        for (pos, _) in self.world.query::<(&Position, &Stockpile)>().iter() {
+            draw_center(pos, &BuildingType::Stockpile);
+        }
+        for (pos, _) in self.world.query::<(&Position, &ecs::HutBuilding)>().iter() {
+            draw_center(pos, &BuildingType::Hut);
+        }
+        for (pos, _) in self
+            .world
+            .query::<(&Position, &ecs::GarrisonBuilding)>()
+            .iter()
+        {
+            draw_center(pos, &BuildingType::Garrison);
+        }
+        for (pos, _) in self
+            .world
+            .query::<(&Position, &ecs::TownHallBuilding)>()
+            .iter()
+        {
+            draw_center(pos, &BuildingType::TownHall);
+        }
+        for (pos, _) in self
+            .world
+            .query::<(&Position, &ecs::ShelterBuilding)>()
+            .iter()
+        {
+            draw_center(pos, &BuildingType::Shelter);
+        }
+        for (pos, proc_bld) in self
+            .world
+            .query::<(&Position, &ecs::ProcessingBuilding)>()
+            .iter()
+        {
+            let bt = match proc_bld.recipe {
+                ecs::Recipe::WoodToPlanks => BuildingType::Workshop,
+                ecs::Recipe::StoneToMasonry => BuildingType::Smithy,
+                ecs::Recipe::FoodToGrain => BuildingType::Granary,
+                ecs::Recipe::GrainToBread => BuildingType::Bakery,
+            };
+            draw_center(pos, &bt);
         }
     }
 
@@ -2146,7 +2245,7 @@ impl super::Game {
         };
         let pause_str = if self.paused { " PAUSED " } else { "" };
         let status = format!(
-            " tick:{}  {}{}  rain:[r]{} erosion:[e]{} time:[t]{} view:[v]{} drain:[d]",
+            " tick:{}  {}{}  rain:[r]{} erosion:[e]{} time:[t]{} view:[v]{} drain:[d] [k]query [b]uild",
             self.tick,
             fps_str,
             pause_str,
@@ -3451,10 +3550,10 @@ mod tests {
     #[test]
     fn render_mode_labels() {
         use super::super::RenderMode;
-        assert_eq!(RenderMode::Normal.label(), "-");
-        assert_eq!(RenderMode::Map.label(), "M");
-        assert_eq!(RenderMode::Landscape.label(), "L");
-        assert_eq!(RenderMode::Debug.label(), "D");
+        assert_eq!(RenderMode::Normal.label(), "Normal");
+        assert_eq!(RenderMode::Map.label(), "Map");
+        assert_eq!(RenderMode::Landscape.label(), "Landscape");
+        assert_eq!(RenderMode::Debug.label(), "Debug");
     }
 
     // --- Landscape Mode tests ---
