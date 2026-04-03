@@ -4042,4 +4042,321 @@ mod tests {
             "deserialized world should contain villager with memory"
         );
     }
+
+    // --- Bulletin Board Tests ---
+
+    #[test]
+    fn bulletin_board_write_dedup() {
+        // Posting the same sighting twice doesn't create duplicates
+        let mut board = BulletinBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        board.write_from_memory(&mem, 100);
+        assert_eq!(board.posts.len(), 1);
+        // Write again — should not duplicate
+        board.write_from_memory(&mem, 200);
+        assert_eq!(board.posts.len(), 1);
+    }
+
+    #[test]
+    fn bulletin_board_depleted_cancels_sighting() {
+        // A ResourceDepleted post removes matching resource sighting
+        let mut board = BulletinBoard::default();
+        let mut mem1 = VillagerMemory::new();
+        mem1.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        board.write_from_memory(&mem1, 100);
+        assert_eq!(board.posts.len(), 1);
+        assert_eq!(board.posts[0].kind, MemoryKind::WoodSource);
+
+        // Another villager posts ResourceDepleted at same location
+        let mut mem2 = VillagerMemory::new();
+        mem2.upsert(MemoryKind::ResourceDepleted, 10.0, 20.0, 200);
+        board.write_from_memory(&mem2, 200);
+
+        // WoodSource should be removed, ResourceDepleted posted
+        assert!(!board.posts.iter().any(|p| p.kind == MemoryKind::WoodSource));
+        assert!(
+            board
+                .posts
+                .iter()
+                .any(|p| p.kind == MemoryKind::ResourceDepleted)
+        );
+    }
+
+    #[test]
+    fn bulletin_board_prune_stale() {
+        let mut board = BulletinBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        board.write_from_memory(&mem, 100);
+        assert_eq!(board.posts.len(), 1);
+
+        // Write again at a tick far in the future to trigger pruning
+        let mut mem2 = VillagerMemory::new();
+        mem2.upsert(MemoryKind::StoneDeposit, 50.0, 50.0, 6000);
+        board.write_from_memory(&mem2, 6000);
+
+        // The old WoodSource post (tick 100) should be pruned (6000 - 100 >= 5000)
+        assert!(!board.posts.iter().any(|p| p.kind == MemoryKind::WoodSource));
+        assert!(
+            board
+                .posts
+                .iter()
+                .any(|p| p.kind == MemoryKind::StoneDeposit)
+        );
+    }
+
+    #[test]
+    fn bulletin_board_capacity_enforced() {
+        let mut board = BulletinBoard::default();
+        // Add more than BULLETIN_BOARD_CAPACITY posts
+        for i in 0..60 {
+            board.posts.push(BulletinPost {
+                kind: MemoryKind::WoodSource,
+                x: i as f64,
+                y: 0.0,
+                tick_posted: i as u64,
+                confidence: 1.0,
+            });
+        }
+        // Trigger prune via write
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::StoneDeposit, 100.0, 100.0, 100);
+        board.write_from_memory(&mem, 100);
+
+        assert!(board.posts.len() <= BULLETIN_BOARD_CAPACITY);
+    }
+
+    #[test]
+    fn bulletin_board_read_into_memory() {
+        // Reading a board with posts adds entries to empty memory
+        let mut board = BulletinBoard::default();
+        board.posts.push(BulletinPost {
+            kind: MemoryKind::WoodSource,
+            x: 10.0,
+            y: 20.0,
+            tick_posted: 100,
+            confidence: 0.9,
+        });
+        board.posts.push(BulletinPost {
+            kind: MemoryKind::StoneDeposit,
+            x: 30.0,
+            y: 40.0,
+            tick_posted: 100,
+            confidence: 0.8,
+        });
+        board.posts.push(BulletinPost {
+            kind: MemoryKind::FoodSource,
+            x: 50.0,
+            y: 60.0,
+            tick_posted: 100,
+            confidence: 0.7,
+        });
+
+        let mut mem = VillagerMemory::new();
+        board.read_into_memory(&mut mem, 200);
+
+        assert_eq!(mem.entries.len(), 3);
+        // Confidence should be reduced by secondhand factor
+        let wood_entry = mem
+            .entries
+            .iter()
+            .find(|e| e.kind == MemoryKind::WoodSource)
+            .unwrap();
+        assert!(
+            (wood_entry.confidence - 0.9 * BULLETIN_SECONDHAND_FACTOR).abs() < 0.001,
+            "secondhand confidence should be original * 0.8"
+        );
+    }
+
+    #[test]
+    fn bulletin_board_only_posts_high_confidence() {
+        // Only entries with confidence > BULLETIN_POST_MIN_CONFIDENCE get posted
+        let mut board = BulletinBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        // Decay the entry's confidence below threshold
+        mem.entries[0].confidence = 0.3;
+
+        board.write_from_memory(&mem, 100);
+        assert_eq!(
+            board.posts.len(),
+            0,
+            "low-confidence entry should not be posted"
+        );
+    }
+
+    #[test]
+    fn bulletin_board_read_skips_already_known() {
+        // Villager who already knows about a location doesn't duplicate it
+        let mut board = BulletinBoard::default();
+        board.posts.push(BulletinPost {
+            kind: MemoryKind::WoodSource,
+            x: 10.0,
+            y: 20.0,
+            tick_posted: 100,
+            confidence: 0.9,
+        });
+
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 50); // already knows
+
+        board.read_into_memory(&mut mem, 200);
+        assert_eq!(mem.entries.len(), 1, "should not duplicate known entry");
+    }
+
+    #[test]
+    fn bulletin_board_depleted_clears_personal_memory() {
+        // ResourceDepleted on board removes matching resource from villager's memory
+        let mut board = BulletinBoard::default();
+        board.posts.push(BulletinPost {
+            kind: MemoryKind::ResourceDepleted,
+            x: 10.0,
+            y: 20.0,
+            tick_posted: 200,
+            confidence: 1.0,
+        });
+
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        assert_eq!(mem.entries.len(), 1);
+
+        board.read_into_memory(&mut mem, 300);
+        assert_eq!(
+            mem.entries.len(),
+            0,
+            "ResourceDepleted on board should clear matching resource from memory"
+        );
+    }
+
+    #[test]
+    fn bulletin_board_write_read_integration() {
+        // End-to-end: villager A writes, villager B reads, B gets knowledge
+        let mut board = BulletinBoard::default();
+
+        // Villager A has firsthand knowledge
+        let mut mem_a = VillagerMemory::new();
+        mem_a.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        mem_a.upsert(MemoryKind::StoneDeposit, 30.0, 40.0, 100);
+        mem_a.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+
+        // A writes to board
+        board.write_from_memory(&mem_a, 100);
+        assert_eq!(board.posts.len(), 3);
+
+        // Villager B reads from board
+        let mut mem_b = VillagerMemory::new();
+        board.read_into_memory(&mut mem_b, 200);
+
+        assert_eq!(mem_b.entries.len(), 3);
+        // B's entries should be secondhand (reduced confidence)
+        for entry in &mem_b.entries {
+            assert!(
+                entry.confidence < 1.0,
+                "secondhand entries should have reduced confidence"
+            );
+        }
+    }
+
+    #[test]
+    fn bulletin_board_attached_to_stockpile() {
+        let mut world = World::new();
+        let stockpile = spawn_stockpile(&mut world, 10.0, 10.0);
+        assert!(
+            world.get::<&BulletinBoard>(stockpile).is_ok(),
+            "stockpile should have BulletinBoard component"
+        );
+    }
+
+    #[test]
+    fn bulletin_board_serialization_round_trip() {
+        let mut world = World::new();
+        let stockpile = spawn_stockpile(&mut world, 10.0, 10.0);
+
+        // Add some posts to the board
+        {
+            let mut board = world.get::<&mut BulletinBoard>(stockpile).unwrap();
+            board.posts.push(BulletinPost {
+                kind: MemoryKind::WoodSource,
+                x: 20.0,
+                y: 30.0,
+                tick_posted: 42,
+                confidence: 0.9,
+            });
+        }
+
+        let serialized = serialize_world(&world);
+        let world2 = deserialize_world(&serialized);
+
+        let mut found = false;
+        for (_, board) in world2.query::<(&Stockpile, &BulletinBoard)>().iter() {
+            assert_eq!(board.posts.len(), 1);
+            assert_eq!(board.posts[0].kind, MemoryKind::WoodSource);
+            assert!((board.posts[0].confidence - 0.9).abs() < 0.001);
+            found = true;
+        }
+        assert!(
+            found,
+            "deserialized world should contain stockpile with board"
+        );
+    }
+
+    #[test]
+    fn bulletin_board_deposit_triggers_write_read() {
+        // Integration: villager hauling → deposit triggers board write + read
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        let stockpile = spawn_stockpile(&mut world, 5.0, 5.0);
+
+        // Give villager a firsthand memory of wood at (20, 20)
+        {
+            let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
+            memory.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+
+        // Put villager in Hauling state targeting the stockpile
+        {
+            let mut b = world.get::<&mut Behavior>(v).unwrap();
+            b.state = BehaviorState::Hauling {
+                target_x: 5.0,
+                target_y: 5.0,
+                resource_type: ResourceType::Wood,
+            };
+        }
+        // Give villager a carried resource
+        let _ = world.insert_one(
+            v,
+            CarriedResource {
+                resource_type: ResourceType::Wood,
+                amount: 1,
+            },
+        );
+
+        let grid = make_grid(&world, &map);
+        let _result = system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            200,
+        );
+
+        // The board should now have the wood sighting
+        let board = world.get::<&BulletinBoard>(stockpile).unwrap();
+        assert!(
+            board.posts.iter().any(|p| p.kind == MemoryKind::WoodSource),
+            "board should contain wood sighting after villager deposit"
+        );
+    }
 }

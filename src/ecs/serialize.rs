@@ -49,6 +49,8 @@ pub enum SerializedEntity {
     StockpileEntity {
         pos: Position,
         sprite: Sprite,
+        #[serde(default)]
+        board: Option<BulletinBoard>,
     },
     BuildSiteEntity {
         pos: Position,
@@ -151,10 +153,14 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
             sprite: *sprite,
         });
     }
-    for (pos, sprite, _) in world.query::<(&Position, &Sprite, &Stockpile)>().iter() {
+    for (pos, sprite, _, board) in world
+        .query::<(&Position, &Sprite, &Stockpile, Option<&BulletinBoard>)>()
+        .iter()
+    {
         entities.push(SerializedEntity::StockpileEntity {
             pos: *pos,
             sprite: *sprite,
+            board: board.cloned(),
         });
     }
     for (pos, sprite, site) in world.query::<(&Position, &Sprite, &BuildSite)>().iter() {
@@ -289,8 +295,9 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
             SerializedEntity::Den { pos, sprite } => {
                 world.spawn((*pos, *sprite, Den));
             }
-            SerializedEntity::StockpileEntity { pos, sprite } => {
-                world.spawn((*pos, *sprite, Stockpile));
+            SerializedEntity::StockpileEntity { pos, sprite, board } => {
+                let bb = board.clone().unwrap_or_default();
+                world.spawn((*pos, *sprite, Stockpile, bb));
             }
             SerializedEntity::BuildSiteEntity { pos, sprite, site } => {
                 world.spawn((*pos, *sprite, *site));

@@ -59,6 +59,7 @@ pub enum MemoryKind {
     StoneDeposit,
     DangerZone,
     BuildSite,
+    ResourceDepleted,
 }
 
 impl MemoryKind {
@@ -206,6 +207,151 @@ impl VillagerMemory {
     /// Number of entries (for testing/debug).
     pub fn entry_count(&self) -> usize {
         self.entries.len()
+    }
+}
+
+// --- Bulletin Board ---
+
+/// Maximum posts per bulletin board.
+pub const BULLETIN_BOARD_CAPACITY: usize = 50;
+/// Posts older than this many ticks are pruned.
+pub const BULLETIN_BOARD_STALE_TICKS: u64 = 5000;
+/// Confidence multiplier for secondhand knowledge learned from the board.
+pub const BULLETIN_SECONDHAND_FACTOR: f64 = 0.8;
+/// Minimum confidence for a memory entry to be posted to the board.
+pub const BULLETIN_POST_MIN_CONFIDENCE: f64 = 0.5;
+
+/// A single report posted to a stockpile's bulletin board.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulletinPost {
+    pub kind: MemoryKind,
+    pub x: f64,
+    pub y: f64,
+    pub tick_posted: u64,
+    pub confidence: f64,
+}
+
+/// The bulletin board attached to a stockpile entity.
+/// Villagers write firsthand observations when depositing resources,
+/// and read posts into personal memory (as secondhand) when idle at the stockpile.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BulletinBoard {
+    pub posts: Vec<BulletinPost>,
+}
+
+impl BulletinBoard {
+    /// Check if a post of the given kind already exists near (x, y).
+    pub fn has_post_near(&self, kind: MemoryKind, x: f64, y: f64) -> bool {
+        self.posts.iter().any(|p| {
+            p.kind == kind && {
+                let dx = p.x - x;
+                let dy = p.y - y;
+                (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+            }
+        })
+    }
+
+    /// Write a villager's firsthand memories to the board.
+    /// Only posts entries with confidence > BULLETIN_POST_MIN_CONFIDENCE.
+    /// ResourceDepleted posts cancel stale ResourceSighting posts at the same location.
+    pub fn write_from_memory(&mut self, memory: &VillagerMemory, current_tick: u64) {
+        for entry in &memory.entries {
+            // Only post firsthand-quality observations (high confidence)
+            if entry.confidence < BULLETIN_POST_MIN_CONFIDENCE {
+                continue;
+            }
+            // ResourceDepleted: cancel matching resource sightings on the board
+            if entry.kind == MemoryKind::ResourceDepleted {
+                let ex = entry.x;
+                let ey = entry.y;
+                self.posts.retain(|p| {
+                    if matches!(
+                        p.kind,
+                        MemoryKind::WoodSource | MemoryKind::StoneDeposit | MemoryKind::FoodSource
+                    ) {
+                        let dx = p.x - ex;
+                        let dy = p.y - ey;
+                        (dx * dx + dy * dy).sqrt() >= MEMORY_UPSERT_RADIUS
+                    } else {
+                        true
+                    }
+                });
+            }
+            // Don't double-post if already on the board
+            if self.has_post_near(entry.kind, entry.x, entry.y) {
+                continue;
+            }
+            self.posts.push(BulletinPost {
+                kind: entry.kind,
+                x: entry.x,
+                y: entry.y,
+                tick_posted: current_tick,
+                confidence: entry.confidence,
+            });
+        }
+        self.prune(current_tick);
+    }
+
+    /// Read board posts into a villager's personal memory as secondhand knowledge.
+    /// Confidence is reduced by BULLETIN_SECONDHAND_FACTOR.
+    pub fn read_into_memory(&self, memory: &mut VillagerMemory, current_tick: u64) {
+        for post in &self.posts {
+            // ResourceDepleted: remove contradicted entries from personal memory
+            if post.kind == MemoryKind::ResourceDepleted {
+                let px = post.x;
+                let py = post.y;
+                memory.entries.retain(|e| {
+                    if matches!(
+                        e.kind,
+                        MemoryKind::WoodSource | MemoryKind::StoneDeposit | MemoryKind::FoodSource
+                    ) {
+                        let dx = e.x - px;
+                        let dy = e.y - py;
+                        (dx * dx + dy * dy).sqrt() >= MEMORY_UPSERT_RADIUS
+                    } else {
+                        true
+                    }
+                });
+                continue; // Don't add ResourceDepleted to personal memory
+            }
+            // Skip if villager already knows about this location
+            let already_known = memory.entries.iter().any(|e| {
+                e.kind == post.kind && {
+                    let dx = e.x - post.x;
+                    let dy = e.y - post.y;
+                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                }
+            });
+            if already_known {
+                continue;
+            }
+            // Learn as secondhand (reduced confidence)
+            let secondhand_confidence = post.confidence * BULLETIN_SECONDHAND_FACTOR;
+            memory.upsert(post.kind, post.x, post.y, current_tick);
+            // Adjust confidence down for the entry we just inserted
+            if let Some(entry) = memory.entries.iter_mut().rev().find(|e| {
+                e.kind == post.kind && {
+                    let dx = e.x - post.x;
+                    let dy = e.y - post.y;
+                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                }
+            }) {
+                entry.confidence = secondhand_confidence;
+            }
+        }
+    }
+
+    /// Remove stale posts and enforce capacity limit.
+    fn prune(&mut self, current_tick: u64) {
+        // Remove posts older than the stale threshold
+        self.posts
+            .retain(|p| current_tick.saturating_sub(p.tick_posted) < BULLETIN_BOARD_STALE_TICKS);
+        // Enforce capacity: keep most recent posts
+        if self.posts.len() > BULLETIN_BOARD_CAPACITY {
+            // Sort by tick_posted descending, keep newest
+            self.posts.sort_by(|a, b| b.tick_posted.cmp(&a.tick_posted));
+            self.posts.truncate(BULLETIN_BOARD_CAPACITY);
+        }
     }
 }
 

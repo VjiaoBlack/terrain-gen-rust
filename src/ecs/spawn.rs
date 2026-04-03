@@ -185,6 +185,7 @@ pub fn spawn_stockpile(world: &mut World, x: f64, y: f64) -> Entity {
             fg: Color(180, 140, 60),
         }, // wooden stockpile
         Stockpile,
+        BulletinBoard::default(),
     ))
 }
 

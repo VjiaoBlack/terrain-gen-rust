@@ -152,6 +152,13 @@ pub fn system_ai(
         .map(|(e, pos, site)| (e, pos.x, pos.y, site.assigned))
         .collect();
 
+    // Stockpile entities for bulletin board read/write on deposit
+    let stockpile_entities: Vec<(Entity, f64, f64)> = world
+        .query::<(Entity, &Position, &Stockpile)>()
+        .iter()
+        .map(|(e, pos, _)| (e, pos.x, pos.y))
+        .collect();
+
     // Phase 0 (local awareness): compute StockpileFullness from global resource counts.
     // This is the data-path change — villager AI reads fullness tiers instead of raw u32.
     // For now the raw counts are still passed through; Phase 2 will remove them.
@@ -354,6 +361,37 @@ pub fn system_ai(
                 };
                 if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
                     memory.believed_stockpile = Some(believed);
+                }
+
+                // Bulletin board: find the nearest stockpile entity and write/read
+                let nearest_stockpile_entity = stockpile_entities
+                    .iter()
+                    .filter_map(|&(se, sx, sy)| {
+                        let dx = pos.x - sx;
+                        let dy = pos.y - sy;
+                        let d = (dx * dx + dy * dy).sqrt();
+                        if d < 3.0 { Some((se, d)) } else { None }
+                    })
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(se, _)| se);
+
+                if let Some(stockpile_e) = nearest_stockpile_entity {
+                    // Write villager's firsthand memories to the board
+                    if let Ok(memory) = world.get::<&VillagerMemory>(e) {
+                        let mem_snapshot = memory.clone();
+                        drop(memory);
+                        if let Ok(mut board) = world.get::<&mut BulletinBoard>(stockpile_e) {
+                            board.write_from_memory(&mem_snapshot, current_tick);
+                        }
+                    }
+                    // Read board posts into villager's personal memory
+                    if let Ok(board) = world.get::<&BulletinBoard>(stockpile_e) {
+                        let board_snapshot = board.clone();
+                        drop(board);
+                        if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
+                            board_snapshot.read_into_memory(&mut memory, current_tick);
+                        }
+                    }
                 }
             }
         }
