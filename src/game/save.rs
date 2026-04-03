@@ -109,6 +109,8 @@ impl Game {
             dirty: super::dirty::DirtyMap::new(map_w, map_h),
             prev_camera_x: i32::MIN,
             prev_camera_y: i32::MIN,
+            flow_fields: crate::pathfinding::FlowFieldRegistry::new(),
+            terrain_dirty_tick: 0,
             nav_graph: crate::pathfinding::NavGraph::default(), // rebuilt below
             threat_map: crate::simulation::ThreatMap::new(map_w, map_h),
             threat_score: 0.0,

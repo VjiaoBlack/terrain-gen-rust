@@ -123,6 +123,7 @@ pub(super) fn move_toward_cached(
     map: &TileMap,
     cache: &mut PathCache,
     current_tick: u64,
+    flow_fields: &crate::pathfinding::FlowFieldRegistry,
 ) -> f64 {
     let d = dist(pos.x, pos.y, tx, ty);
     if d < 0.5 {
@@ -132,6 +133,27 @@ pub(super) fn move_toward_cached(
     // Short distance: direct A* (no caching overhead)
     if d <= 3.0 {
         return move_toward_astar(pos, tx, ty, speed, vel, map);
+    }
+
+    // Try flow field: shared precomputed direction field for high-traffic destinations
+    let dest_key = (tx.round() as usize, ty.round() as usize);
+    if let Some(ff) = flow_fields.get(dest_key.0, dest_key.1) {
+        let px = pos.x.round() as usize;
+        let py = pos.y.round() as usize;
+        if ff.covers(px, py)
+            && !ff.is_stale(
+                current_tick,
+                crate::pathfinding::flow_field::DEFAULT_MAX_AGE,
+            )
+        {
+            let (dx, dy) = ff.direction_at(px, py);
+            if dx != 0 || dy != 0 {
+                let mag = ((dx as f64).powi(2) + (dy as f64).powi(2)).sqrt();
+                vel.dx = (dx as f64 / mag) * speed;
+                vel.dy = (dy as f64 / mag) * speed;
+                return d;
+            }
+        }
     }
 
     // Check if cache is valid
@@ -206,9 +228,20 @@ pub(super) fn move_toward_cached_with_danger(
     cache: &mut PathCache,
     current_tick: u64,
     danger_overlay: &[f64],
+    flow_fields: &crate::pathfinding::FlowFieldRegistry,
 ) -> f64 {
     if danger_overlay.is_empty() {
-        move_toward_cached(pos, tx, ty, speed, vel, map, cache, current_tick)
+        move_toward_cached(
+            pos,
+            tx,
+            ty,
+            speed,
+            vel,
+            map,
+            cache,
+            current_tick,
+            flow_fields,
+        )
     } else {
         move_toward_cached_with_overlay(
             pos,
@@ -220,6 +253,7 @@ pub(super) fn move_toward_cached_with_danger(
             cache,
             current_tick,
             danger_overlay,
+            flow_fields,
         )
     }
 }
@@ -236,6 +270,7 @@ pub(super) fn move_toward_cached_with_overlay(
     cache: &mut PathCache,
     current_tick: u64,
     cost_overlay: &[f64],
+    flow_fields: &crate::pathfinding::FlowFieldRegistry,
 ) -> f64 {
     let d = dist(pos.x, pos.y, tx, ty);
     if d < 0.5 {
@@ -245,6 +280,28 @@ pub(super) fn move_toward_cached_with_overlay(
     // Short distance: direct A* without overlay (negligible benefit)
     if d <= 3.0 {
         return move_toward_astar(pos, tx, ty, speed, vel, map);
+    }
+
+    // Try flow field (flow fields don't account for danger overlay, but
+    // the direction is terrain-optimal and still useful as a first check)
+    let dest_key = (tx.round() as usize, ty.round() as usize);
+    if let Some(ff) = flow_fields.get(dest_key.0, dest_key.1) {
+        let px = pos.x.round() as usize;
+        let py = pos.y.round() as usize;
+        if ff.covers(px, py)
+            && !ff.is_stale(
+                current_tick,
+                crate::pathfinding::flow_field::DEFAULT_MAX_AGE,
+            )
+        {
+            let (dx, dy) = ff.direction_at(px, py);
+            if dx != 0 || dy != 0 {
+                let mag = ((dx as f64).powi(2) + (dy as f64).powi(2)).sqrt();
+                vel.dx = (dx as f64 / mag) * speed;
+                vel.dy = (dy as f64 / mag) * speed;
+                return d;
+            }
+        }
     }
 
     // Check if cache is valid
@@ -725,6 +782,7 @@ pub(super) fn ai_villager(
     danger_scent: &crate::simulation::ScentMap,
     home_scent: &crate::simulation::ScentMap,
     danger_zones: &[(f64, f64, f64)],
+    flow_fields: &crate::pathfinding::FlowFieldRegistry,
 ) -> (
     BehaviorState,
     f64,
@@ -805,6 +863,7 @@ pub(super) fn ai_villager(
                 cache,
                 current_tick,
                 &danger_overlay,
+                flow_fields,
             );
             if d < 1.5 {
                 (
@@ -859,6 +918,7 @@ pub(super) fn ai_villager(
                     cache,
                     current_tick,
                     &danger_overlay,
+                    flow_fields,
                 );
                 (
                     BehaviorState::Hauling {
@@ -902,6 +962,7 @@ pub(super) fn ai_villager(
                 cache,
                 current_tick,
                 &danger_overlay,
+                flow_fields,
             );
             if d < 1.5 {
                 // Deposited resource at stockpile — short idle then re-evaluate
@@ -1052,6 +1113,7 @@ pub(super) fn ai_villager(
                     cache,
                     current_tick,
                     &danger_overlay,
+                    flow_fields,
                 );
                 (
                     BehaviorState::Farming {
@@ -1130,6 +1192,7 @@ pub(super) fn ai_villager(
                     cache,
                     current_tick,
                     &danger_overlay,
+                    flow_fields,
                 );
                 (
                     BehaviorState::Working {
@@ -1202,6 +1265,7 @@ pub(super) fn ai_villager(
                         cache,
                         current_tick,
                         &danger_overlay,
+                        flow_fields,
                     );
                     return (
                         BehaviorState::Seek {
@@ -1230,6 +1294,7 @@ pub(super) fn ai_villager(
                         cache,
                         current_tick,
                         &danger_overlay,
+                        flow_fields,
                     );
                     return (
                         BehaviorState::Seek {
@@ -1268,6 +1333,7 @@ pub(super) fn ai_villager(
                 cache,
                 current_tick,
                 &danger_overlay,
+                flow_fields,
             );
             (
                 BehaviorState::Exploring {
@@ -1319,6 +1385,7 @@ pub(super) fn ai_villager(
                                         cache,
                                         current_tick,
                                         &danger_overlay,
+                                        flow_fields,
                                     );
                                     return (
                                         BehaviorState::Seek {
@@ -1369,6 +1436,7 @@ pub(super) fn ai_villager(
                             cache,
                             current_tick,
                             &danger_overlay,
+                            flow_fields,
                         );
                         return (
                             BehaviorState::Seek {
@@ -1437,6 +1505,7 @@ pub(super) fn ai_villager(
                             cache,
                             current_tick,
                             &danger_overlay,
+                            flow_fields,
                         );
                         return (
                             BehaviorState::Seek {
@@ -1481,6 +1550,7 @@ pub(super) fn ai_villager(
                                 cache,
                                 current_tick,
                                 &danger_overlay,
+                                flow_fields,
                             );
                             return (
                                 BehaviorState::Seek {
@@ -1541,6 +1611,7 @@ pub(super) fn ai_villager(
                             cache,
                             current_tick,
                             &danger_overlay,
+                            flow_fields,
                         );
                         return (
                             BehaviorState::Seek {
@@ -1610,6 +1681,7 @@ pub(super) fn ai_villager(
                             cache,
                             current_tick,
                             &danger_overlay,
+                            flow_fields,
                         );
                         return (
                             BehaviorState::Seek {
@@ -1657,6 +1729,7 @@ pub(super) fn ai_villager(
                             cache,
                             current_tick,
                             &danger_overlay,
+                            flow_fields,
                         );
                         return (
                             BehaviorState::Seek {
@@ -1761,6 +1834,7 @@ pub(super) fn ai_villager(
                             cache,
                             current_tick,
                             &danger_overlay,
+                            flow_fields,
                         );
                         return (
                             BehaviorState::Seek {
@@ -1808,6 +1882,7 @@ pub(super) fn ai_villager(
                         cache,
                         current_tick,
                         &danger_overlay,
+                        flow_fields,
                     );
                     return (
                         BehaviorState::Exploring {
@@ -1841,6 +1916,7 @@ pub(super) fn ai_villager(
                         cache,
                         current_tick,
                         &danger_overlay,
+                        flow_fields,
                     );
                     return (
                         BehaviorState::Seek {

@@ -38,6 +38,9 @@ pub struct AiResult {
     pub stone_harvest_positions: Vec<(f64, f64)>,
     /// Positions where StoneDeposit entities were fully depleted (for ScarredGround conversion).
     pub depleted_stone_positions: Vec<(f64, f64)>,
+    /// Flow field demand requests: (dest_x, dest_y) for each entity that wants
+    /// to move toward a shared destination. Applied to FlowFieldRegistry after AI.
+    pub flow_field_requests: Vec<(usize, usize)>,
 }
 
 // --- Villager Memory ---
