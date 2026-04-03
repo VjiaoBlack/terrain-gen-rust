@@ -750,6 +750,10 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
+                    // Dirty-rect: skip clean tiles (terminal double-buffer retains previous)
+                    if !self.dirty.is_dirty(wx as usize, wy as usize) {
+                        continue;
+                    }
                     // Fog of exploration: unrevealed tiles render as dark fog
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         renderer.draw(sx, sy, '░', Color(30, 30, 30), Some(Color(10, 10, 10)));
@@ -810,6 +814,9 @@ impl super::Game {
                     && (wx as usize) < self.vegetation.width
                     && (wy as usize) < self.vegetation.height
                 {
+                    if !self.dirty.is_dirty(wx as usize, wy as usize) {
+                        continue;
+                    }
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         continue;
                     }
@@ -846,6 +853,9 @@ impl super::Game {
                     && (wx as usize) < self.water.width
                     && (wy as usize) < self.water.height
                 {
+                    if !self.dirty.is_dirty(wx as usize, wy as usize) {
+                        continue;
+                    }
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         continue;
                     }
@@ -896,6 +906,9 @@ impl super::Game {
                         && (wx as usize) < self.influence.width
                         && (wy as usize) < self.influence.height
                     {
+                        if !self.dirty.is_dirty(wx as usize, wy as usize) {
+                            continue;
+                        }
                         if !self.exploration.is_revealed(wx as usize, wy as usize) {
                             continue;
                         }
@@ -1059,6 +1072,10 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
+                    // Dirty-rect: skip clean tiles
+                    if !self.dirty.is_dirty(wx as usize, wy as usize) {
+                        continue;
+                    }
                     // Fog of exploration
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         renderer.draw(
@@ -1235,6 +1252,10 @@ impl super::Game {
                 let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0 && wy >= 0 {
+                    // Dirty-rect: skip clean tiles
+                    if !self.dirty.is_dirty(wx as usize, wy as usize) {
+                        continue;
+                    }
                     // Fog of exploration
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         renderer.draw(sx, sy, ' ', Color(15, 15, 18), Some(Color(8, 8, 10)));
@@ -2562,6 +2583,7 @@ impl super::Game {
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0
                     && wy >= 0
+                    && self.dirty.is_dirty(wx as usize, wy as usize)
                     && let Some(terrain) = self.map.get(wx as usize, wy as usize)
                 {
                     let (ch, bg) = match terrain {
@@ -2606,6 +2628,7 @@ impl super::Game {
                     && wy >= 0
                     && (wx as usize) < self.water.width
                     && (wy as usize) < self.water.height
+                    && self.dirty.is_dirty(wx as usize, wy as usize)
                 {
                     let depth = self.water.get_avg(wx as usize, wy as usize);
                     if depth > 0.0005 {

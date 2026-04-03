@@ -1,5 +1,6 @@
 mod build;
 pub mod chokepoint;
+pub mod dirty;
 mod events;
 mod render;
 mod save;
@@ -471,6 +472,11 @@ pub struct Game {
     /// Set to true when terrain changes (building placed/demolished) to trigger
     /// chokepoint recomputation on the next relevant tick.
     pub chokepoints_dirty: bool,
+    /// World-space dirty tileset: tracks which tiles need redraw each frame.
+    pub dirty: dirty::DirtyMap,
+    /// Previous camera position — used to detect scrolls and mark_all().
+    prev_camera_x: i32,
+    prev_camera_y: i32,
     /// Per-tile threat/defense data for the Threats overlay. Updated every 100 ticks.
     pub threat_map: ThreatMap,
     /// Wealth-based threat score, recomputed every 100 ticks from population,
@@ -1187,6 +1193,9 @@ impl Game {
             fire_tiles: Vec::new(),
             chokepoint_map: chokepoint::ChokepointMap::empty(map_width, map_height),
             chokepoints_dirty: true, // will be computed on first access
+            dirty: dirty::DirtyMap::new(map_width, map_height),
+            prev_camera_x: i32::MIN, // force mark_all on first frame
+            prev_camera_y: i32::MIN,
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
@@ -1366,6 +1375,7 @@ impl Game {
     /// Ignite a single tile: set it to Burning, assign burn timer, add to fire_tiles.
     fn ignite_tile(&mut self, x: usize, y: usize, rng: &mut impl rand::RngExt) {
         self.map.set(x, y, Terrain::Burning);
+        self.dirty.mark(x, y);
         let burn_ticks = rng.random_range(30u32..=50);
         self.fire_tiles.push((x, y, burn_ticks));
         self.notify("Fire! A forest fire has started!".to_string());
@@ -1447,6 +1457,7 @@ impl Game {
         });
         for (x, y) in &burned_out {
             self.map.set(*x, *y, Terrain::Scorched);
+            self.dirty.mark(*x, *y);
             // Ash fertility bonus
             self.soil_fertility.add(*x, *y, 0.05);
             // Clear vegetation
@@ -1458,6 +1469,7 @@ impl Game {
         // Set new fire tiles on the map and add to tracking list
         for &(x, y, _) in &new_fires {
             self.map.set(x, y, Terrain::Burning);
+            self.dirty.mark(x, y);
         }
         self.fire_tiles.extend(new_fires);
 
@@ -1518,10 +1530,12 @@ impl Game {
                     let world_vw = (map_w as i32 / CELL_ASPECT) as u16;
                     self.camera
                         .clamp(self.map.width, self.map.height, world_vw, vh);
+                    self.dirty.mark_all(); // game-over screen always redraws
                     renderer.clear();
                     self.draw(renderer);
                     self.draw_game_over(renderer);
                     renderer.flush()?;
+                    self.dirty.clear();
                     return Ok(());
                 }
             }
@@ -1533,14 +1547,26 @@ impl Game {
             GameInput::ScrollDown => self.camera.y += self.scroll_speed,
             GameInput::ScrollLeft => self.camera.x -= self.scroll_speed,
             GameInput::ScrollRight => self.camera.x += self.scroll_speed,
-            GameInput::ToggleRain => self.raining = !self.raining,
+            GameInput::ToggleRain => {
+                self.raining = !self.raining;
+                self.dirty.mark_all();
+            }
             GameInput::ToggleErosion => {
                 self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled
             }
-            GameInput::ToggleDayNight => self.day_night.enabled = !self.day_night.enabled,
-            GameInput::ToggleDebugView => self.render_mode = self.render_mode.next(),
+            GameInput::ToggleDayNight => {
+                self.day_night.enabled = !self.day_night.enabled;
+                self.dirty.mark_all();
+            }
+            GameInput::ToggleDebugView => {
+                self.render_mode = self.render_mode.next();
+                self.dirty.mark_all();
+            }
             GameInput::TogglePause => self.paused = !self.paused,
             GameInput::ToggleQueryMode => {
+                // Mark old cursor position dirty to clean up artifacts
+                self.dirty
+                    .mark(self.query_cx.max(0) as usize, self.query_cy.max(0) as usize);
                 self.query_mode = !self.query_mode;
                 if self.query_mode {
                     self.build_mode = false; // mutually exclusive
@@ -1554,25 +1580,43 @@ impl Game {
             }
             GameInput::QueryUp => {
                 if self.query_mode {
+                    self.dirty
+                        .mark(self.query_cx.max(0) as usize, self.query_cy.max(0) as usize);
                     self.query_cy -= 1;
                 }
             }
             GameInput::QueryDown => {
                 if self.query_mode {
+                    self.dirty
+                        .mark(self.query_cx.max(0) as usize, self.query_cy.max(0) as usize);
                     self.query_cy += 1;
                 }
             }
             GameInput::QueryLeft => {
                 if self.query_mode {
+                    self.dirty
+                        .mark(self.query_cx.max(0) as usize, self.query_cy.max(0) as usize);
                     self.query_cx -= 1;
                 }
             }
             GameInput::QueryRight => {
                 if self.query_mode {
+                    self.dirty
+                        .mark(self.query_cx.max(0) as usize, self.query_cy.max(0) as usize);
                     self.query_cx += 1;
                 }
             }
             GameInput::ToggleBuildMode => {
+                // Mark old cursor footprint dirty to clean up artifacts
+                if self.build_mode {
+                    let (bw, bh) = self.selected_building.size();
+                    self.dirty.mark_rect(
+                        self.build_cursor_x.max(0) as usize,
+                        self.build_cursor_y.max(0) as usize,
+                        bw as usize,
+                        bh as usize,
+                    );
+                }
                 self.build_mode = !self.build_mode;
                 if self.build_mode {
                     self.query_mode = false; // mutually exclusive
@@ -1585,21 +1629,49 @@ impl Game {
             }
             GameInput::BuildUp => {
                 if self.build_mode {
+                    let (bw, bh) = self.selected_building.size();
+                    self.dirty.mark_rect(
+                        self.build_cursor_x.max(0) as usize,
+                        self.build_cursor_y.max(0) as usize,
+                        bw as usize,
+                        bh as usize,
+                    );
                     self.build_cursor_y -= 1;
                 }
             }
             GameInput::BuildDown => {
                 if self.build_mode {
+                    let (bw, bh) = self.selected_building.size();
+                    self.dirty.mark_rect(
+                        self.build_cursor_x.max(0) as usize,
+                        self.build_cursor_y.max(0) as usize,
+                        bw as usize,
+                        bh as usize,
+                    );
                     self.build_cursor_y += 1;
                 }
             }
             GameInput::BuildLeft => {
                 if self.build_mode {
+                    let (bw, bh) = self.selected_building.size();
+                    self.dirty.mark_rect(
+                        self.build_cursor_x.max(0) as usize,
+                        self.build_cursor_y.max(0) as usize,
+                        bw as usize,
+                        bh as usize,
+                    );
                     self.build_cursor_x -= 1;
                 }
             }
             GameInput::BuildRight => {
                 if self.build_mode {
+                    let (bw, bh) = self.selected_building.size();
+                    self.dirty.mark_rect(
+                        self.build_cursor_x.max(0) as usize,
+                        self.build_cursor_y.max(0) as usize,
+                        bw as usize,
+                        bh as usize,
+                    );
                     self.build_cursor_x += 1;
                 }
             }
@@ -1629,6 +1701,7 @@ impl Game {
                     OverlayMode::Traffic => OverlayMode::Territory,
                     OverlayMode::Territory => OverlayMode::None,
                 };
+                self.dirty.mark_all();
             }
             GameInput::MouseClick { x, y } => self.handle_mouse_click(x, y, renderer),
             GameInput::GotoSettlement => {
@@ -1839,6 +1912,7 @@ impl Game {
                     let iy = hy.round() as usize;
                     if self.map.get(ix, iy) == Some(&Terrain::Forest) {
                         self.map.set(ix, iy, Terrain::Stump);
+                        self.dirty.mark(ix, iy);
                         // Deforestation erosion: exposed soil loses fertility
                         self.soil_fertility.degrade(ix, iy, 0.05);
                         for &(dx, dy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
@@ -1868,6 +1942,7 @@ impl Game {
                                     let count = self.map.increment_mine_count(ux, uy);
                                     if count >= 12 {
                                         self.map.set(ux, uy, Terrain::QuarryDeep);
+                                        self.dirty.mark(ux, uy);
                                         // QuarryDeep: set fertility to 0.05, neighbors lose 0.1
                                         self.soil_fertility.set(ux, uy, 0.05);
                                         for &(ndx, ndy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
@@ -1884,6 +1959,7 @@ impl Game {
                                         }
                                     } else if count >= 6 && prev_terrain == Terrain::Mountain {
                                         self.map.set(ux, uy, Terrain::Quarry);
+                                        self.dirty.mark(ux, uy);
                                         // Quarry: set fertility to 0.05, neighbors lose 0.1
                                         self.soil_fertility.set(ux, uy, 0.05);
                                         for &(ndx, ndy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
@@ -1911,6 +1987,7 @@ impl Game {
                     let ix = sx.round() as usize;
                     let iy = sy.round() as usize;
                     self.map.set(ix, iy, Terrain::ScarredGround);
+                    self.dirty.mark(ix, iy);
                 }
                 if ai_result.grain_consumed > 0 {
                     self.resources.grain = self
@@ -1963,7 +2040,27 @@ impl Game {
                 self.skills.building = self.skills.building.clamp(0.0, 100.0);
                 self.skills.military = self.skills.military.clamp(0.0, 100.0);
 
+                // Snapshot positions before movement for dirty-rect marking
+                let pre_positions: Vec<(hecs::Entity, usize, usize)> = self
+                    .world
+                    .query::<(hecs::Entity, &Position)>()
+                    .iter()
+                    .map(|(e, p)| (e, p.x.round() as usize, p.y.round() as usize))
+                    .collect();
+
                 ecs::system_movement(&mut self.world, &self.map);
+
+                // Mark old + new positions dirty for any entity that moved
+                for (entity, old_x, old_y) in &pre_positions {
+                    if let Ok(pos) = self.world.get::<&Position>(*entity) {
+                        let new_x = pos.x.round() as usize;
+                        let new_y = pos.y.round() as usize;
+                        if new_x != *old_x || new_y != *old_y {
+                            self.dirty.mark(*old_x, *old_y);
+                            self.dirty.mark(new_x, new_y);
+                        }
+                    }
+                }
 
                 // Update exploration: only villagers reveal fog of war
                 for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
@@ -2130,11 +2227,24 @@ impl Game {
                 let process_mult = 1.0;
                 ecs::system_processing(&mut self.world, &mut self.resources, process_mult);
 
-                // Update particles: move, age, and remove dead ones
+                // Update particles: move, age, and remove dead ones.
+                // Mark old + new positions dirty for rendering.
                 for p in &mut self.particles {
+                    let old_x = p.x.round() as usize;
+                    let old_y = p.y.round() as usize;
+                    self.dirty.mark(old_x, old_y);
                     p.x += p.dx;
                     p.y += p.dy;
                     p.life -= 1;
+                    let new_x = p.x.round() as usize;
+                    let new_y = p.y.round() as usize;
+                    self.dirty.mark(new_x, new_y);
+                }
+                // Mark expired particles' positions dirty before removing
+                for p in &self.particles {
+                    if p.life == 0 {
+                        self.dirty.mark(p.x.round() as usize, p.y.round() as usize);
+                    }
                 }
                 self.particles.retain(|p| p.life > 0);
 
@@ -2402,6 +2512,7 @@ impl Game {
                 let prev_season = self.day_night.season;
                 self.day_night.tick();
                 if self.day_night.season != prev_season {
+                    self.dirty.mark_all(); // Season change affects all visible tiles
                     let season_msg = match self.day_night.season {
                         Season::Spring => "Spring has arrived — the ice thaws!",
                         Season::Summer => "Summer heat — fire risk increases!",
@@ -2510,8 +2621,30 @@ impl Game {
             } // end speed loop
         } // end if !self.paused
 
-        // render
-        renderer.clear();
+        // Dirty-rect: detect camera scroll → mark everything dirty
+        if self.camera.x != self.prev_camera_x || self.camera.y != self.prev_camera_y {
+            self.dirty.mark_all();
+            self.prev_camera_x = self.camera.x;
+            self.prev_camera_y = self.camera.y;
+        }
+
+        // Weather particles change position every tick: mark all dirty when
+        // weather effects are visible to avoid stale rain/snow artifacts.
+        {
+            let has_blizzard = self
+                .events
+                .active_events
+                .iter()
+                .any(|e| matches!(e, GameEvent::Blizzard { .. }));
+            let weather_visible = (self.raining || has_blizzard)
+                && !matches!(self.render_mode, RenderMode::Map | RenderMode::Debug);
+            if weather_visible {
+                self.dirty.mark_all();
+            }
+        }
+
+        // render — skip renderer.clear() so the front buffer retains previous
+        // frame content for clean tiles (dirty-rect optimization).
         match self.render_mode {
             RenderMode::Debug => self.draw_debug(renderer),
             RenderMode::Map => self.draw_map_mode(renderer),
@@ -2522,6 +2655,10 @@ impl Game {
             self.draw_game_over(renderer);
         }
         renderer.flush()?;
+
+        // Clear dirty bits after render+flush so next frame starts clean
+        self.dirty.clear();
+
         Ok(())
     }
 

@@ -145,6 +145,11 @@ impl super::Game {
         }
         ecs::spawn_build_site(&mut self.world, bx as f64, by as f64, bt, self.tick);
         self.chokepoints_dirty = true;
+        // Mark building footprint dirty for rendering
+        if bx >= 0 && by >= 0 {
+            self.dirty
+                .mark_rect(bx as usize, by as usize, sw as usize, sh as usize);
+        }
     }
 
     /// Handle a mouse click at screen coordinates.
@@ -262,12 +267,18 @@ impl super::Game {
             }
         }
         for &(e, pos, site) in &completed {
+            let (bw, bh) = site.building_type.size();
             for (dx, dy, terrain) in site.building_type.tiles() {
                 let tx = pos.x as i32 + dx;
                 let ty = pos.y as i32 + dy;
                 if tx >= 0 && ty >= 0 {
                     self.map.set(tx as usize, ty as usize, terrain);
                 }
+            }
+            // Mark completed building footprint dirty
+            if pos.x >= 0.0 && pos.y >= 0.0 {
+                self.dirty
+                    .mark_rect(pos.x as usize, pos.y as usize, bw as usize, bh as usize);
             }
             // Spawn building entities for completed buildings
             if site.building_type == BuildingType::Hut {
@@ -394,6 +405,7 @@ impl super::Game {
                 .road_candidates(&self.map, ROAD_TRAFFIC_THRESHOLD);
             for (x, y) in candidates {
                 self.map.set(x, y, Terrain::Road);
+                self.dirty.mark(x, y);
             }
         }
     }
@@ -1862,6 +1874,15 @@ impl super::Game {
                 }
             }
             self.chokepoints_dirty = true;
+            // Mark demolished footprint dirty for rendering
+            if bx >= 0 && by >= 0 {
+                self.dirty.mark_rect(
+                    bx as usize,
+                    by as usize,
+                    building_size.0 as usize,
+                    building_size.1 as usize,
+                );
+            }
             if exhausted_farm {
                 self.notify("Exhausted farm demolished — soil scarred.".to_string());
             } else {
