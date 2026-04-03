@@ -20,7 +20,7 @@ use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{
     DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, ScentMap, Season, SimConfig,
-    SoilFertilityMap, TrafficMap, VegetationMap, WaterMap,
+    SoilFertilityMap, ThreatMap, TrafficMap, VegetationMap, WaterMap,
 };
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
@@ -432,6 +432,8 @@ pub struct Game {
     /// Set to true when terrain changes (building placed/demolished) to trigger
     /// chokepoint recomputation on the next relevant tick.
     pub chokepoints_dirty: bool,
+    /// Per-tile threat/defense data for the Threats overlay. Updated every 100 ticks.
+    pub threat_map: ThreatMap,
     /// Wealth-based threat score, recomputed every 100 ticks from population,
     /// resources, and building count. Drives threat tier and spawn scaling.
     pub threat_score: f64,
@@ -1146,6 +1148,7 @@ impl Game {
             fire_tiles: Vec::new(),
             chokepoint_map: chokepoint::ChokepointMap::empty(map_width, map_height),
             chokepoints_dirty: true, // will be computed on first access
+            threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
             #[cfg(feature = "lua")]
@@ -2183,6 +2186,12 @@ impl Game {
                     self.chokepoint_map =
                         chokepoint::ChokepointMap::compute(&self.map, &self.river_mask);
                     self.chokepoints_dirty = false;
+                }
+
+                // Recompute threat map every 100 ticks (wolf territory, garrison coverage,
+                // corridor pressure, and exposure gaps for the Threats overlay).
+                if self.tick.is_multiple_of(100) {
+                    self.update_threat_map();
                 }
 
                 // Auto-build check (every 50 ticks — frequent enough to catch narrow

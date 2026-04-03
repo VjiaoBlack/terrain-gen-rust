@@ -105,6 +105,7 @@ impl Game {
             fire_tiles: Vec::new(),
             chokepoint_map: super::chokepoint::ChokepointMap::empty(map_w, map_h),
             chokepoints_dirty: true, // recompute after load
+            threat_map: crate::simulation::ThreatMap::new(map_w, map_h),
             threat_score: 0.0,
             last_threat_tick: 0,
             #[cfg(feature = "lua")]

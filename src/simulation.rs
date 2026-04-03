@@ -1317,6 +1317,236 @@ impl Default for ScentMap {
     }
 }
 
+/// Per-tile threat/defense data for the Threats overlay.
+///
+/// Stores wolf territory zones, garrison coverage radii, approach corridor
+/// pressure, and computed exposure gaps. Updated periodically (every 100 ticks)
+/// and whenever garrisons are built/destroyed.
+pub struct ThreatMap {
+    pub width: usize,
+    pub height: usize,
+    /// 0.0 = safe, 1.0 = core wolf territory (forest in qualifying cluster).
+    /// 0.5 = buffer zone (within 3 tiles of qualifying cluster edge).
+    pub wolf_territory: Vec<f32>,
+    /// 0.0 = no corridor, 1.0 = primary approach through undefended chokepoint.
+    pub corridor_pressure: Vec<f32>,
+    /// 0.0 = uncovered, values grow with garrison proximity. Multiple garrisons stack.
+    pub garrison_coverage: Vec<f32>,
+    /// Computed: wolf_territory + corridor_pressure - garrison_coverage, clamped >= 0.
+    pub exposure: Vec<f32>,
+}
+
+impl ThreatMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        let n = width * height;
+        Self {
+            width,
+            height,
+            wolf_territory: vec![0.0; n],
+            corridor_pressure: vec![0.0; n],
+            garrison_coverage: vec![0.0; n],
+            exposure: vec![0.0; n],
+        }
+    }
+
+    /// Get wolf territory value at (x, y).
+    pub fn wolf_at(&self, x: usize, y: usize) -> f32 {
+        if x < self.width && y < self.height {
+            self.wolf_territory[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Get garrison coverage at (x, y).
+    pub fn garrison_at(&self, x: usize, y: usize) -> f32 {
+        if x < self.width && y < self.height {
+            self.garrison_coverage[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Get corridor pressure at (x, y).
+    pub fn corridor_at(&self, x: usize, y: usize) -> f32 {
+        if x < self.width && y < self.height {
+            self.corridor_pressure[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Get exposure gap at (x, y).
+    pub fn exposure_at(&self, x: usize, y: usize) -> f32 {
+        if x < self.width && y < self.height {
+            self.exposure[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Recompute wolf territory from the terrain map and danger scent.
+    /// Forest tiles with significant danger scent nearby are core territory (1.0).
+    /// Forest tiles within 15-60 tiles of the settlement center with cluster size > 20
+    /// get territory marking. We approximate this using danger scent as a proxy for
+    /// wolf presence (wolves emit danger scent where they live).
+    pub fn update_wolf_territory(
+        &mut self,
+        map: &crate::tilemap::TileMap,
+        danger_scent: &ScentMap,
+        settlement_center: (i32, i32),
+    ) {
+        use crate::tilemap::Terrain;
+        self.wolf_territory.fill(0.0);
+        let (scx, scy) = settlement_center;
+        let w = self.width;
+        let h = self.height;
+
+        // Pass 1: mark forest tiles that have danger scent as core wolf territory
+        for y in 0..h {
+            for x in 0..w {
+                let terrain = map.get(x, y).copied().unwrap_or(Terrain::Water);
+                if terrain != Terrain::Forest {
+                    continue;
+                }
+                let dist_to_settlement =
+                    (((x as i32 - scx).pow(2) + (y as i32 - scy).pow(2)) as f64).sqrt();
+                // Only mark forests within relevant range (10-80 tiles from settlement)
+                if dist_to_settlement < 10.0 || dist_to_settlement > 80.0 {
+                    continue;
+                }
+                let scent = danger_scent.get(x, y);
+                if scent > 0.05 {
+                    self.wolf_territory[y * w + x] = 1.0;
+                } else if scent > 0.01 {
+                    self.wolf_territory[y * w + x] = 0.5;
+                }
+            }
+        }
+
+        // Pass 2: buffer zone — mark non-forest tiles within 3 tiles of wolf territory
+        // Use a simple expansion pass
+        let snapshot: Vec<f32> = self.wolf_territory.clone();
+        for y in 0..h {
+            for x in 0..w {
+                if snapshot[y * w + x] > 0.0 {
+                    continue; // already marked
+                }
+                // Check 3-tile neighborhood for wolf territory
+                let mut nearest_dist_sq = u32::MAX;
+                for dy in -3i32..=3 {
+                    for dx in -3i32..=3 {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h {
+                            if snapshot[ny as usize * w + nx as usize] >= 1.0 {
+                                let d = (dx * dx + dy * dy) as u32;
+                                if d < nearest_dist_sq {
+                                    nearest_dist_sq = d;
+                                }
+                            }
+                        }
+                    }
+                }
+                if nearest_dist_sq <= 9 {
+                    // Within 3 tiles
+                    self.wolf_territory[y * w + x] =
+                        0.3 * (1.0 - (nearest_dist_sq as f32).sqrt() / 3.0);
+                }
+            }
+        }
+    }
+
+    /// Recompute garrison coverage from garrison positions.
+    /// Each garrison radiates coverage that decays with distance (radius 12 base).
+    /// Garrisons near chokepoints get a bonus radius.
+    pub fn update_garrison_coverage(
+        &mut self,
+        garrisons: &[(usize, usize)],
+        chokepoint_scores: &[f64],
+    ) {
+        self.garrison_coverage.fill(0.0);
+        let w = self.width;
+        let h = self.height;
+        let base_radius: i32 = 12;
+
+        for &(gx, gy) in garrisons {
+            // Check if garrison is near a chokepoint (score > 0.2)
+            let choke_score = if gx < w && gy < h {
+                chokepoint_scores.get(gy * w + gx).copied().unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let bonus = if choke_score > 0.2 { 5 } else { 0 };
+            let radius = base_radius + bonus;
+            let defense_bonus: f32 = 1.0 + choke_score as f32 * 0.3;
+
+            for dy in -radius..=radius {
+                for dx in -radius..=radius {
+                    let tx = gx as i32 + dx;
+                    let ty = gy as i32 + dy;
+                    if tx < 0 || ty < 0 || tx as usize >= w || ty as usize >= h {
+                        continue;
+                    }
+                    let dist = ((dx * dx + dy * dy) as f64).sqrt();
+                    if dist > radius as f64 {
+                        continue;
+                    }
+                    let coverage = defense_bonus / (1.0 + dist as f32 * 0.15);
+                    self.garrison_coverage[ty as usize * w + tx as usize] += coverage;
+                }
+            }
+        }
+    }
+
+    /// Recompute corridor pressure from chokepoint data.
+    /// High-scoring chokepoint tiles that lack garrison coverage get pressure.
+    pub fn update_corridor_pressure(&mut self, chokepoint_scores: &[f64]) {
+        let n = self.width * self.height;
+        self.corridor_pressure.fill(0.0);
+        if chokepoint_scores.len() != n {
+            return;
+        }
+        for i in 0..n {
+            let score = chokepoint_scores[i] as f32;
+            if score > 0.1 {
+                self.corridor_pressure[i] = score;
+            }
+        }
+    }
+
+    /// Recompute exposure = threat - defense, clamped to [0, 1].
+    pub fn recompute_exposure(&mut self) {
+        let n = self.width * self.height;
+        for i in 0..n {
+            let threat = self.wolf_territory[i] + self.corridor_pressure[i];
+            let defense = self.garrison_coverage[i];
+            self.exposure[i] = (threat - defense).clamp(0.0, 1.0);
+        }
+    }
+
+    /// Full update: recompute all layers and exposure.
+    pub fn update(
+        &mut self,
+        map: &crate::tilemap::TileMap,
+        danger_scent: &ScentMap,
+        settlement_center: (i32, i32),
+        garrisons: &[(usize, usize)],
+        chokepoint_scores: &[f64],
+    ) {
+        self.update_wolf_territory(map, danger_scent, settlement_center);
+        self.update_garrison_coverage(garrisons, chokepoint_scores);
+        self.update_corridor_pressure(chokepoint_scores);
+        self.recompute_exposure();
+    }
+}
+
+impl Default for ThreatMap {
+    fn default() -> Self {
+        Self::new(0, 0)
+    }
+}
+
 /// Tracks which tiles have been explored (revealed) by creatures.
 /// Unexplored tiles are rendered as dark fog.
 pub struct ExplorationMap {
@@ -2632,5 +2862,238 @@ mod tests {
         let vals = sm.values();
         assert_eq!(vals.len(), 9);
         assert!((vals[4] - 42.0).abs() < 0.001, "center tile should be 42.0");
+    }
+
+    // ---- ThreatMap tests ----
+
+    #[test]
+    fn threat_map_new_dimensions() {
+        let tm = ThreatMap::new(10, 20);
+        assert_eq!(tm.width, 10);
+        assert_eq!(tm.height, 20);
+        assert_eq!(tm.wolf_territory.len(), 200);
+        assert_eq!(tm.garrison_coverage.len(), 200);
+        assert_eq!(tm.corridor_pressure.len(), 200);
+        assert_eq!(tm.exposure.len(), 200);
+    }
+
+    #[test]
+    fn threat_map_default_is_empty() {
+        let tm = ThreatMap::default();
+        assert_eq!(tm.width, 0);
+        assert_eq!(tm.height, 0);
+    }
+
+    #[test]
+    fn threat_map_wolf_territory_marks_forest_with_scent() {
+        use crate::tilemap::{Terrain, TileMap};
+        let mut map = TileMap::new(30, 30, Terrain::Grass);
+        // Place a cluster of forest tiles 20 tiles from center (15,15)
+        for y in 3..8 {
+            for x in 3..8 {
+                map.set(x, y, Terrain::Forest);
+            }
+        }
+        let mut scent = ScentMap::new(30, 30, 0.998, 0.0);
+        // Emit danger scent on the forest tiles (wolf presence)
+        for y in 3..8 {
+            for x in 3..8 {
+                scent.emit(x, y, 1.0);
+            }
+        }
+
+        let mut tm = ThreatMap::new(30, 30);
+        tm.update_wolf_territory(&map, &scent, (15, 15));
+
+        // Forest tiles with scent should have wolf territory > 0
+        assert!(
+            tm.wolf_at(5, 5) > 0.0,
+            "forest tile with scent should be wolf territory"
+        );
+        // Grass tile far from forest should be 0
+        assert!(
+            tm.wolf_at(20, 20) == 0.0,
+            "grass tile far from forest should have no wolf territory"
+        );
+    }
+
+    #[test]
+    fn threat_map_wolf_buffer_zone() {
+        use crate::tilemap::{Terrain, TileMap};
+        let mut map = TileMap::new(40, 40, Terrain::Grass);
+        for y in 10..15 {
+            for x in 10..15 {
+                map.set(x, y, Terrain::Forest);
+            }
+        }
+        let mut scent = ScentMap::new(40, 40, 0.998, 0.0);
+        for y in 10..15 {
+            for x in 10..15 {
+                scent.emit(x, y, 1.0);
+            }
+        }
+
+        let mut tm = ThreatMap::new(40, 40);
+        tm.update_wolf_territory(&map, &scent, (20, 20));
+
+        // Buffer zone: within 3 tiles of forest edge
+        let buffer_val = tm.wolf_at(8, 12); // 2 tiles from forest edge (x=10)
+        assert!(
+            buffer_val > 0.0,
+            "tile near wolf territory should have buffer value, got {}",
+            buffer_val
+        );
+        // Far away: no buffer
+        assert_eq!(
+            tm.wolf_at(1, 1),
+            0.0,
+            "tile far from wolf territory should have no buffer"
+        );
+    }
+
+    #[test]
+    fn threat_map_garrison_coverage_decays_with_distance() {
+        let mut tm = ThreatMap::new(30, 30);
+        let garrisons = vec![(15, 15)];
+        let scores = vec![0.0; 30 * 30]; // no chokepoints
+
+        tm.update_garrison_coverage(&garrisons, &scores);
+
+        let close = tm.garrison_at(15, 15);
+        let mid = tm.garrison_at(15, 20); // 5 tiles away
+        let far = tm.garrison_at(15, 26); // 11 tiles away
+
+        assert!(close > mid, "coverage should decrease with distance");
+        assert!(mid > far, "coverage should decrease further with distance");
+        assert!(far > 0.0, "coverage should still exist within radius");
+
+        // Beyond radius
+        let beyond = tm.garrison_at(15, 28); // 13 tiles away, beyond base 12
+        assert_eq!(
+            beyond, 0.0,
+            "beyond garrison radius should have no coverage"
+        );
+    }
+
+    #[test]
+    fn threat_map_garrison_chokepoint_bonus() {
+        let mut tm = ThreatMap::new(30, 30);
+        let garrisons = vec![(15, 15)];
+        let mut scores = vec![0.0; 30 * 30];
+        // Set high chokepoint score at garrison position
+        scores[15 * 30 + 15] = 0.5;
+
+        tm.update_garrison_coverage(&garrisons, &scores);
+        let with_bonus = tm.garrison_at(15, 15);
+
+        // Recompute without bonus
+        let mut tm2 = ThreatMap::new(30, 30);
+        let scores_none = vec![0.0; 30 * 30];
+        tm2.update_garrison_coverage(&garrisons, &scores_none);
+        let without_bonus = tm2.garrison_at(15, 15);
+
+        assert!(
+            with_bonus > without_bonus,
+            "chokepoint garrison should have higher coverage ({} vs {})",
+            with_bonus,
+            without_bonus
+        );
+    }
+
+    #[test]
+    fn threat_map_multiple_garrisons_stack() {
+        let mut tm = ThreatMap::new(30, 30);
+        let garrisons = vec![(12, 15), (18, 15)];
+        let scores = vec![0.0; 30 * 30];
+
+        tm.update_garrison_coverage(&garrisons, &scores);
+        let overlap = tm.garrison_at(15, 15); // midpoint between two garrisons
+
+        let mut tm_single = ThreatMap::new(30, 30);
+        tm_single.update_garrison_coverage(&[(12, 15)].to_vec(), &scores);
+        let single = tm_single.garrison_at(15, 15);
+
+        assert!(
+            overlap > single,
+            "overlapping garrison coverage should exceed single ({} vs {})",
+            overlap,
+            single
+        );
+    }
+
+    #[test]
+    fn threat_map_corridor_pressure_from_chokepoints() {
+        let mut tm = ThreatMap::new(10, 10);
+        let mut scores = vec![0.0; 100];
+        scores[55] = 0.8; // tile (5,5) is a chokepoint
+
+        tm.update_corridor_pressure(&scores);
+
+        assert!(
+            tm.corridor_at(5, 5) > 0.0,
+            "chokepoint tile should have corridor pressure"
+        );
+        assert_eq!(
+            tm.corridor_at(0, 0),
+            0.0,
+            "non-chokepoint tile should have no corridor pressure"
+        );
+    }
+
+    #[test]
+    fn threat_map_exposure_is_threat_minus_defense() {
+        let mut tm = ThreatMap::new(10, 10);
+        // Set wolf territory at (3,3) and garrison coverage at (3,3)
+        tm.wolf_territory[3 * 10 + 3] = 0.8;
+        tm.garrison_coverage[3 * 10 + 3] = 0.5;
+        // Set wolf territory at (7,7) with no garrison
+        tm.wolf_territory[7 * 10 + 7] = 0.9;
+
+        tm.recompute_exposure();
+
+        let defended = tm.exposure_at(3, 3);
+        let exposed = tm.exposure_at(7, 7);
+
+        assert!(
+            defended < exposed,
+            "defended tile should have less exposure ({} vs {})",
+            defended,
+            exposed
+        );
+        assert!(
+            (defended - 0.3).abs() < 0.01,
+            "defended exposure should be 0.8 - 0.5 = 0.3, got {}",
+            defended
+        );
+        assert!(
+            (exposed - 0.9).abs() < 0.01,
+            "exposed tile should be 0.9, got {}",
+            exposed
+        );
+    }
+
+    #[test]
+    fn threat_map_exposure_clamped_to_zero() {
+        let mut tm = ThreatMap::new(5, 5);
+        // Garrison coverage exceeds threat
+        tm.wolf_territory[12] = 0.2;
+        tm.garrison_coverage[12] = 1.0;
+
+        tm.recompute_exposure();
+
+        assert_eq!(
+            tm.exposure_at(2, 2),
+            0.0,
+            "exposure should clamp to 0 when defense exceeds threat"
+        );
+    }
+
+    #[test]
+    fn threat_map_out_of_bounds_returns_zero() {
+        let tm = ThreatMap::new(5, 5);
+        assert_eq!(tm.wolf_at(10, 10), 0.0);
+        assert_eq!(tm.garrison_at(10, 10), 0.0);
+        assert_eq!(tm.corridor_at(10, 10), 0.0);
+        assert_eq!(tm.exposure_at(10, 10), 0.0);
     }
 }

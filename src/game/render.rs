@@ -1429,29 +1429,135 @@ impl super::Game {
         let aspect = CELL_ASPECT;
         let panel_w = PANEL_WIDTH as i32;
 
-        // Collect wolf den positions for danger zone
-        let den_positions: Vec<(f64, f64)> = self
-            .world
-            .query::<(&Position, &Den)>()
-            .iter()
-            .map(|(p, _)| (p.x, p.y))
-            .collect();
-
-        // Draw danger zone background tint (8 tile radius around dens)
+        // Layer 1 & 3: Background tints — wolf territory (red-brown) and garrison
+        // coverage (green). These compose on top of the already-rendered terrain.
         for sy in 0..h.saturating_sub(status_h) {
             for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
                 let wx = self.camera.x + (sx_raw - panel_w) / aspect;
                 let wy = self.camera.y + sy as i32;
-                if !self.exploration.is_revealed(wx as usize, wy as usize) {
+                if wx < 0 || wy < 0 {
                     continue;
                 }
-                let in_danger = den_positions.iter().any(|&(dx, dy)| {
-                    let ddx = wx as f64 - dx;
-                    let ddy = wy as f64 - dy;
-                    ddx * ddx + ddy * ddy < 64.0 // 8 tile radius
-                });
-                if in_danger {
-                    // Draw a dim red tint
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if !self.exploration.is_revealed(ux, uy) {
+                    continue;
+                }
+
+                let wolf = self.threat_map.wolf_at(ux, uy);
+                let garrison = self.threat_map.garrison_at(ux, uy);
+
+                if wolf <= 0.0 && garrison <= 0.0 {
+                    continue;
+                }
+
+                if let Some(cell) = renderer.get_cell(sx_raw as u16, sy) {
+                    let bg = cell.bg.unwrap_or(Color(0, 0, 0));
+                    let mut r = bg.0 as f64;
+                    let mut g = bg.1 as f64;
+                    let mut b = bg.2 as f64;
+
+                    // Wolf territory: tint toward dark red-brown (60, 15, 15)
+                    if wolf > 0.0 {
+                        let alpha = (wolf * 0.25).min(0.30) as f64;
+                        r = r * (1.0 - alpha) + 60.0 * alpha;
+                        g = g * (1.0 - alpha) + 15.0 * alpha;
+                        b = b * (1.0 - alpha) + 15.0 * alpha;
+                    }
+
+                    // Garrison coverage: tint toward green (20, 80, 30)
+                    if garrison > 0.0 {
+                        let alpha = (garrison * 0.08).min(0.20) as f64;
+                        r = r * (1.0 - alpha) + 20.0 * alpha;
+                        g = g * (1.0 - alpha) + 80.0 * alpha;
+                        b = b * (1.0 - alpha) + 30.0 * alpha;
+                    }
+
+                    let tinted = Color(r as u8, g as u8, b as u8);
+                    renderer.draw(sx_raw as u16, sy, cell.ch, cell.fg, Some(tinted));
+                }
+            }
+        }
+
+        // Layer 2: Approach corridor markers — amber arrows on undefended chokepoint
+        // tiles, and `?` at undefended chokepoints suggesting garrison placement.
+        for loc in &self.chokepoint_map.locations {
+            let sx = (loc.x as i32 - self.camera.x) * aspect + panel_w;
+            let sy = loc.y as i32 - self.camera.y;
+            if sx < panel_w || sx >= w as i32 || sy < 0 || sy >= (h - status_h) as i32 {
+                continue;
+            }
+            if !self.exploration.is_revealed(loc.x, loc.y) {
+                continue;
+            }
+            let garrison_cov = self.threat_map.garrison_at(loc.x, loc.y);
+            if garrison_cov < 0.3 {
+                // Undefended chokepoint — show amber `?` suggesting garrison placement
+                renderer.draw(
+                    sx as u16,
+                    sy as u16,
+                    '?',
+                    Color(100, 200, 100),
+                    Some(Color(30, 50, 20)),
+                );
+            } else {
+                // Defended chokepoint — show dim green marker
+                renderer.draw(sx as u16, sy as u16, '+', Color(50, 180, 60), None);
+            }
+        }
+
+        // Layer 5: Exposure gap markers — `!` at tiles with high exposure along
+        // the settlement edge (high threat, low garrison coverage).
+        let (scx, scy) = self.settlement_center();
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 {
+                    continue;
+                }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if !self.exploration.is_revealed(ux, uy) {
+                    continue;
+                }
+                let exposure = self.threat_map.exposure_at(ux, uy);
+                if exposure < 0.3 {
+                    continue;
+                }
+                // Only show markers within 30-tile radius of settlement
+                let dx = wx - scx;
+                let dy = wy - scy;
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq > 900 {
+                    continue; // > 30 tiles
+                }
+                renderer.draw(
+                    sx_raw as u16,
+                    sy,
+                    '!',
+                    Color(220, 160, 40),
+                    Some(Color(60, 40, 10)),
+                );
+            }
+        }
+
+        // Layer 4: Danger scent intensity — dim red dots where danger scent is high
+        // (active wolf presence even without ThreatMap territory marking).
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 {
+                    continue;
+                }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if !self.exploration.is_revealed(ux, uy) {
+                    continue;
+                }
+                let scent = self.danger_scent.get(ux, uy);
+                if scent > 0.5 {
                     renderer.draw(
                         sx_raw as u16,
                         sy,
@@ -1462,6 +1568,8 @@ impl super::Game {
                 }
             }
         }
+
+        // Layer 6: Entity markers — wolves, dens, garrisons, town halls (on top)
 
         // Draw wolves as bright red 'W'
         for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
@@ -1496,7 +1604,7 @@ impl super::Game {
             }
         }
 
-        // Draw garrison/wall buildings as bright green
+        // Draw garrison buildings as bright green 'G'
         for (pos, _) in self.world.query::<(&Position, &GarrisonBuilding)>().iter() {
             let sx = (pos.x as i32 - self.camera.x) * aspect + panel_w;
             let sy = pos.y as i32 - self.camera.y;
@@ -1505,7 +1613,7 @@ impl super::Game {
             }
         }
 
-        // Draw town halls as bright yellow
+        // Draw town halls as bright yellow 'H'
         for (pos, _) in self.world.query::<(&Position, &TownHallBuilding)>().iter() {
             let sx = (pos.x as i32 - self.camera.x) * aspect + panel_w;
             let sy = pos.y as i32 - self.camera.y;

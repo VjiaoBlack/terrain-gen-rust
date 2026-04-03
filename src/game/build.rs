@@ -428,6 +428,26 @@ impl super::Game {
         }
     }
 
+    /// Recompute the ThreatMap: wolf territory from danger scent + forest tiles,
+    /// garrison coverage from garrison positions, corridor pressure from chokepoints,
+    /// and exposure gaps (threat minus defense).
+    pub fn update_threat_map(&mut self) {
+        let garrisons: Vec<(usize, usize)> = self
+            .world
+            .query::<(&Position, &GarrisonBuilding)>()
+            .iter()
+            .map(|(p, _)| (p.x.round() as usize, p.y.round() as usize))
+            .collect();
+        let sc = self.settlement_center();
+        self.threat_map.update(
+            &self.map,
+            &self.danger_scent,
+            sc,
+            &garrisons,
+            &self.chokepoint_map.scores,
+        );
+    }
+
     /// Spawn new stone deposits near the settlement center when stone stockpile is critically low.
     /// DEPRECATED: Resources should be discovered through exploration, not spawned.
     /// Kept as dead code for reference. See docs/design/pillar1_geography/precomputed_resource_map.md
