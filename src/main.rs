@@ -513,6 +513,35 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // --showcase: terrain-only mode. No entities, no fog of war, just
+    // terrain + lighting + day/night + seasons + weather. For tuning visuals.
+    if args.iter().any(|a| a == "--showcase") {
+        let seed: u32 = args
+            .iter()
+            .position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(42);
+        let mut renderer = CrosstermRenderer::new()?;
+        let mut game = Game::new(60, seed);
+        game.half_speed_base = true;
+        // Remove all entities (villagers, prey, predators, buildings, etc.)
+        game.world.clear();
+        // Reveal entire map (no fog of war)
+        let (mw, mh) = (game.map.width, game.map.height);
+        for y in 0..mh {
+            for x in 0..mw {
+                game.exploration.reveal(x, y, 1);
+            }
+        }
+        // Enable rain for visual interest
+        game.raining = true;
+        // Start in Landscape mode
+        game.render_mode = terrain_gen_rust::game::RenderMode::Landscape;
+        run_interactive(&mut game, &mut renderer)?;
+        return Ok(());
+    }
+
     let mut renderer = CrosstermRenderer::new()?;
     let mut seed = 42u32;
     loop {
