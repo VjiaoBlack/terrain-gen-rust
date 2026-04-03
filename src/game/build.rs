@@ -363,10 +363,10 @@ impl super::Game {
     }
 
     /// Spawn new stone deposits near the settlement center when stone stockpile is critically low.
-    /// Called every 2000 ticks when stone < 50; simulates "expanding settlement discovers new
-    /// deposits". Spawns 2 deposits at random walkable tiles 6–18 tiles away (within villager
-    /// sight_range=22 so they are actually visible and minable).
-    pub(super) fn discover_stone_deposits(&mut self) {
+    /// DEPRECATED: Resources should be discovered through exploration, not spawned.
+    /// Kept as dead code for reference. See docs/design/pillar1_geography/precomputed_resource_map.md
+    #[allow(dead_code)]
+    fn discover_stone_deposits(&mut self) {
         let villager_pos: Vec<(f64, f64)> = self
             .world
             .query::<(&Position, &Creature)>()
@@ -420,11 +420,9 @@ impl super::Game {
         }
     }
 
-    /// Discover a nearby timber grove / clearing when the settlement is land-locked.
-    /// Creates a 5×5 patch: the inner 3×3 core becomes Grass (a clean buildable clearing)
-    /// and the outer ring becomes Forest (wood resource). This guarantees that
-    /// `find_building_spot` succeeds on the next auto_build_tick even when the area is
-    /// already dense with Forest tiles (which previously blocked the old Forest-only planting).
+    /// DEPRECATED: Resources should be discovered through exploration, not spawned.
+    /// Kept as dead code for reference. See docs/design/pillar1_geography/deforestation_regrowth.md
+    #[allow(dead_code)]
     pub(super) fn discover_timber_grove(&mut self) {
         let villager_pos: Vec<(f64, f64)> = self
             .world
@@ -864,16 +862,10 @@ impl super::Game {
                     self.place_build_site(bx, by, BuildingType::Workshop);
                     self.notify("Auto-build: Workshop queued".to_string());
                     queued_critical = true;
-                } else {
-                    // Workshop placement also failed — no valid 3×3 terrain anywhere.
-                    // Create a buildable clearing so the next tick can queue the hut/workshop.
-                    self.discover_timber_grove();
                 }
-            } else {
-                // Housing is needed but no valid terrain for a hut (and no workshop fallback).
-                // Plant a timber grove to convert Mountain/barren tiles into buildable Forest.
-                self.discover_timber_grove();
+                // else: no valid terrain — villagers will explore and discover buildable areas
             }
+            // else: housing needed but no terrain — exploration will reveal buildable land
         }
 
         if queued_critical {
