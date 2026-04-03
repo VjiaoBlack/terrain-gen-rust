@@ -783,14 +783,32 @@ impl super::Game {
                         } else {
                             // Blend soil + vegetation for natural terrain types
                             let (fg, bg) = if terrain.has_vegetation_blending() {
-                                let veg = self.vegetation.get(wx as usize, wy as usize);
-                                let fg =
-                                    blend_vegetation(terrain.soil_fg(), terrain.veg_color(), veg);
-                                let bg_color = blend_vegetation(
-                                    terrain.soil_bg().unwrap_or(Color(0, 0, 0)),
-                                    terrain.veg_bg_color(),
-                                    veg,
+                                let ux = wx as usize;
+                                let uy = wy as usize;
+                                let idx = uy * self.map.width + ux;
+                                let veg = self.vegetation.get(ux, uy);
+                                // Soil color from actual SoilType, not biome enum
+                                let soil = if idx < self.soil.len() {
+                                    self.soil[idx]
+                                } else {
+                                    crate::terrain_pipeline::SoilType::Loam
+                                };
+                                // Vegetation color from conditions, not frozen biome
+                                let temp = if idx < self.pipeline_temperature.len() {
+                                    self.pipeline_temperature[idx]
+                                } else {
+                                    0.5
+                                };
+                                let moist = self.moisture.get(ux, uy);
+                                let vc =
+                                    crate::tilemap::vegetation_color_from_conditions(moist, temp);
+                                let vc_dark = Color(
+                                    vc.0.saturating_sub(25),
+                                    vc.1.saturating_sub(25),
+                                    vc.2.saturating_sub(5),
                                 );
+                                let fg = blend_vegetation(soil.ground_fg(), vc, veg);
+                                let bg_color = blend_vegetation(soil.ground_bg(), vc_dark, veg);
                                 (
                                     self.season_tint(fg, terrain),
                                     Some(self.season_tint(bg_color, terrain)),
@@ -851,18 +869,35 @@ impl super::Game {
                         let fg = self.season_tint(fg, &Terrain::Forest);
                         let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
                         // Background: use blended soil+vegetation color
-                        let bg = self.map.get(wx as usize, wy as usize).map(|t| {
+                        let ux = wx as usize;
+                        let uy = wy as usize;
+                        let bg = self.map.get(ux, uy).map(|t| {
                             if t.has_vegetation_blending() {
-                                let bg_color = blend_vegetation(
-                                    t.soil_bg().unwrap_or(Color(0, 0, 0)),
-                                    t.veg_bg_color(),
-                                    v,
+                                let idx = uy * self.map.width + ux;
+                                let soil = if idx < self.soil.len() {
+                                    self.soil[idx]
+                                } else {
+                                    crate::terrain_pipeline::SoilType::Loam
+                                };
+                                let temp_v = if idx < self.pipeline_temperature.len() {
+                                    self.pipeline_temperature[idx]
+                                } else {
+                                    0.5
+                                };
+                                let moist_v = self.moisture.get(ux, uy);
+                                let vc = crate::tilemap::vegetation_color_from_conditions(
+                                    moist_v, temp_v,
                                 );
-                                self.day_night
-                                    .apply_lighting(bg_color, wx as usize, wy as usize)
+                                let vc_dark = Color(
+                                    vc.0.saturating_sub(25),
+                                    vc.1.saturating_sub(25),
+                                    vc.2.saturating_sub(5),
+                                );
+                                let bg_color = blend_vegetation(soil.ground_bg(), vc_dark, v);
+                                self.day_night.apply_lighting(bg_color, ux, uy)
                             } else {
                                 let c = t.bg().unwrap_or(Color(0, 0, 0));
-                                self.day_night.apply_lighting(c, wx as usize, wy as usize)
+                                self.day_night.apply_lighting(c, ux, uy)
                             }
                         });
                         renderer.draw(sx, sy, ch, fg, bg);
@@ -1422,17 +1457,39 @@ impl super::Game {
         // Blend soil base with landscape vegetation color based on vegetation density.
         // For vegetation-sensitive terrains, landscape_fg/bg serve as the "fully
         // vegetated" target and soil_fg/bg as the bare-ground base.
+        // Soil color from actual SoilType grid, not biome enum
+        let idx = wy * self.map.width + wx;
+        let soil = if idx < self.soil.len() {
+            self.soil[idx]
+        } else {
+            crate::terrain_pipeline::SoilType::Loam
+        };
         let mut fg = if terrain.has_vegetation_blending() {
-            blend_vegetation(terrain.soil_fg(), terrain.landscape_fg(), veg)
+            let temp = if idx < self.pipeline_temperature.len() {
+                self.pipeline_temperature[idx]
+            } else {
+                0.5
+            };
+            let moist = self.moisture.get(wx, wy);
+            let vc = crate::tilemap::vegetation_color_from_conditions(moist, temp);
+            blend_vegetation(soil.ground_fg(), vc, veg)
         } else {
             terrain.landscape_fg()
         };
         let mut bg = if terrain.has_vegetation_blending() {
-            blend_vegetation(
-                terrain.soil_bg().unwrap_or(Color(0, 0, 0)),
-                terrain.landscape_bg(),
-                veg,
-            )
+            let temp = if idx < self.pipeline_temperature.len() {
+                self.pipeline_temperature[idx]
+            } else {
+                0.5
+            };
+            let moist = self.moisture.get(wx, wy);
+            let vc = crate::tilemap::vegetation_color_from_conditions(moist, temp);
+            let vc_dark = Color(
+                vc.0.saturating_sub(25),
+                vc.1.saturating_sub(25),
+                vc.2.saturating_sub(5),
+            );
+            blend_vegetation(soil.ground_bg(), vc_dark, veg)
         } else {
             terrain.landscape_bg()
         };

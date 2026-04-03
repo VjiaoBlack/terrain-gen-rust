@@ -94,6 +94,32 @@ impl SoilType {
         }
     }
 
+    /// Bare ground foreground color — what you see with no vegetation.
+    pub fn ground_fg(&self) -> crate::renderer::Color {
+        use crate::renderer::Color;
+        match self {
+            SoilType::Sand => Color(170, 150, 100),  // pale tan
+            SoilType::Loam => Color(90, 70, 40),     // medium brown
+            SoilType::Alluvial => Color(65, 50, 30), // dark rich brown
+            SoilType::Clay => Color(130, 100, 60),   // reddish-brown
+            SoilType::Rocky => Color(120, 115, 105), // grey
+            SoilType::Peat => Color(50, 40, 25),     // very dark brown
+        }
+    }
+
+    /// Bare ground background color — darker variant.
+    pub fn ground_bg(&self) -> crate::renderer::Color {
+        use crate::renderer::Color;
+        match self {
+            SoilType::Sand => Color(140, 120, 78),
+            SoilType::Loam => Color(60, 48, 28),
+            SoilType::Alluvial => Color(42, 32, 18),
+            SoilType::Clay => Color(95, 70, 40),
+            SoilType::Rocky => Color(85, 80, 72),
+            SoilType::Peat => Color(32, 25, 15),
+        }
+    }
+
     /// Base fertility ceiling for this soil type (used to cap recovery).
     pub fn base_fertility(&self) -> f64 {
         match self {

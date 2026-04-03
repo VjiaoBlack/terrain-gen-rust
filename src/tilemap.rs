@@ -2486,3 +2486,30 @@ mod tests {
         }
     }
 }
+
+/// Compute vegetation tint color from environmental conditions.
+/// This replaces the per-biome-enum veg_color() for data-driven rendering.
+/// Hot+dry = yellow-brown scrub, hot+wet = deep green, cold = grey-green.
+pub fn vegetation_color_from_conditions(moisture: f64, temperature: f64) -> Color {
+    // Base green channel: wetter = greener
+    let g_base = 60.0 + 120.0 * moisture.clamp(0.0, 1.0); // 60-180
+
+    // Red channel: dry + warm = more yellow/brown, wet = less red
+    let r_base = 30.0 + 80.0 * (1.0 - moisture).clamp(0.0, 1.0) * temperature.clamp(0.0, 1.0);
+
+    // Blue channel: cold = more blue-grey
+    let b_base = 10.0 + 40.0 * (1.0 - temperature).clamp(0.0, 1.0);
+
+    // Desaturate in extreme cold
+    if temperature < 0.2 {
+        let t = temperature / 0.2;
+        let grey = (r_base + g_base + b_base) / 3.0;
+        Color(
+            (grey + (r_base - grey) * t) as u8,
+            (grey + (g_base - grey) * t) as u8,
+            (grey + (b_base - grey) * t) as u8,
+        )
+    } else {
+        Color(r_base as u8, g_base as u8, b_base as u8)
+    }
+}
