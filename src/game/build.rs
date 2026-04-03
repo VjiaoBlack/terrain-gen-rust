@@ -556,13 +556,17 @@ impl super::Game {
 
         // Housing surplus determines birth rate
         let housing_surplus = total_capacity.saturating_sub(villager_count);
-        let birth_cooldown = if housing_surplus == 0 {
+        let base_cooldown = if housing_surplus == 0 {
             return; // No births without housing surplus
         } else if housing_surplus >= 4 {
             200 // Fast growth when lots of empty housing
         } else {
             800 / housing_surplus as u64 // 800, 400, 266 for surplus 1, 2, 3
         };
+
+        // Seasonal birth rate: spring 1.2x (shorter cooldown), winter 0.5x (longer cooldown)
+        let birth_mult = self.day_night.season_modifiers().birth_rate_mult;
+        let birth_cooldown = (base_cooldown as f64 / birth_mult) as u64;
 
         if self.tick - self.last_birth_tick <= birth_cooldown {
             return;

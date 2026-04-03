@@ -453,6 +453,17 @@ impl Season {
             Season::Winter => "Winter",
         }
     }
+
+    /// Daylight hours per season. Affects sunrise/sunset, villager productivity,
+    /// and the overall feel of each season.
+    pub fn day_hours(&self) -> f64 {
+        match self {
+            Season::Spring => 14.0,
+            Season::Summer => 16.0,
+            Season::Autumn => 10.0,
+            Season::Winter => 8.0,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -462,6 +473,11 @@ pub struct SeasonModifiers {
     pub veg_growth_mult: f64,
     pub hunger_mult: f64,
     pub wolf_aggression: f64,
+    /// Gathering speed multiplier (wood, stone, food foraging).
+    /// Spring 1.1x (new growth), Summer 1.0x, Autumn 1.5x (wood only, handled separately), Winter 0.6x.
+    pub gathering_mult: f64,
+    /// Birth rate multiplier. Spring 1.2x (baby boom), Summer/Autumn 1.0x, Winter 0.5x (harsh).
+    pub birth_rate_mult: f64,
 }
 
 /// Day/night cycle with Blinn-Phong lighting, terrain normals, and shadow raytracing.
@@ -525,28 +541,36 @@ impl DayNightCycle {
                 evap_mult: 1.0,
                 veg_growth_mult: 2.0,
                 hunger_mult: 1.0,
-                wolf_aggression: 0.95,
+                wolf_aggression: 0.4,
+                gathering_mult: 1.1,
+                birth_rate_mult: 1.2,
             },
             Season::Summer => SeasonModifiers {
                 rain_mult: 0.5,
                 evap_mult: 2.0,
                 veg_growth_mult: 1.5,
                 hunger_mult: 0.8,
-                wolf_aggression: 0.95,
+                wolf_aggression: 0.4,
+                gathering_mult: 1.0,
+                birth_rate_mult: 1.0,
             },
             Season::Autumn => SeasonModifiers {
                 rain_mult: 1.0,
                 evap_mult: 1.0,
                 veg_growth_mult: 0.3,
                 hunger_mult: 1.0,
-                wolf_aggression: 0.8,
+                wolf_aggression: 0.5,
+                gathering_mult: 1.0,
+                birth_rate_mult: 1.0,
             },
             Season::Winter => SeasonModifiers {
                 rain_mult: 0.3,
                 evap_mult: 0.5,
                 veg_growth_mult: 0.0,
                 hunger_mult: 2.5,
-                wolf_aggression: 0.6,
+                wolf_aggression: 0.7,
+                gathering_mult: 0.6,
+                birth_rate_mult: 0.5,
             },
         }
     }
@@ -566,18 +590,33 @@ impl DayNightCycle {
         self.sun_elevation() <= 0.0
     }
 
+    /// Sunrise hour for the current season (centered around noon).
+    fn sunrise_hour(&self) -> f64 {
+        12.0 - self.season.day_hours() / 2.0
+    }
+
+    /// Sunset hour for the current season (centered around noon).
+    fn sunset_hour(&self) -> f64 {
+        12.0 + self.season.day_hours() / 2.0
+    }
+
     /// Sun elevation angle in radians. Peaks at noon, below 0 at night.
     /// Max ~60 degrees — keeps the sun from going truly overhead so there's
     /// always a meaningful horizontal component for shadows and directional shading.
+    /// Day length varies by season (e.g. 16h summer, 8h winter).
     pub fn sun_elevation(&self) -> f64 {
-        let angle = (self.hour - 6.0) / 12.0 * std::f64::consts::PI;
+        let sunrise = self.sunrise_hour();
+        let day_len = self.season.day_hours();
+        let angle = (self.hour - sunrise) / day_len * std::f64::consts::PI;
         angle.sin() * (std::f64::consts::PI / 3.0) // max ~60 degrees
     }
 
-    /// Sun azimuth in radians. Traces east (6am) → south (noon) → west (6pm).
+    /// Sun azimuth in radians. Traces east (sunrise) → south (noon) → west (sunset).
+    /// Adjusted for season-dependent day length.
     pub fn sun_azimuth(&self) -> f64 {
-        // 6am = east = 0, noon = south = PI/2, 6pm = west = PI
-        (self.hour - 6.0) / 12.0 * std::f64::consts::PI
+        let sunrise = self.sunrise_hour();
+        let day_len = self.season.day_hours();
+        (self.hour - sunrise) / day_len * std::f64::consts::PI
     }
 
     /// Sun direction as a 3D unit vector pointing TOWARD the sun.
@@ -1713,6 +1752,113 @@ mod tests {
         dn.season = Season::Winter;
         dn.year = 2;
         assert_eq!(dn.date_string(), "Y3 Winter D6");
+    }
+
+    #[test]
+    fn daylight_hours_vary_by_season() {
+        assert_eq!(Season::Spring.day_hours(), 14.0);
+        assert_eq!(Season::Summer.day_hours(), 16.0);
+        assert_eq!(Season::Autumn.day_hours(), 10.0);
+        assert_eq!(Season::Winter.day_hours(), 8.0);
+    }
+
+    #[test]
+    fn winter_nights_longer_than_summer() {
+        let mut dn = DayNightCycle::new(10, 10);
+
+        // 7pm (19:00) -- should be night in winter but day in summer
+        dn.hour = 19.0;
+
+        dn.season = Season::Winter; // sunset at 16:00
+        assert!(
+            dn.is_night(),
+            "19:00 should be night in winter (sunset 16:00)"
+        );
+
+        dn.season = Season::Summer; // sunset at 20:00
+        assert!(
+            !dn.is_night(),
+            "19:00 should be day in summer (sunset 20:00)"
+        );
+    }
+
+    #[test]
+    fn sunrise_sunset_centered_on_noon() {
+        let dn = DayNightCycle::new(10, 10);
+        // For any season, sunrise + sunset should average to 12.0
+        for season in [
+            Season::Spring,
+            Season::Summer,
+            Season::Autumn,
+            Season::Winter,
+        ] {
+            let mut d = DayNightCycle::new(10, 10);
+            d.season = season;
+            let rise = d.sunrise_hour();
+            let set = d.sunset_hour();
+            assert!(
+                ((rise + set) / 2.0 - 12.0).abs() < 0.001,
+                "{}: sunrise={} sunset={} not centered on noon",
+                season.name(),
+                rise,
+                set
+            );
+        }
+        drop(dn);
+    }
+
+    #[test]
+    fn seasonal_gathering_mult() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.season = Season::Spring;
+        assert!(
+            dn.season_modifiers().gathering_mult > 1.0,
+            "spring gathering should be faster"
+        );
+        dn.season = Season::Summer;
+        assert_eq!(
+            dn.season_modifiers().gathering_mult,
+            1.0,
+            "summer gathering should be baseline"
+        );
+        dn.season = Season::Winter;
+        assert!(
+            dn.season_modifiers().gathering_mult < 1.0,
+            "winter gathering should be slower"
+        );
+    }
+
+    #[test]
+    fn seasonal_birth_rate_mult() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.season = Season::Spring;
+        assert!(
+            dn.season_modifiers().birth_rate_mult > 1.0,
+            "spring should have birth bonus"
+        );
+        dn.season = Season::Winter;
+        assert!(
+            dn.season_modifiers().birth_rate_mult < 1.0,
+            "winter should reduce births"
+        );
+    }
+
+    #[test]
+    fn wolf_aggression_by_season() {
+        let mut dn = DayNightCycle::new(10, 10);
+        dn.season = Season::Spring;
+        let spring = dn.season_modifiers().wolf_aggression;
+        dn.season = Season::Summer;
+        let summer = dn.season_modifiers().wolf_aggression;
+        dn.season = Season::Autumn;
+        let autumn = dn.season_modifiers().wolf_aggression;
+        dn.season = Season::Winter;
+        let winter = dn.season_modifiers().wolf_aggression;
+
+        assert_eq!(spring, 0.4);
+        assert_eq!(summer, 0.4);
+        assert_eq!(autumn, 0.5);
+        assert_eq!(winter, 0.7);
     }
 
     #[test]

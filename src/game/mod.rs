@@ -1644,16 +1644,19 @@ impl Game {
                     self.skills.military += 0.002 * wolves_near_count as f64;
                 }
 
-                // Autumn bonus: wood gathering timer drops from 90 -> 60 ticks
-                // (equivalent to 1.5x speed multiplier on top of skill bonus)
+                // Seasonal gathering multiplier: spring 1.1x, summer 1.0x, winter 0.6x.
+                // Autumn wood bonus stacks on top (1.5x from #36).
+                let seasonal_gather = mods.gathering_mult;
                 let autumn_wood_bonus = if self.day_night.season == Season::Autumn {
                     1.5
                 } else {
                     1.0
                 };
                 let skill_mults = SkillMults {
-                    gather_wood_speed: (1.0 + self.skills.woodcutting / 50.0) * autumn_wood_bonus,
-                    gather_stone_speed: 1.0 + self.skills.mining / 50.0,
+                    gather_wood_speed: (1.0 + self.skills.woodcutting / 50.0)
+                        * autumn_wood_bonus
+                        * seasonal_gather,
+                    gather_stone_speed: (1.0 + self.skills.mining / 50.0) * seasonal_gather,
                     build_speed: (self.skills.building / 50.0).floor() as u32,
                 };
                 self.spatial_grid.populate(&self.world);
@@ -2153,7 +2156,13 @@ impl Game {
                 let prev_season = self.day_night.season;
                 self.day_night.tick();
                 if self.day_night.season != prev_season {
-                    self.notify(format!("Season changed: {}", self.day_night.season.name()));
+                    let season_msg = match self.day_night.season {
+                        Season::Spring => "Spring has arrived — the ice thaws!",
+                        Season::Summer => "Summer heat — fire risk increases!",
+                        Season::Autumn => "Autumn harvest — gather while you can!",
+                        Season::Winter => "Winter descends — conserve resources!",
+                    };
+                    self.notify_milestone(season_msg);
 
                     // --- Seasonal terrain transitions ---
                     // Revert previous season's overlays before applying new ones.
@@ -3802,6 +3811,8 @@ mod tests {
     fn plague_kills_villager() {
         let mut game = Game::new(60, 42);
         let mut renderer = HeadlessRenderer::new(120, 40);
+        // Use winter to suppress births that could replace plague kills
+        game.day_night.season = Season::Winter;
 
         let initial_villagers = game
             .world
@@ -4561,10 +4572,10 @@ mod tests {
     fn fire_ignition_requires_low_moisture() {
         let mut game = Game::new(60, 42);
         game.day_night.season = Season::Summer;
-        // Set all forest tiles to high moisture
+        // Set all flammable tiles to high moisture
         for y in 0..game.map.height {
             for x in 0..game.map.width {
-                if game.map.get(x, y) == Some(&Terrain::Forest) {
+                if game.map.get(x, y).is_some_and(|t| t.is_flammable()) {
                     game.moisture.set(x, y, 0.5); // above 0.15 threshold
                 }
             }
