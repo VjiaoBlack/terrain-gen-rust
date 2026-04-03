@@ -8,6 +8,65 @@ pub(super) fn dist(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
     ((ax - bx).powi(2) + (ay - by).powi(2)).sqrt()
 }
 
+/// Build a cost overlay that combines personal danger memories with the global danger scent.
+/// For each tile, uses max(personal_danger_cost, scent_danger_cost) per KNOWN_CONFLICTS.md #5.
+/// The overlay values are raw additive costs (the A* function divides by 20 and caps at 2.0).
+///
+/// `danger_zones` is the villager's personal DangerZone memories: (x, y, confidence).
+/// `danger_scent` is the global scent map (same dimensions as the tile map).
+pub(super) fn build_danger_overlay(
+    map_width: usize,
+    map_height: usize,
+    danger_zones: &[(f64, f64, f64)],
+    danger_scent: &crate::simulation::ScentMap,
+) -> Vec<f64> {
+    let n = map_width * map_height;
+    let has_scent = danger_scent.has_scent();
+
+    // Fast path: no danger at all
+    if danger_zones.is_empty() && !has_scent {
+        return Vec::new();
+    }
+
+    let mut overlay = vec![0.0_f64; n];
+
+    // Apply personal danger memory cost
+    // To avoid iterating all tiles per danger zone, only fill tiles within the radius.
+    for &(dx, dy, conf) in danger_zones {
+        let radius = DANGER_PATHFINDING_RADIUS * conf;
+        let r_ceil = radius.ceil() as i32;
+        let cx = dx.round() as i32;
+        let cy = dy.round() as i32;
+        for ty in (cy - r_ceil).max(0)..=(cy + r_ceil).min(map_height as i32 - 1) {
+            for tx in (cx - r_ceil).max(0)..=(cx + r_ceil).min(map_width as i32 - 1) {
+                let d = dist(tx as f64, ty as f64, dx, dy);
+                if d < radius {
+                    let proximity = 1.0 - d / radius;
+                    // Multiplier that the design doc specifies: conf * (COST - 1.0) * proximity + 1.0
+                    // But overlay is additive on top of base cost, so we store the extra penalty.
+                    // A* adds overlay/20 (capped 2.0). We want center cost = conf * 5.0 * 20 = 100
+                    // so that overlay/20 = 5.0 at center. Thus raw = conf * (COST-1) * proximity * 20.
+                    let raw = conf * (DANGER_PATHFINDING_COST - 1.0) * proximity * 20.0;
+                    let idx = ty as usize * map_width + tx as usize;
+                    overlay[idx] = overlay[idx].max(raw);
+                }
+            }
+        }
+    }
+
+    // Merge with scent overlay: max(personal, scent) per tile
+    if has_scent {
+        let scent_values = danger_scent.values();
+        if scent_values.len() == n {
+            for i in 0..n {
+                overlay[i] = overlay[i].max(scent_values[i]);
+            }
+        }
+    }
+
+    overlay
+}
+
 pub(super) fn move_toward(pos: &Position, tx: f64, ty: f64, speed: f64, vel: &mut Velocity) -> f64 {
     let dx = tx - pos.x;
     let dy = ty - pos.y;
@@ -132,6 +191,37 @@ pub(super) fn move_toward_cached(
         move_toward(pos, wx, wy, speed, vel);
     }
     d
+}
+
+/// Move toward target using cached A* path, optionally using a danger cost overlay.
+/// If `danger_overlay` is non-empty, uses overlay-aware pathfinding; otherwise falls back
+/// to regular cached A*. This is the primary entry point for danger-aware movement.
+pub(super) fn move_toward_cached_with_danger(
+    pos: &Position,
+    tx: f64,
+    ty: f64,
+    speed: f64,
+    vel: &mut Velocity,
+    map: &TileMap,
+    cache: &mut PathCache,
+    current_tick: u64,
+    danger_overlay: &[f64],
+) -> f64 {
+    if danger_overlay.is_empty() {
+        move_toward_cached(pos, tx, ty, speed, vel, map, cache, current_tick)
+    } else {
+        move_toward_cached_with_overlay(
+            pos,
+            tx,
+            ty,
+            speed,
+            vel,
+            map,
+            cache,
+            current_tick,
+            danger_overlay,
+        )
+    }
 }
 
 /// Like `move_toward_cached` but uses a cost overlay (e.g. danger scent) in A* pathfinding.
@@ -634,6 +724,7 @@ pub(super) fn ai_villager(
     current_tick: u64,
     danger_scent: &crate::simulation::ScentMap,
     home_scent: &crate::simulation::ScentMap,
+    danger_zones: &[(f64, f64, f64)],
 ) -> (
     BehaviorState,
     f64,
@@ -642,6 +733,9 @@ pub(super) fn ai_villager(
     Option<ResourceType>,
     Option<Entity>,
 ) {
+    // Build a combined danger overlay (personal memories + global scent) for pathfinding.
+    // Empty vec means no overlay; move_toward_cached_with_overlay falls back to regular A*.
+    let danger_overlay = build_danger_overlay(map.width, map.height, danger_zones, danger_scent);
     let mut hunger = creature.hunger;
     let pos_copy = *pos;
 
@@ -700,23 +794,18 @@ pub(super) fn ai_villager(
                 .unwrap_or((creature.home_x, creature.home_y));
 
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            // Use danger-scent-aware pathfinding when fleeing, so villagers
-            // route around the area they're fleeing from.
-            let d = if danger_scent.has_scent() {
-                move_toward_cached_with_overlay(
-                    pos,
-                    hx,
-                    hy,
-                    speed * 1.5,
-                    &mut vel,
-                    map,
-                    cache,
-                    current_tick,
-                    danger_scent.values(),
-                )
-            } else {
-                move_toward_cached(pos, hx, hy, speed * 1.5, &mut vel, map, cache, current_tick)
-            };
+            // Use combined danger overlay (personal memory + scent) when fleeing.
+            let d = move_toward_cached_with_danger(
+                pos,
+                hx,
+                hy,
+                speed * 1.5,
+                &mut vel,
+                map,
+                cache,
+                current_tick,
+                &danger_overlay,
+            );
             if d < 1.5 {
                 (
                     BehaviorState::Idle {
@@ -760,7 +849,17 @@ pub(super) fn ai_villager(
                     .map(|(e, _)| (e.x, e.y))
                     .unwrap_or((creature.home_x, creature.home_y));
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_cached(pos, hx, hy, speed, &mut vel, map, cache, current_tick);
+                move_toward_cached_with_danger(
+                    pos,
+                    hx,
+                    hy,
+                    speed,
+                    &mut vel,
+                    map,
+                    cache,
+                    current_tick,
+                    &danger_overlay,
+                );
                 (
                     BehaviorState::Hauling {
                         target_x: hx,
@@ -793,7 +892,7 @@ pub(super) fn ai_villager(
             resource_type,
         } => {
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d = move_toward_cached(
+            let d = move_toward_cached_with_danger(
                 pos,
                 *target_x,
                 *target_y,
@@ -802,6 +901,7 @@ pub(super) fn ai_villager(
                 map,
                 cache,
                 current_tick,
+                &danger_overlay,
             );
             if d < 1.5 {
                 // Deposited resource at stockpile — short idle then re-evaluate
@@ -942,7 +1042,7 @@ pub(super) fn ai_villager(
             let d = dist(pos.x, pos.y, *target_x, *target_y);
             if d > 2.5 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_cached(
+                move_toward_cached_with_danger(
                     pos,
                     *target_x,
                     *target_y,
@@ -951,6 +1051,7 @@ pub(super) fn ai_villager(
                     map,
                     cache,
                     current_tick,
+                    &danger_overlay,
                 );
                 (
                     BehaviorState::Farming {
@@ -1019,7 +1120,7 @@ pub(super) fn ai_villager(
             let d = dist(pos.x, pos.y, *target_x, *target_y);
             if d > 2.5 {
                 let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                move_toward_cached(
+                move_toward_cached_with_danger(
                     pos,
                     *target_x,
                     *target_y,
@@ -1028,6 +1129,7 @@ pub(super) fn ai_villager(
                     map,
                     cache,
                     current_tick,
+                    &danger_overlay,
                 );
                 (
                     BehaviorState::Working {
@@ -1090,7 +1192,17 @@ pub(super) fn ai_villager(
             if stockpile_wood < 10 {
                 if let Some((fx, fy)) = wood_nearby {
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_cached(pos, fx, fy, speed, &mut vel, map, cache, current_tick);
+                    move_toward_cached_with_danger(
+                        pos,
+                        fx,
+                        fy,
+                        speed,
+                        &mut vel,
+                        map,
+                        cache,
+                        current_tick,
+                        &danger_overlay,
+                    );
                     return (
                         BehaviorState::Seek {
                             target_x: fx,
@@ -1108,7 +1220,17 @@ pub(super) fn ai_villager(
             if stockpile_stone < 10 {
                 if let Some((dx, dy, _)) = stone_nearby {
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_cached(pos, dx, dy, speed, &mut vel, map, cache, current_tick);
+                    move_toward_cached_with_danger(
+                        pos,
+                        dx,
+                        dy,
+                        speed,
+                        &mut vel,
+                        map,
+                        cache,
+                        current_tick,
+                        &danger_overlay,
+                    );
                     return (
                         BehaviorState::Seek {
                             target_x: dx,
@@ -1136,7 +1258,7 @@ pub(super) fn ai_villager(
                 );
             }
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            move_toward_cached(
+            move_toward_cached_with_danger(
                 pos,
                 *target_x,
                 *target_y,
@@ -1145,6 +1267,7 @@ pub(super) fn ai_villager(
                 map,
                 cache,
                 current_tick,
+                &danger_overlay,
             );
             (
                 BehaviorState::Exploring {
@@ -1186,7 +1309,7 @@ pub(super) fn ai_villager(
                                     && t != Some(&Terrain::BuildingWall)
                                 {
                                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                                    move_toward_cached(
+                                    move_toward_cached_with_danger(
                                         pos,
                                         nx,
                                         ny,
@@ -1195,6 +1318,7 @@ pub(super) fn ai_villager(
                                         map,
                                         cache,
                                         current_tick,
+                                        &danger_overlay,
                                     );
                                     return (
                                         BehaviorState::Seek {
@@ -1235,7 +1359,17 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_cached(pos, hx, hy, speed, &mut vel, map, cache, current_tick);
+                        move_toward_cached_with_danger(
+                            pos,
+                            hx,
+                            hy,
+                            speed,
+                            &mut vel,
+                            map,
+                            cache,
+                            current_tick,
+                            &danger_overlay,
+                        );
                         return (
                             BehaviorState::Seek {
                                 target_x: hx,
@@ -1293,7 +1427,17 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_cached(pos, fx, fy, speed, &mut vel, map, cache, current_tick);
+                        move_toward_cached_with_danger(
+                            pos,
+                            fx,
+                            fy,
+                            speed,
+                            &mut vel,
+                            map,
+                            cache,
+                            current_tick,
+                            &danger_overlay,
+                        );
                         return (
                             BehaviorState::Seek {
                                 target_x: fx,
@@ -1327,7 +1471,7 @@ pub(super) fn ai_villager(
                             );
                         } else {
                             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                            move_toward_cached(
+                            move_toward_cached_with_danger(
                                 pos,
                                 sx,
                                 sy,
@@ -1336,6 +1480,7 @@ pub(super) fn ai_villager(
                                 map,
                                 cache,
                                 current_tick,
+                                &danger_overlay,
                             );
                             return (
                                 BehaviorState::Seek {
@@ -1386,7 +1531,17 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_cached(pos, dx, dy, speed, &mut vel, map, cache, current_tick);
+                        move_toward_cached_with_danger(
+                            pos,
+                            dx,
+                            dy,
+                            speed,
+                            &mut vel,
+                            map,
+                            cache,
+                            current_tick,
+                            &danger_overlay,
+                        );
                         return (
                             BehaviorState::Seek {
                                 target_x: dx,
@@ -1445,7 +1600,17 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_cached(pos, bx, by, speed, &mut vel, map, cache, current_tick);
+                        move_toward_cached_with_danger(
+                            pos,
+                            bx,
+                            by,
+                            speed,
+                            &mut vel,
+                            map,
+                            cache,
+                            current_tick,
+                            &danger_overlay,
+                        );
                         return (
                             BehaviorState::Seek {
                                 target_x: bx,
@@ -1482,7 +1647,17 @@ pub(super) fn ai_villager(
                         );
                     } else {
                         let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                        move_toward_cached(pos, fx, fy, speed, &mut vel, map, cache, current_tick);
+                        move_toward_cached_with_danger(
+                            pos,
+                            fx,
+                            fy,
+                            speed,
+                            &mut vel,
+                            map,
+                            cache,
+                            current_tick,
+                            &danger_overlay,
+                        );
                         return (
                             BehaviorState::Seek {
                                 target_x: fx,
@@ -1576,7 +1751,17 @@ pub(super) fn ai_villager(
                             ResourceType::Stone => SeekReason::Stone,
                             _ => SeekReason::Food,
                         };
-                        move_toward_cached(pos, tx, ty, speed, &mut vel, map, cache, current_tick);
+                        move_toward_cached_with_danger(
+                            pos,
+                            tx,
+                            ty,
+                            speed,
+                            &mut vel,
+                            map,
+                            cache,
+                            current_tick,
+                            &danger_overlay,
+                        );
                         return (
                             BehaviorState::Seek {
                                 target_x: tx,
@@ -1613,7 +1798,17 @@ pub(super) fn ai_villager(
                     let tx = fx as f64;
                     let ty = fy as f64;
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_cached(pos, tx, ty, speed, &mut vel, map, cache, current_tick);
+                    move_toward_cached_with_danger(
+                        pos,
+                        tx,
+                        ty,
+                        speed,
+                        &mut vel,
+                        map,
+                        cache,
+                        current_tick,
+                        &danger_overlay,
+                    );
                     return (
                         BehaviorState::Exploring {
                             target_x: tx,
@@ -1636,7 +1831,7 @@ pub(super) fn ai_villager(
                 let vy = pos.y.round() as usize;
                 if let Some((hx, hy, _strength)) = home_scent.sample_gradient(vx, vy, 12, 0.5) {
                     let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-                    move_toward_cached(
+                    move_toward_cached_with_danger(
                         pos,
                         hx as f64,
                         hy as f64,
@@ -1645,6 +1840,7 @@ pub(super) fn ai_villager(
                         map,
                         cache,
                         current_tick,
+                        &danger_overlay,
                     );
                     return (
                         BehaviorState::Seek {

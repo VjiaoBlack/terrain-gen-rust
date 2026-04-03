@@ -53,6 +53,19 @@ pub const STALE_ARRIVAL_PAUSE: u32 = 8;
 /// Distance threshold for upsert deduplication (same-kind entries within this range are merged).
 pub const MEMORY_UPSERT_RADIUS: f64 = 5.0;
 
+// --- Danger Memory Constants ---
+
+/// Maximum avoidance radius in tiles around a remembered danger (at confidence 1.0).
+pub const DANGER_AVOIDANCE_RADIUS: f64 = 12.0;
+/// Score penalty applied to gather targets near a danger zone (scales with confidence + proximity).
+pub const DANGER_TARGET_PENALTY: f64 = 0.5;
+/// Maximum total danger penalty on a target score (prevents score going impossibly negative).
+pub const DANGER_TARGET_PENALTY_CAP: f64 = 0.8;
+/// A* cost multiplier at the center of a fresh danger zone (confidence 1.0, distance 0).
+pub const DANGER_PATHFINDING_COST: f64 = 6.0;
+/// Radius in tiles for pathfinding cost penalty (smaller than avoidance radius for performance).
+pub const DANGER_PATHFINDING_RADIUS: f64 = 8.0;
+
 /// What kind of thing a villager remembers.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MemoryKind {
@@ -276,8 +289,9 @@ impl VillagerMemory {
             .retain(|e| e.confidence >= MEMORY_FORGET_THRESHOLD);
     }
 
-    /// Best-known location for a resource type, weighted by confidence and distance.
-    /// Returns (x, y, score) where score = confidence - distance/100.
+    /// Best-known location for a resource type, weighted by confidence, distance,
+    /// and danger avoidance. Returns (x, y, score) where
+    /// score = confidence - distance/100 - danger_penalty.
     pub fn best_resource(
         &self,
         kind: MemoryKind,
@@ -291,8 +305,9 @@ impl VillagerMemory {
                 let dx = e.x - from_x;
                 let dy = e.y - from_y;
                 let d = (dx * dx + dy * dy).sqrt();
-                let score = e.confidence - d / 100.0;
-                (e.x, e.y, score)
+                let base_score = e.confidence - d / 100.0;
+                let penalty = self.danger_penalty_at(e.x, e.y);
+                (e.x, e.y, base_score - penalty)
             })
             .max_by(|(_, _, a), (_, _, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
     }
@@ -306,6 +321,38 @@ impl VillagerMemory {
                 (dx * dx + dy * dy).sqrt() < radius
             }
         })
+    }
+
+    /// Extract active DangerZone entries as (x, y, confidence) tuples for pathfinding.
+    pub fn danger_zones(&self) -> Vec<(f64, f64, f64)> {
+        self.entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::DangerZone && e.confidence > MEMORY_FORGET_THRESHOLD)
+            .map(|e| (e.x, e.y, e.confidence))
+            .collect()
+    }
+
+    /// Compute the danger penalty for a target location based on DangerZone memories.
+    /// Returns a penalty in [0.0, DANGER_TARGET_PENALTY_CAP] that should be subtracted
+    /// from the target's score. Closer targets with fresher danger get higher penalties.
+    pub fn danger_penalty_at(&self, target_x: f64, target_y: f64) -> f64 {
+        let raw: f64 = self
+            .entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::DangerZone && e.confidence > MEMORY_FORGET_THRESHOLD)
+            .map(|e| {
+                let dx = target_x - e.x;
+                let dy = target_y - e.y;
+                let d = (dx * dx + dy * dy).sqrt();
+                let effective_radius = DANGER_AVOIDANCE_RADIUS * e.confidence;
+                if d < effective_radius {
+                    e.confidence * DANGER_TARGET_PENALTY * (1.0 - d / effective_radius)
+                } else {
+                    0.0
+                }
+            })
+            .sum();
+        raw.min(DANGER_TARGET_PENALTY_CAP)
     }
 
     /// Number of entries (for testing/debug).

@@ -308,6 +308,13 @@ pub fn system_ai(
                     .map(|c| (*c).clone())
                     .unwrap_or_default();
 
+                // Extract personal danger zones for pathfinding overlay
+                let danger_zones: Vec<(f64, f64, f64)> = world
+                    .get::<&VillagerMemory>(e)
+                    .ok()
+                    .map(|m| m.danger_zones())
+                    .unwrap_or_default();
+
                 let (s, vx, vy, h, dep, claim_site) = ai_villager(
                     &pos,
                     &creature,
@@ -330,6 +337,7 @@ pub fn system_ai(
                     current_tick,
                     danger_scent,
                     home_scent,
+                    &danger_zones,
                 );
 
                 // Write back PathCache
@@ -354,6 +362,29 @@ pub fn system_ai(
                     e,
                     current_tick,
                 );
+
+                // Danger memory: record DangerZone when transitioning to FleeHome.
+                // This captures "I was chased here" at the villager's current position,
+                // and also records where the predator was.
+                let entering_flee = matches!(s, BehaviorState::FleeHome { .. })
+                    && !matches!(behavior_state, BehaviorState::FleeHome { .. });
+                if entering_flee {
+                    if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
+                        // Record own position (where the flight started)
+                        memory.upsert(MemoryKind::DangerZone, pos.x, pos.y, current_tick);
+                        // Record nearest predator position if visible
+                        if let Some((pred_entry, _)) =
+                            grid.nearest(pos.x, pos.y, creature.sight_range, category::PREDATOR)
+                        {
+                            memory.upsert(
+                                MemoryKind::DangerZone,
+                                pred_entry.x,
+                                pred_entry.y,
+                                current_tick,
+                            );
+                        }
+                    }
+                }
 
                 // Villager just started eating near stockpile: grain → bread → food
                 if matches!(s, BehaviorState::Eating { .. }) && !was_eating && !near_food_source {
@@ -608,8 +639,11 @@ pub fn system_ai(
         }
     }
 
-    // Mark captured prey
+    // Mark captured prey and record danger witnesses
     for e in to_capture {
+        // Get the capture position before modifying state
+        let capture_pos = world.get::<&Position>(e).ok().map(|p| (p.x, p.y));
+
         if let Ok(mut behavior) = world.get::<&mut Behavior>(e) {
             behavior.state = BehaviorState::Captured;
         }
@@ -617,10 +651,52 @@ pub fn system_ai(
             vel.dx = 0.0;
             vel.dy = 0.0;
         }
+
+        // Danger memory trigger: nearby villagers witness the capture/kill
+        // and record a DangerZone at the capture location.
+        if let Some((cx, cy)) = capture_pos {
+            let witnesses: Vec<Entity> = world
+                .query::<(Entity, &Position, &Creature)>()
+                .iter()
+                .filter(|(witness_e, p, c)| {
+                    c.species == Species::Villager && *witness_e != e && {
+                        let dx = p.x - cx;
+                        let dy = p.y - cy;
+                        (dx * dx + dy * dy) < c.sight_range * c.sight_range
+                    }
+                })
+                .map(|(we, _, _)| we)
+                .collect();
+            for we in witnesses {
+                if let Ok(mut memory) = world.get::<&mut VillagerMemory>(we) {
+                    memory.upsert(MemoryKind::DangerZone, cx, cy, current_tick);
+                }
+            }
+        }
     }
 
-    // Despawn consumed prey
+    // Despawn consumed prey — also record danger for nearby witnesses
     for e in to_despawn {
+        let despawn_pos = world.get::<&Position>(e).ok().map(|p| (p.x, p.y));
+        if let Some((cx, cy)) = despawn_pos {
+            let witnesses: Vec<Entity> = world
+                .query::<(Entity, &Position, &Creature)>()
+                .iter()
+                .filter(|(witness_e, p, c)| {
+                    c.species == Species::Villager && *witness_e != e && {
+                        let dx = p.x - cx;
+                        let dy = p.y - cy;
+                        (dx * dx + dy * dy) < c.sight_range * c.sight_range
+                    }
+                })
+                .map(|(we, _, _)| we)
+                .collect();
+            for we in witnesses {
+                if let Ok(mut memory) = world.get::<&mut VillagerMemory>(we) {
+                    memory.upsert(MemoryKind::DangerZone, cx, cy, current_tick);
+                }
+            }
+        }
         let _ = world.despawn(e);
     }
 

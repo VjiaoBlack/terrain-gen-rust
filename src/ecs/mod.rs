@@ -6752,4 +6752,256 @@ mod tests {
         );
         assert_eq!(reader_mem.entries[0].kind, MemoryKind::ThreatReport);
     }
+
+    // --- Danger Memory Tests ---
+
+    #[test]
+    fn danger_zones_extracts_active_entries() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 20.0, 100);
+        mem.upsert(MemoryKind::WoodSource, 5.0, 5.0, 100);
+        let zones = mem.danger_zones();
+        assert_eq!(zones.len(), 1);
+        assert!((zones[0].0 - 10.0).abs() < 0.01);
+        assert!((zones[0].1 - 20.0).abs() < 0.01);
+        assert!((zones[0].2 - 1.0).abs() < 0.01); // confidence starts at 1.0
+    }
+
+    #[test]
+    fn danger_zones_excludes_faded_entries() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 20.0, 100);
+        // Decay until below forget threshold
+        for _ in 0..2000 {
+            mem.decay_tick(10.0, 20.0);
+        }
+        let zones = mem.danger_zones();
+        assert_eq!(zones.len(), 0, "faded danger zone should be forgotten");
+    }
+
+    #[test]
+    fn danger_penalty_at_center_of_fresh_zone() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+        // At the exact danger location: full penalty
+        let penalty = mem.danger_penalty_at(50.0, 50.0);
+        assert!(
+            penalty > 0.4,
+            "penalty at center should be close to DANGER_TARGET_PENALTY (0.5), got {penalty}"
+        );
+    }
+
+    #[test]
+    fn danger_penalty_outside_radius_is_zero() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+        // At distance 20 (well outside DANGER_AVOIDANCE_RADIUS=12): no penalty
+        let penalty = mem.danger_penalty_at(70.0, 50.0);
+        assert!(
+            penalty < 0.001,
+            "penalty outside radius should be ~0, got {penalty}"
+        );
+    }
+
+    #[test]
+    fn danger_penalty_scales_with_distance() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+        let penalty_close = mem.danger_penalty_at(52.0, 50.0); // ~2 tiles away
+        let penalty_mid = mem.danger_penalty_at(58.0, 50.0); // ~8 tiles away
+        assert!(
+            penalty_close > penalty_mid,
+            "closer target should have higher penalty: {penalty_close} vs {penalty_mid}"
+        );
+    }
+
+    #[test]
+    fn danger_penalty_capped_at_max() {
+        let mut mem = VillagerMemory::new();
+        // Add multiple overlapping danger zones
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+        mem.upsert(MemoryKind::DangerZone, 52.0, 50.0, 100);
+        mem.upsert(MemoryKind::DangerZone, 48.0, 50.0, 100);
+        let penalty = mem.danger_penalty_at(50.0, 50.0);
+        assert!(
+            penalty <= DANGER_TARGET_PENALTY_CAP + 0.001,
+            "penalty should be capped at {}, got {penalty}",
+            DANGER_TARGET_PENALTY_CAP
+        );
+    }
+
+    #[test]
+    fn best_resource_penalized_by_danger() {
+        let mut mem = VillagerMemory::new();
+        // Two wood sources at same distance
+        mem.upsert(MemoryKind::WoodSource, 20.0, 50.0, 100);
+        mem.upsert(MemoryKind::WoodSource, 80.0, 50.0, 100);
+        // Danger near the first one
+        mem.upsert(MemoryKind::DangerZone, 22.0, 50.0, 100);
+
+        let best = mem.best_resource(MemoryKind::WoodSource, 50.0, 50.0);
+        assert!(best.is_some());
+        let (bx, _by, _score) = best.unwrap();
+        assert!(
+            (bx - 80.0).abs() < 1.0,
+            "should prefer the safe wood source at x=80, got x={bx}"
+        );
+    }
+
+    #[test]
+    fn danger_penalty_shrinks_with_confidence() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 50.0, 50.0, 100);
+        let fresh_penalty = mem.danger_penalty_at(55.0, 50.0);
+
+        // Decay confidence significantly
+        for _ in 0..200 {
+            mem.decay_tick(50.0, 50.0);
+        }
+        let faded_penalty = mem.danger_penalty_at(55.0, 50.0);
+        assert!(
+            fresh_penalty > faded_penalty,
+            "penalty should decrease as confidence fades: {fresh_penalty} vs {faded_penalty}"
+        );
+    }
+
+    #[test]
+    fn build_danger_overlay_empty_when_no_danger() {
+        let scent = ScentMap::new(10, 10, 0.99, 0.01);
+        let overlay = ai::build_danger_overlay(10, 10, &[], &scent);
+        assert!(
+            overlay.is_empty(),
+            "overlay should be empty when no danger exists"
+        );
+    }
+
+    #[test]
+    fn build_danger_overlay_has_cost_near_danger() {
+        let scent = ScentMap::new(20, 20, 0.99, 0.01);
+        let zones = vec![(10.0, 10.0, 1.0)]; // fresh danger at center
+        let overlay = ai::build_danger_overlay(20, 20, &zones, &scent);
+        assert_eq!(overlay.len(), 400);
+        // At the center (10,10): should have high cost
+        let center_cost = overlay[10 * 20 + 10];
+        assert!(
+            center_cost > 50.0,
+            "center of danger zone should have high cost, got {center_cost}"
+        );
+        // At the corner (0,0): should have no cost (distance ~14 > radius 8)
+        let corner_cost = overlay[0];
+        assert!(
+            corner_cost < 0.01,
+            "corner should have no danger cost, got {corner_cost}"
+        );
+    }
+
+    #[test]
+    fn build_danger_overlay_takes_max_of_personal_and_scent() {
+        let mut scent = ScentMap::new(10, 10, 0.99, 0.01);
+        scent.emit(5, 5, 30.0); // scent at (5,5) = 30.0
+        let zones = vec![(5.0, 5.0, 0.1)]; // weak personal danger at same spot
+        let overlay = ai::build_danger_overlay(10, 10, &zones, &scent);
+        let val = overlay[5 * 10 + 5];
+        assert!(
+            val >= 30.0,
+            "overlay should take max(personal, scent); scent=30, got {val}"
+        );
+    }
+
+    #[test]
+    fn flee_transition_records_danger_zone() {
+        let map = walkable_map(64, 64);
+        let mut world = World::new();
+
+        // Spawn a villager
+        let v = world.spawn((
+            Position { x: 30.0, y: 30.0 },
+            Velocity { dx: 0.0, dy: 0.0 },
+            Creature {
+                species: Species::Villager,
+                hunger: 0.0,
+                home_x: 20.0,
+                home_y: 20.0,
+                sight_range: 22.0,
+            },
+            Behavior {
+                state: BehaviorState::Idle { timer: 0 },
+                speed: 1.0,
+            },
+            VillagerMemory::new(),
+            PathCache::default(),
+            TickSchedule {
+                next_ai_tick: 0,
+                interval: 1,
+            },
+        ));
+
+        // Spawn a predator nearby (within threat range)
+        let _wolf = world.spawn((
+            Position { x: 33.0, y: 30.0 },
+            Velocity { dx: 0.0, dy: 0.0 },
+            Creature {
+                species: Species::Predator,
+                hunger: 0.5,
+                home_x: 50.0,
+                home_y: 50.0,
+                sight_range: 22.0,
+            },
+            Behavior {
+                state: BehaviorState::Wander { timer: 10 },
+                speed: 1.2,
+            },
+        ));
+
+        // Spawn stockpile
+        let _stockpile = world.spawn((
+            Position { x: 20.0, y: 20.0 },
+            Stockpile,
+            BulletinBoard::default(),
+        ));
+
+        let grid = make_grid(&world, &map);
+        let danger_scent = ScentMap::new(64, 64, 0.99, 0.01);
+        let home_scent = ScentMap::new(64, 64, 0.99, 0.01);
+
+        let _result = systems::system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.5,
+            10,
+            10,
+            10,
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            0,
+            &[],
+            &danger_scent,
+            &home_scent,
+        );
+
+        // Villager should now be fleeing
+        let behavior = world.get::<&Behavior>(v).unwrap();
+        assert!(
+            matches!(behavior.state, BehaviorState::FleeHome { .. }),
+            "villager should be fleeing, got {:?}",
+            behavior.state
+        );
+
+        // Check that danger zones were recorded in memory
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        let danger_entries: Vec<_> = memory
+            .entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::DangerZone)
+            .collect();
+        assert!(
+            !danger_entries.is_empty(),
+            "villager should have recorded DangerZone memories when fleeing"
+        );
+    }
 }
