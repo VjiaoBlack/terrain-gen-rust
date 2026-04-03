@@ -4854,4 +4854,596 @@ mod tests {
         assert_eq!(cache.dest_y, 0.0);
         assert_eq!(cache.computed_tick, 0);
     }
+
+    // --- Encounter Info Sharing Tests (#53) ---
+
+    #[test]
+    fn encounter_share_basic() {
+        // Two villagers within 3 tiles. A has WoodSource that B lacks.
+        // After encounter, B should have the WoodSource with reduced confidence.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0); // 1 tile apart
+
+        // Give A a firsthand WoodSource memory
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+
+        let grid = make_grid(&world, &map);
+        // Use tick divisible by ENCOUNTER_SYSTEM_FREQUENCY (5)
+        system_info_sharing(&mut world, &grid, 100);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        let wood_entries: Vec<_> = mem_b
+            .entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::WoodSource)
+            .collect();
+        assert_eq!(
+            wood_entries.len(),
+            1,
+            "B should have learned WoodSource from A"
+        );
+        assert!(
+            !wood_entries[0].firsthand,
+            "shared entry should be secondhand"
+        );
+    }
+
+    #[test]
+    fn encounter_share_confidence_penalty() {
+        // Shared entry arrives at original - 0.15 confidence.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::StoneDeposit, 20.0, 20.0, 100);
+            // confidence is 1.0 after upsert
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        let stone = mem_b
+            .entries
+            .iter()
+            .find(|e| e.kind == MemoryKind::StoneDeposit)
+            .expect("B should have StoneDeposit");
+        let expected = (1.0_f64 - ENCOUNTER_CONFIDENCE_PENALTY).clamp(0.1, 0.9);
+        assert!(
+            (stone.confidence - expected).abs() < 0.001,
+            "expected confidence {:.2}, got {:.2}",
+            expected,
+            stone.confidence
+        );
+    }
+
+    #[test]
+    fn encounter_share_max_entries() {
+        // Sharer has 10 entries receiver lacks. Only 3 (highest confidence) transferred.
+        let mut world = World::new();
+        let map = walkable_map(64, 64);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            // Add 10 entries at distinct locations with varying confidence
+            for i in 0..10 {
+                mem.entries.push(MemoryEntry {
+                    kind: MemoryKind::FoodSource,
+                    x: 20.0 + (i as f64) * 10.0,
+                    y: 20.0,
+                    tick_observed: 100,
+                    confidence: 0.5 + (i as f64) * 0.05,
+                    firsthand: true,
+                });
+            }
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        let food_entries: Vec<_> = mem_b
+            .entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::FoodSource)
+            .collect();
+        assert_eq!(
+            food_entries.len(),
+            MAX_SHARE_PER_ENCOUNTER,
+            "should transfer exactly {} entries, got {}",
+            MAX_SHARE_PER_ENCOUNTER,
+            food_entries.len()
+        );
+    }
+
+    #[test]
+    fn encounter_dedup_skip() {
+        // Receiver already knows about the same location. No duplicate created.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        {
+            let mut mem_a = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem_a.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+        {
+            let mut mem_b = world.get::<&mut VillagerMemory>(b).unwrap();
+            mem_b.upsert(MemoryKind::WoodSource, 21.0, 20.0, 100); // within 5-tile dedup
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        let wood_entries: Vec<_> = mem_b
+            .entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::WoodSource)
+            .collect();
+        assert_eq!(
+            wood_entries.len(),
+            1,
+            "should not duplicate known entry, got {} entries",
+            wood_entries.len()
+        );
+    }
+
+    #[test]
+    fn encounter_dedup_update() {
+        // Receiver has stale knowledge (low confidence), sharer has fresh.
+        // Receiver's entry should be updated to the transferred confidence.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        {
+            let mut mem_a = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem_a.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+            // A has confidence 1.0
+        }
+        {
+            let mut mem_b = world.get::<&mut VillagerMemory>(b).unwrap();
+            mem_b.entries.push(MemoryEntry {
+                kind: MemoryKind::WoodSource,
+                x: 20.0,
+                y: 20.0,
+                tick_observed: 50,
+                confidence: 0.3, // stale
+                firsthand: true,
+            });
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        let wood = mem_b
+            .entries
+            .iter()
+            .find(|e| e.kind == MemoryKind::WoodSource)
+            .unwrap();
+        let expected = (1.0 - ENCOUNTER_CONFIDENCE_PENALTY).clamp(0.1, 0.9);
+        assert!(
+            wood.confidence > 0.3,
+            "B's entry should be updated from 0.3 to {:.2}, got {:.2}",
+            expected,
+            wood.confidence
+        );
+        assert!(
+            (wood.confidence - expected).abs() < 0.001,
+            "confidence should be {:.2}, got {:.2}",
+            expected,
+            wood.confidence
+        );
+    }
+
+    #[test]
+    fn encounter_cooldown_prevents_reshare() {
+        // Two villagers share. On the next encounter tick, they should NOT share again.
+        // After 60 ticks, they share again.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        // Give A a WoodSource
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        // B should have the entry
+        assert_eq!(
+            world
+                .get::<&VillagerMemory>(b)
+                .unwrap()
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::WoodSource)
+                .count(),
+            1
+        );
+
+        // Now give A a new FoodSource — B should NOT get it due to cooldown
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::FoodSource, 25.0, 25.0, 105);
+        }
+
+        let grid2 = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid2, 105); // within 60-tick cooldown
+
+        assert_eq!(
+            world
+                .get::<&VillagerMemory>(b)
+                .unwrap()
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::FoodSource)
+                .count(),
+            0,
+            "B should NOT receive FoodSource during cooldown"
+        );
+
+        // After cooldown expires (tick 100 + 60 = 160), sharing works again
+        // Use tick 165 (divisible by 5)
+        let grid3 = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid3, 165);
+
+        assert_eq!(
+            world
+                .get::<&VillagerMemory>(b)
+                .unwrap()
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::FoodSource)
+                .count(),
+            1,
+            "B should receive FoodSource after cooldown expires"
+        );
+    }
+
+    #[test]
+    fn encounter_out_of_range() {
+        // Two villagers at distance 4.0. No sharing should occur.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 14.0, 10.0); // 4 tiles apart
+
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        assert_eq!(
+            mem_b
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::WoodSource)
+                .count(),
+            0,
+            "out-of-range villagers should not share"
+        );
+    }
+
+    #[test]
+    fn encounter_secondhand_not_reshared() {
+        // A shares WoodSource to B. B then encounters C. B should NOT share
+        // the secondhand entry to C.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+        let c = spawn_villager(&mut world, 20.0, 10.0); // far from A, close to nobody yet
+
+        // Give A a firsthand WoodSource
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::WoodSource, 25.0, 25.0, 100);
+        }
+
+        // A shares with B
+        let grid1 = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid1, 100);
+
+        // Verify B got it as secondhand
+        {
+            let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+            let entry = mem_b
+                .entries
+                .iter()
+                .find(|e| e.kind == MemoryKind::WoodSource)
+                .expect("B should have WoodSource");
+            assert!(!entry.firsthand, "B's entry should be secondhand");
+        }
+
+        // Move B next to C
+        {
+            let mut pos_b = world.get::<&mut Position>(b).unwrap();
+            pos_b.x = 20.0;
+            pos_b.y = 10.0;
+        }
+
+        // B encounters C — secondhand entry should NOT transfer
+        let grid2 = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid2, 105);
+
+        let mem_c = world.get::<&VillagerMemory>(c).unwrap();
+        assert_eq!(
+            mem_c
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::WoodSource)
+                .count(),
+            0,
+            "C should NOT receive secondhand knowledge from B"
+        );
+    }
+
+    #[test]
+    fn encounter_secondhand_not_posted_to_board() {
+        // Villager learns WoodSource via encounter (secondhand).
+        // Visits stockpile. Board should NOT receive that entry.
+        let mut board = BulletinBoard::default();
+        let mut mem = VillagerMemory::new();
+        mem.entries.push(MemoryEntry {
+            kind: MemoryKind::WoodSource,
+            x: 20.0,
+            y: 20.0,
+            tick_observed: 100,
+            confidence: 0.85,
+            firsthand: false, // learned via encounter
+        });
+
+        board.write_from_memory(&mem, 200);
+        assert_eq!(
+            board.posts.len(),
+            0,
+            "secondhand entries should not be posted to bulletin board"
+        );
+    }
+
+    #[test]
+    fn encounter_tick_frequency_gate() {
+        // system_info_sharing should be a no-op on non-frequency ticks.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+
+        let grid = make_grid(&world, &map);
+        // tick 101 is not divisible by 5
+        system_info_sharing(&mut world, &grid, 101);
+
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        assert_eq!(
+            mem_b
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::WoodSource)
+                .count(),
+            0,
+            "no sharing should occur on non-frequency ticks"
+        );
+    }
+
+    #[test]
+    fn encounter_fleeing_shares_danger() {
+        // A fleeing villager shares DangerZone with everyone they pass,
+        // even during cooldown (alarm wavefront).
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        // Put A in FleeHome state
+        {
+            let mut beh = world.get::<&mut Behavior>(a).unwrap();
+            beh.state = BehaviorState::FleeHome { timer: 120 };
+        }
+
+        // Give A a DangerZone memory
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::DangerZone, 15.0, 15.0, 100);
+        }
+
+        // First encounter
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        assert_eq!(
+            world
+                .get::<&VillagerMemory>(b)
+                .unwrap()
+                .entries
+                .iter()
+                .filter(|e| e.kind == MemoryKind::DangerZone)
+                .count(),
+            1,
+            "B should receive DangerZone from fleeing A"
+        );
+
+        // Give A another DangerZone at a location outside dedup radius (>5 tiles away)
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem.upsert(MemoryKind::DangerZone, 25.0, 25.0, 105);
+        }
+
+        // Share again — normally blocked by cooldown, but fleeing bypasses it
+        let grid2 = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid2, 105);
+
+        let danger_count = world
+            .get::<&VillagerMemory>(b)
+            .unwrap()
+            .entries
+            .iter()
+            .filter(|e| e.kind == MemoryKind::DangerZone)
+            .count();
+        assert_eq!(
+            danger_count, 2,
+            "fleeing villager should bypass cooldown for DangerZone, B has {} entries",
+            danger_count
+        );
+    }
+
+    #[test]
+    fn encounter_bidirectional() {
+        // Both villagers should receive entries from each other.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let a = spawn_villager(&mut world, 10.0, 10.0);
+        let b = spawn_villager(&mut world, 11.0, 10.0);
+
+        // A knows about wood, B knows about stone
+        {
+            let mut mem_a = world.get::<&mut VillagerMemory>(a).unwrap();
+            mem_a.upsert(MemoryKind::WoodSource, 20.0, 20.0, 100);
+        }
+        {
+            let mut mem_b = world.get::<&mut VillagerMemory>(b).unwrap();
+            mem_b.upsert(MemoryKind::StoneDeposit, 25.0, 25.0, 100);
+        }
+
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 100);
+
+        // A should know about stone
+        let mem_a = world.get::<&VillagerMemory>(a).unwrap();
+        assert!(
+            mem_a
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::StoneDeposit),
+            "A should learn StoneDeposit from B"
+        );
+
+        // B should know about wood
+        let mem_b = world.get::<&VillagerMemory>(b).unwrap();
+        assert!(
+            mem_b
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::WoodSource),
+            "B should learn WoodSource from A"
+        );
+    }
+
+    #[test]
+    fn encounter_cooldown_ring_buffer() {
+        // EncounterCooldowns ring buffer works correctly.
+        let mut cooldowns = EncounterCooldowns::default();
+
+        // Fill the buffer
+        for i in 0..MAX_COOLDOWN_ENTRIES {
+            cooldowns.record(i as u64, i as u64 * 10);
+        }
+        assert_eq!(cooldowns.entries.len(), MAX_COOLDOWN_ENTRIES);
+
+        // All should be on cooldown (within 60 ticks of their record time)
+        assert!(cooldowns.on_cooldown(0, 10));
+        assert!(cooldowns.on_cooldown(7, 75));
+
+        // After cooldown expires
+        assert!(!cooldowns.on_cooldown(0, 70)); // recorded at 0, 70 - 0 = 70 > 60
+
+        // Overflow: adding a 9th entry overwrites the oldest
+        cooldowns.record(99, 100);
+        assert!(cooldowns.on_cooldown(99, 100));
+        assert_eq!(cooldowns.entries.len(), MAX_COOLDOWN_ENTRIES);
+    }
+
+    #[test]
+    fn encounter_info_spreads_along_line() {
+        // Place 5 villagers in a line, 2 tiles apart. Give villager 0 a unique memory.
+        // After multiple encounter ticks, the memory propagates with decreasing confidence.
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        let villagers: Vec<hecs::Entity> = (0..5)
+            .map(|i| spawn_villager(&mut world, 10.0 + (i as f64) * 2.0, 10.0))
+            .collect();
+
+        // Give villager 0 a firsthand StoneDeposit
+        {
+            let mut mem = world.get::<&mut VillagerMemory>(villagers[0]).unwrap();
+            mem.upsert(MemoryKind::StoneDeposit, 50.0, 50.0, 0);
+        }
+
+        // Run encounter sharing multiple times with cooldown gaps.
+        // Tick 0: 0->1 (firsthand shares to 1)
+        let grid = make_grid(&world, &map);
+        system_info_sharing(&mut world, &grid, 0);
+
+        // Villager 1 should have it, but secondhand — won't spread further from 1
+        let mem_1 = world.get::<&VillagerMemory>(villagers[1]).unwrap();
+        let entry = mem_1
+            .entries
+            .iter()
+            .find(|e| e.kind == MemoryKind::StoneDeposit);
+        assert!(entry.is_some(), "villager 1 should know about StoneDeposit");
+        assert!(
+            !entry.unwrap().firsthand,
+            "villager 1's entry is secondhand"
+        );
+
+        // Villager 2 should NOT have it (secondhand from 1 is not reshared)
+        let mem_2 = world.get::<&VillagerMemory>(villagers[2]).unwrap();
+        assert!(
+            !mem_2
+                .entries
+                .iter()
+                .any(|e| e.kind == MemoryKind::StoneDeposit),
+            "villager 2 should NOT know (secondhand not reshared)"
+        );
+    }
+
+    #[test]
+    fn encounter_memory_entry_firsthand_default() {
+        // MemoryEntry created via upsert should be firsthand by default.
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 10.0, 100);
+        assert!(
+            mem.entries[0].firsthand,
+            "upsert entries should be firsthand"
+        );
+    }
 }

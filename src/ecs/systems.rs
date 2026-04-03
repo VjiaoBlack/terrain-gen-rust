@@ -3,7 +3,7 @@ use rand::RngExt;
 
 use super::ai::*;
 use super::components::*;
-use super::spatial::{SpatialHashGrid, category};
+use super::spatial::{SpatialEntry, SpatialHashGrid, category};
 use super::spawn::*;
 use crate::renderer::{Color, Renderer};
 use crate::simulation::{MoistureMap, Season};
@@ -1397,5 +1397,324 @@ pub fn system_update_memories(
 
         // Decay all entries
         memory.decay_tick();
+    }
+}
+
+/// Memory kinds that are shareable during encounters.
+/// HomeLocation, StockpileLocation, and VisitedArea are excluded per design doc.
+fn is_shareable_kind(kind: MemoryKind) -> bool {
+    matches!(
+        kind,
+        MemoryKind::WoodSource
+            | MemoryKind::StoneDeposit
+            | MemoryKind::FoodSource
+            | MemoryKind::DangerZone
+            | MemoryKind::BuildSite
+            | MemoryKind::ResourceDepleted
+    )
+}
+
+/// Entity-to-u64 key for encounter cooldown tracking.
+/// Uses the raw entity id bits so it survives borrow boundaries.
+fn entity_key(e: Entity) -> u64 {
+    // hecs Entity has an id() method returning a u64-compatible value.
+    // We use to_bits() which encodes both index and generation.
+    e.to_bits().get()
+}
+
+/// Try to share memories between two villagers who are within encounter radius.
+/// Each direction transfers up to MAX_SHARE_PER_ENCOUNTER entries.
+/// Secondhand entries are NOT shared further (prevents gossip pollution).
+/// Fleeing villagers always share DangerZone regardless of cooldown (alarm wavefront).
+fn try_share_pair(world: &mut World, entity_a: Entity, entity_b: Entity, current_tick: u64) {
+    let key_a = entity_key(entity_a);
+    let key_b = entity_key(entity_b);
+
+    // Check if either villager is fleeing (for alarm wavefront special case)
+    let a_fleeing = world
+        .get::<&Behavior>(entity_a)
+        .map(|b| matches!(b.state, BehaviorState::FleeHome { .. }))
+        .unwrap_or(false);
+    let b_fleeing = world
+        .get::<&Behavior>(entity_b)
+        .map(|b| matches!(b.state, BehaviorState::FleeHome { .. }))
+        .unwrap_or(false);
+    let either_fleeing = a_fleeing || b_fleeing;
+
+    // Check cooldowns (skip if already shared recently — unless fleeing alarm)
+    if !either_fleeing {
+        let on_cooldown = world
+            .get::<&VillagerMemory>(entity_a)
+            .map(|m| m.encounter_cooldowns.on_cooldown(key_b, current_tick))
+            .unwrap_or(true);
+        if on_cooldown {
+            return;
+        }
+    }
+
+    // Snapshot A's shareable entries (sorted by confidence descending)
+    let a_entries: Vec<MemoryEntry> = if let Ok(mem_a) = world.get::<&VillagerMemory>(entity_a) {
+        let mut entries: Vec<MemoryEntry> = mem_a
+            .entries
+            .iter()
+            .filter(|e| {
+                is_shareable_kind(e.kind)
+                    && e.firsthand // only share firsthand knowledge
+                    && e.confidence > MEMORY_FORGET_THRESHOLD
+            })
+            .cloned()
+            .collect();
+        // Fleeing villagers only share DangerZone entries
+        if a_fleeing {
+            entries.retain(|e| e.kind == MemoryKind::DangerZone);
+        }
+        entries.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        entries
+    } else {
+        return;
+    };
+
+    // Snapshot B's shareable entries
+    let b_entries: Vec<MemoryEntry> = if let Ok(mem_b) = world.get::<&VillagerMemory>(entity_b) {
+        let mut entries: Vec<MemoryEntry> = mem_b
+            .entries
+            .iter()
+            .filter(|e| {
+                is_shareable_kind(e.kind) && e.firsthand && e.confidence > MEMORY_FORGET_THRESHOLD
+            })
+            .cloned()
+            .collect();
+        if b_fleeing {
+            entries.retain(|e| e.kind == MemoryKind::DangerZone);
+        }
+        entries.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        entries
+    } else {
+        return;
+    };
+
+    // Transfer A's entries to B (up to MAX_SHARE_PER_ENCOUNTER)
+    let mut transferred_to_b = 0usize;
+    for entry in &a_entries {
+        if transferred_to_b >= MAX_SHARE_PER_ENCOUNTER {
+            break;
+        }
+        let received_confidence = (entry.confidence - ENCOUNTER_CONFIDENCE_PENALTY).clamp(0.1, 0.9);
+
+        // Dedup check: does B already know about this location?
+        let accept = if let Ok(mem_b) = world.get::<&VillagerMemory>(entity_b) {
+            if let Some(existing) = mem_b.entries.iter().find(|e| {
+                e.kind == entry.kind && {
+                    let dx = e.x - entry.x;
+                    let dy = e.y - entry.y;
+                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                }
+            }) {
+                if existing.confidence < received_confidence {
+                    1 // Update: B's info is staler
+                } else {
+                    0 // Skip: B already knows with equal or better confidence
+                }
+            } else {
+                2 // Insert: B doesn't know about this at all
+            }
+        } else {
+            return;
+        };
+
+        match accept {
+            0 => continue, // Skip
+            1 => {
+                // Update existing entry's confidence
+                if let Ok(mut mem_b) = world.get::<&mut VillagerMemory>(entity_b) {
+                    if let Some(existing) = mem_b.entries.iter_mut().find(|e| {
+                        e.kind == entry.kind && {
+                            let dx = e.x - entry.x;
+                            let dy = e.y - entry.y;
+                            (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                        }
+                    }) {
+                        existing.confidence = received_confidence;
+                        existing.tick_observed = current_tick;
+                        existing.firsthand = false;
+                    }
+                }
+                transferred_to_b += 1;
+            }
+            _ => {
+                // Insert new entry
+                if let Ok(mut mem_b) = world.get::<&mut VillagerMemory>(entity_b) {
+                    let new_entry = MemoryEntry {
+                        kind: entry.kind,
+                        x: entry.x,
+                        y: entry.y,
+                        tick_observed: current_tick,
+                        confidence: received_confidence,
+                        firsthand: false,
+                    };
+                    if mem_b.entries.len() < MEMORY_CAPACITY {
+                        mem_b.entries.push(new_entry);
+                    } else {
+                        // Evict lowest-confidence entry
+                        mem_b
+                            .entries
+                            .retain(|e| e.confidence >= MEMORY_FORGET_THRESHOLD);
+                        if mem_b.entries.len() >= MEMORY_CAPACITY {
+                            if let Some(min_idx) = mem_b
+                                .entries
+                                .iter()
+                                .enumerate()
+                                .min_by(|(_, a), (_, b)| {
+                                    a.confidence
+                                        .partial_cmp(&b.confidence)
+                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .map(|(i, _)| i)
+                            {
+                                mem_b.entries.swap_remove(min_idx);
+                            }
+                        }
+                        mem_b.entries.push(new_entry);
+                    }
+                }
+                transferred_to_b += 1;
+            }
+        }
+    }
+
+    // Transfer B's entries to A (up to MAX_SHARE_PER_ENCOUNTER)
+    let mut transferred_to_a = 0usize;
+    for entry in &b_entries {
+        if transferred_to_a >= MAX_SHARE_PER_ENCOUNTER {
+            break;
+        }
+        let received_confidence = (entry.confidence - ENCOUNTER_CONFIDENCE_PENALTY).clamp(0.1, 0.9);
+
+        let accept = if let Ok(mem_a) = world.get::<&VillagerMemory>(entity_a) {
+            if let Some(existing) = mem_a.entries.iter().find(|e| {
+                e.kind == entry.kind && {
+                    let dx = e.x - entry.x;
+                    let dy = e.y - entry.y;
+                    (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                }
+            }) {
+                if existing.confidence < received_confidence {
+                    1
+                } else {
+                    0
+                }
+            } else {
+                2
+            }
+        } else {
+            return;
+        };
+
+        match accept {
+            0 => continue,
+            1 => {
+                if let Ok(mut mem_a) = world.get::<&mut VillagerMemory>(entity_a) {
+                    if let Some(existing) = mem_a.entries.iter_mut().find(|e| {
+                        e.kind == entry.kind && {
+                            let dx = e.x - entry.x;
+                            let dy = e.y - entry.y;
+                            (dx * dx + dy * dy).sqrt() < MEMORY_UPSERT_RADIUS
+                        }
+                    }) {
+                        existing.confidence = received_confidence;
+                        existing.tick_observed = current_tick;
+                        existing.firsthand = false;
+                    }
+                }
+                transferred_to_a += 1;
+            }
+            _ => {
+                if let Ok(mut mem_a) = world.get::<&mut VillagerMemory>(entity_a) {
+                    let new_entry = MemoryEntry {
+                        kind: entry.kind,
+                        x: entry.x,
+                        y: entry.y,
+                        tick_observed: current_tick,
+                        confidence: received_confidence,
+                        firsthand: false,
+                    };
+                    if mem_a.entries.len() < MEMORY_CAPACITY {
+                        mem_a.entries.push(new_entry);
+                    } else {
+                        mem_a
+                            .entries
+                            .retain(|e| e.confidence >= MEMORY_FORGET_THRESHOLD);
+                        if mem_a.entries.len() >= MEMORY_CAPACITY {
+                            if let Some(min_idx) = mem_a
+                                .entries
+                                .iter()
+                                .enumerate()
+                                .min_by(|(_, a), (_, b)| {
+                                    a.confidence
+                                        .partial_cmp(&b.confidence)
+                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .map(|(i, _)| i)
+                            {
+                                mem_a.entries.swap_remove(min_idx);
+                            }
+                        }
+                        mem_a.entries.push(new_entry);
+                    }
+                }
+                transferred_to_a += 1;
+            }
+        }
+    }
+
+    // Record cooldowns for both villagers
+    if let Ok(mut mem_a) = world.get::<&mut VillagerMemory>(entity_a) {
+        mem_a.encounter_cooldowns.record(key_b, current_tick);
+    }
+    if let Ok(mut mem_b) = world.get::<&mut VillagerMemory>(entity_b) {
+        mem_b.encounter_cooldowns.record(key_a, current_tick);
+    }
+}
+
+/// Information sharing on encounter: villagers within 3 tiles exchange memories.
+/// Uses the spatial grid to avoid O(n^2) — only checks pairs within the same cell.
+/// Runs every ENCOUNTER_SYSTEM_FREQUENCY ticks for performance.
+///
+/// Design: docs/design/pillar2_emergence/info_sharing_encounters.md
+pub fn system_info_sharing(world: &mut World, grid: &SpatialHashGrid, current_tick: u64) {
+    // Only run every N ticks
+    if current_tick % ENCOUNTER_SYSTEM_FREQUENCY != 0 {
+        return;
+    }
+
+    // Iterate each cell in the grid
+    for cell_idx in 0..grid.cell_count() {
+        let villagers_in_cell: Vec<SpatialEntry> = grid
+            .entries_in_cell_by_index(cell_idx)
+            .iter()
+            .filter(|e| e.categories & category::VILLAGER != 0)
+            .copied()
+            .collect();
+
+        // Check all pairs within the same cell
+        for i in 0..villagers_in_cell.len() {
+            for j in (i + 1)..villagers_in_cell.len() {
+                let a = &villagers_in_cell[i];
+                let b = &villagers_in_cell[j];
+                let dx = a.x - b.x;
+                let dy = a.y - b.y;
+                if dx * dx + dy * dy <= ENCOUNTER_RADIUS_SQ {
+                    try_share_pair(world, a.entity, b.entity, current_tick);
+                }
+            }
+        }
     }
 }

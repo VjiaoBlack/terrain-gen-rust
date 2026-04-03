@@ -78,6 +78,15 @@ pub struct MemoryEntry {
     pub y: f64,
     pub tick_observed: u64,
     pub confidence: f64, // 0.0-1.0, decays over time
+    /// True if the villager observed this directly; false if learned via encounter or board.
+    /// Secondhand entries are NOT shared further (prevents gossip pollution)
+    /// and are NOT posted to the bulletin board.
+    #[serde(default = "default_firsthand")]
+    pub firsthand: bool,
+}
+
+fn default_firsthand() -> bool {
+    true
 }
 
 /// What a villager believes the stockpile contains.
@@ -90,6 +99,65 @@ pub struct BelievedStockpile {
     pub tick_observed: u64,
 }
 
+// --- Encounter Sharing Constants ---
+
+/// Encounter radius in tiles (squared distance check: 3^2 = 9).
+pub const ENCOUNTER_RADIUS_SQ: f64 = 9.0;
+/// Max memory entries transferred per direction per encounter.
+pub const MAX_SHARE_PER_ENCOUNTER: usize = 3;
+/// Confidence penalty applied to shared entries (telephone game degradation).
+pub const ENCOUNTER_CONFIDENCE_PENALTY: f64 = 0.15;
+/// Ticks before two specific villagers can share again.
+pub const ENCOUNTER_COOLDOWN_TICKS: u64 = 60;
+/// Max entries in the encounter cooldown ring buffer.
+pub const MAX_COOLDOWN_ENTRIES: usize = 8;
+/// Encounter system runs every N ticks for performance.
+pub const ENCOUNTER_SYSTEM_FREQUENCY: u64 = 5;
+
+/// Ring buffer tracking recent encounter partners to prevent per-tick spam.
+/// Stores (entity_generation, entity_id, tick_of_encounter) tuples.
+/// When full, the oldest entry is overwritten.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EncounterCooldowns {
+    /// (entity_id as u64, tick_of_encounter) — we store raw id bits for serialization.
+    pub entries: Vec<(u64, u64)>,
+}
+
+impl EncounterCooldowns {
+    /// Check if we have shared with this entity within the cooldown window.
+    pub fn on_cooldown(&self, entity_id: u64, current_tick: u64) -> bool {
+        self.entries.iter().any(|&(eid, tick)| {
+            eid == entity_id && current_tick.saturating_sub(tick) < ENCOUNTER_COOLDOWN_TICKS
+        })
+    }
+
+    /// Record an encounter with another entity.
+    pub fn record(&mut self, entity_id: u64, tick: u64) {
+        // Update existing entry for same entity if present
+        for entry in &mut self.entries {
+            if entry.0 == entity_id {
+                entry.1 = tick;
+                return;
+            }
+        }
+        // Otherwise add new or overwrite oldest
+        if self.entries.len() < MAX_COOLDOWN_ENTRIES {
+            self.entries.push((entity_id, tick));
+        } else {
+            // Overwrite oldest entry
+            if let Some(oldest_idx) = self
+                .entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, entry)| entry.1)
+                .map(|(i, _)| i)
+            {
+                self.entries[oldest_idx] = (entity_id, tick);
+            }
+        }
+    }
+}
+
 /// Per-villager knowledge store. Stores personal observations alongside global state.
 /// Phase 1: additive (AI still reads globals). Phase 2 will switch AI to read from memory.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -98,6 +166,9 @@ pub struct VillagerMemory {
     pub home: Option<(f64, f64)>,
     pub stockpile_loc: Option<(f64, f64)>,
     pub believed_stockpile: Option<BelievedStockpile>,
+    /// Tracks recent encounter partners to prevent per-tick sharing spam.
+    #[serde(default)]
+    pub encounter_cooldowns: EncounterCooldowns,
 }
 
 impl VillagerMemory {
@@ -107,6 +178,7 @@ impl VillagerMemory {
 
     /// Insert or update a memory entry. If an entry of the same kind exists within
     /// MEMORY_UPSERT_RADIUS, refresh it instead of creating a duplicate.
+    /// Entries inserted via upsert are firsthand (direct observation).
     pub fn upsert(&mut self, kind: MemoryKind, x: f64, y: f64, tick: u64) {
         // Check for existing nearby entry of same kind
         for entry in &mut self.entries {
@@ -115,11 +187,12 @@ impl VillagerMemory {
                 let dy = entry.y - y;
                 let d = (dx * dx + dy * dy).sqrt();
                 if d < MEMORY_UPSERT_RADIUS {
-                    // Refresh existing entry
+                    // Refresh existing entry — re-observation makes it firsthand
                     entry.x = x;
                     entry.y = y;
                     entry.tick_observed = tick;
                     entry.confidence = 1.0;
+                    entry.firsthand = true;
                     return;
                 }
             }
@@ -132,6 +205,7 @@ impl VillagerMemory {
             y,
             tick_observed: tick,
             confidence: 1.0,
+            firsthand: true,
         };
 
         if self.entries.len() < MEMORY_CAPACITY {
@@ -252,11 +326,16 @@ impl BulletinBoard {
     }
 
     /// Write a villager's firsthand memories to the board.
-    /// Only posts entries with confidence > BULLETIN_POST_MIN_CONFIDENCE.
+    /// Only posts firsthand entries with confidence > BULLETIN_POST_MIN_CONFIDENCE.
+    /// Secondhand entries (learned via encounter) are NOT posted — prevents rumor pollution.
     /// ResourceDepleted posts cancel stale ResourceSighting posts at the same location.
     pub fn write_from_memory(&mut self, memory: &VillagerMemory, current_tick: u64) {
         for entry in &memory.entries {
-            // Only post firsthand-quality observations (high confidence)
+            // Only post firsthand observations (not secondhand gossip)
+            if !entry.firsthand {
+                continue;
+            }
+            // Only post high-confidence observations
             if entry.confidence < BULLETIN_POST_MIN_CONFIDENCE {
                 continue;
             }
@@ -328,7 +407,7 @@ impl BulletinBoard {
             // Learn as secondhand (reduced confidence)
             let secondhand_confidence = post.confidence * BULLETIN_SECONDHAND_FACTOR;
             memory.upsert(post.kind, post.x, post.y, current_tick);
-            // Adjust confidence down for the entry we just inserted
+            // Adjust confidence down and mark as secondhand for the entry we just inserted
             if let Some(entry) = memory.entries.iter_mut().rev().find(|e| {
                 e.kind == post.kind && {
                     let dx = e.x - post.x;
@@ -337,6 +416,7 @@ impl BulletinBoard {
                 }
             }) {
                 entry.confidence = secondhand_confidence;
+                entry.firsthand = false;
             }
         }
     }

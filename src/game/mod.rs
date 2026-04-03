@@ -1315,6 +1315,7 @@ impl Game {
                     &self.spatial_grid,
                     self.tick,
                 );
+                ecs::system_info_sharing(&mut self.world, &self.spatial_grid, self.tick);
                 let ai_result = ecs::system_ai(
                     &mut self.world,
                     &self.map,

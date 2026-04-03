@@ -128,6 +128,21 @@ impl SpatialHashGrid {
         }
     }
 
+    /// Total number of cells in the grid. Used for iterating cells by flat index.
+    pub fn cell_count(&self) -> usize {
+        self.cells.len()
+    }
+
+    /// Get all entries in a cell by flat index. Used by encounter system to
+    /// iterate cells without knowing grid dimensions.
+    pub fn entries_in_cell_by_index(&self, idx: usize) -> &[SpatialEntry] {
+        if idx < self.cells.len() {
+            &self.cells[idx]
+        } else {
+            &[]
+        }
+    }
+
     /// Collect all entries matching `category_mask` across the entire grid.
     pub fn all_of_category(&self, category_mask: u16) -> Vec<SpatialEntry> {
         self.cells
