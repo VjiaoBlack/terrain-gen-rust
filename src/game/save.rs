@@ -97,6 +97,7 @@ impl Game {
                 .unwrap_or_else(|| crate::terrain_pipeline::ResourceMap::new(map_w, map_h)),
             knowledge: super::SettlementKnowledge::default(),
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_w, map_h, 16),
+            ai_arrays: crate::ecs::ai_arrays::AiArrays::new(64),
             difficulty: super::DifficultyState::default(),
             milestone_banner: None,
             flood_start_tick: 0,

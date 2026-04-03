@@ -1,4 +1,5 @@
 mod ai;
+pub mod ai_arrays;
 pub mod components;
 pub mod serialize;
 pub mod spatial;

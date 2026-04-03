@@ -454,6 +454,7 @@ pub struct Game {
     pub resource_map: crate::terrain_pipeline::ResourceMap,
     pub knowledge: SettlementKnowledge,
     pub spatial_grid: crate::ecs::spatial::SpatialHashGrid,
+    pub ai_arrays: crate::ecs::ai_arrays::AiArrays,
     pub difficulty: DifficultyState,
     pub milestone_banner: Option<MilestoneBanner>,
     /// Tick at which current spring flood started (0 = no active flood).
@@ -1179,6 +1180,7 @@ impl Game {
             resource_map: result.resources,
             knowledge: SettlementKnowledge::default(),
             spatial_grid: crate::ecs::spatial::SpatialHashGrid::new(map_width, map_height, 16),
+            ai_arrays: crate::ecs::ai_arrays::AiArrays::new(64),
             difficulty: DifficultyState::default(),
             milestone_banner: None,
             flood_start_tick: 0,
@@ -1777,6 +1779,7 @@ impl Game {
                     build_speed: (self.skills.building / 50.0).floor() as u32,
                 };
                 self.spatial_grid.populate(&self.world);
+                self.ai_arrays.extract(&self.world);
                 ecs::system_update_memories(
                     &mut self.world,
                     &self.map,
