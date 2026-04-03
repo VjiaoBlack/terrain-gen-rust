@@ -202,6 +202,7 @@ fn main() -> Result<()> {
 
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game = Game::new(60, seed);
+        game.half_speed_base = true; // interactive mode: deliberate pace at 1x
         if args.iter().any(|a| a == "--auto-build") {
             game.auto_build = true;
         }
@@ -515,6 +516,7 @@ fn main() -> Result<()> {
     let mut seed = 42u32;
     loop {
         let mut game = Game::new(60, seed);
+        game.half_speed_base = true; // interactive mode: deliberate pace at 1x
         let restart = run_interactive(&mut game, &mut renderer)?;
         if !restart {
             break;

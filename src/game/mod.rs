@@ -480,7 +480,9 @@ pub struct Game {
     pub home_scent: ScentMap,
     pub exploration: ExplorationMap,
     pub particles: Vec<Particle>,
-    pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
+    pub game_speed: u32,       // 1 = normal, 2 = 2x, 5 = 5x, 20 = 20x
+    pub frame_count: u64,      // increments every frame regardless of speed/pause
+    pub half_speed_base: bool, // when true, speed 1 runs sim every other frame
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
@@ -1224,6 +1226,8 @@ impl Game {
             exploration: ExplorationMap::new(map_width, map_height),
             particles: Vec::new(),
             game_speed: 1,
+            frame_count: 0,
+            half_speed_base: false,
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
@@ -1793,7 +1797,12 @@ impl Game {
             .clamp(self.map.width, self.map.height, world_vw, vh);
 
         // update simulation (skip when paused)
-        if !self.paused {
+        // At speed 1 with half_speed_base enabled, sim runs every other frame
+        // for a more deliberate pace (still 60fps rendering). Speed 2+ runs normally.
+        self.frame_count += 1;
+        let skip_this_frame =
+            self.game_speed == 1 && self.half_speed_base && self.frame_count % 2 != 0;
+        if !self.paused && !skip_this_frame {
             for _speed_tick in 0..self.game_speed {
                 self.tick += 1;
 

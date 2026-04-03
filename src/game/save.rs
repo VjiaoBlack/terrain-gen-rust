@@ -89,6 +89,8 @@ impl Game {
             exploration: ExplorationMap::new(map_w, map_h),
             particles: Vec::new(),
             game_speed: 1,
+            frame_count: 0,
+            half_speed_base: false,
             soil_fertility: crate::simulation::SoilFertilityMap::new(map_w, map_h),
             soil: vec![crate::terrain_pipeline::SoilType::Loam; map_w * map_h],
             river_mask: vec![false; map_w * map_h],
