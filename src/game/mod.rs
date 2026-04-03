@@ -1768,6 +1768,7 @@ impl Game {
                 self.game_speed = match self.game_speed {
                     1 => 2,
                     2 => 5,
+                    5 => 20,
                     _ => 1,
                 };
                 self.notify(format!("Speed: {}x", self.game_speed));
@@ -2753,6 +2754,13 @@ impl Game {
             let weather_visible = (self.raining || has_blizzard)
                 && !matches!(self.render_mode, RenderMode::Map | RenderMode::Debug);
             if weather_visible {
+                self.dirty.mark_all();
+            }
+
+            // Normal and Landscape modes use dynamic lighting (sun/moon position changes
+            // every tick), so all visible tiles need redrawing. Only Map mode (no lighting)
+            // benefits from dirty-rect skipping.
+            if matches!(self.render_mode, RenderMode::Normal | RenderMode::Landscape) {
                 self.dirty.mark_all();
             }
         }
