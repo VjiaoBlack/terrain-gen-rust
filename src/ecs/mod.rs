@@ -17,7 +17,7 @@ mod tests {
     use crate::ecs::spatial::SpatialHashGrid;
     use crate::headless_renderer::HeadlessRenderer;
     use crate::renderer::Color;
-    use crate::simulation::{MoistureMap, Season, SoilFertilityMap, VegetationMap};
+    use crate::simulation::{MoistureMap, ScentMap, Season, SoilFertilityMap, VegetationMap};
     use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
@@ -315,6 +315,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
         }
@@ -357,6 +359,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
         }
@@ -401,6 +405,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
         }
@@ -444,6 +450,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
@@ -515,6 +523,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -558,6 +568,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -596,6 +608,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -637,6 +651,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -678,6 +694,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -723,6 +741,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
 
@@ -793,6 +813,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
 
@@ -865,6 +887,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
@@ -903,6 +927,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -947,6 +973,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -991,6 +1019,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1039,6 +1069,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1098,6 +1130,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
@@ -1173,6 +1207,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1224,6 +1260,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1346,6 +1384,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             system_movement(&mut world, &map);
         }
@@ -1740,6 +1780,8 @@ mod tests {
                 &[],
                 0,
                 &[],
+                &ScentMap::default(),
+                &ScentMap::default(),
             );
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
@@ -1803,6 +1845,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1850,6 +1894,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -2257,6 +2303,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2306,6 +2354,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2452,6 +2502,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         if result.grain_consumed > 0 || result.food_consumed > 0 {
@@ -2575,6 +2627,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
@@ -2623,6 +2677,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         assert!(
@@ -2683,6 +2739,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         assert!(
@@ -3082,6 +3140,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         assert!(
@@ -3175,6 +3235,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3221,6 +3283,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3264,6 +3328,8 @@ mod tests {
             &[],
             100,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         // Villager should have a PathCache with content
@@ -3310,6 +3376,8 @@ mod tests {
             &[],
             100,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
         system_movement(&mut world, &map);
 
@@ -3338,6 +3406,8 @@ mod tests {
             &[],
             101,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let cache_after_second = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3379,6 +3449,8 @@ mod tests {
             &[],
             100,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3410,6 +3482,8 @@ mod tests {
             &[],
             101,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let cache_second = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3448,6 +3522,8 @@ mod tests {
             &[],
             100,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3471,6 +3547,8 @@ mod tests {
             &[],
             300,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let cache_after = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3511,6 +3589,8 @@ mod tests {
             &[],
             100,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let cache = world.get::<&PathCache>(v).unwrap();
@@ -3635,6 +3715,8 @@ mod tests {
             &[],
             50, // current_tick < next_ai_tick (100)
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state_after = world.get::<&Behavior>(v).unwrap().state;
@@ -3674,6 +3756,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let schedule = *world.get::<&TickSchedule>(v).unwrap();
@@ -3710,6 +3794,8 @@ mod tests {
             &[],
             10,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -3756,6 +3842,8 @@ mod tests {
             &[],
             50,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let schedule = *world.get::<&TickSchedule>(v).unwrap();
@@ -3832,6 +3920,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
         // Just verify no panic — prey/predator AI ran without TickSchedule
     }
@@ -4136,6 +4226,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         // Check that deposit happened
@@ -4499,6 +4591,8 @@ mod tests {
             &[],
             200,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         // The board should now have the wood sighting
@@ -5154,6 +5248,8 @@ mod tests {
             &[],
             1,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         // Check: villager should be in confused Idle with timer = STALE_ARRIVAL_PAUSE
@@ -5229,6 +5325,8 @@ mod tests {
             &[],
             1,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         // WoodSource memory should still be present (not deleted)
@@ -5280,6 +5378,8 @@ mod tests {
             &[],
             1,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         // Should be in confused idle

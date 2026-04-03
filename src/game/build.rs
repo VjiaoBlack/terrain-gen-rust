@@ -375,6 +375,58 @@ impl super::Game {
         }
     }
 
+    /// Update environmental scent traces (danger scent, home scent).
+    /// Called each tick from Game::step, right after update_traffic.
+    pub fn update_traces(&mut self) {
+        // --- Danger scent: predators emit at their position each tick ---
+        for (pos, creature) in self.world.query::<(&Position, &Creature)>().iter() {
+            if creature.species == Species::Predator {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                self.danger_scent.emit(ix, iy, 2.0);
+            }
+        }
+
+        // --- Home scent: buildings emit, stronger for core settlement buildings ---
+        // Emit every 5 ticks to reduce per-tick cost
+        if self.tick.is_multiple_of(5) {
+            for (pos, _stockpile) in self.world.query::<(&Position, &Stockpile)>().iter() {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                self.home_scent.emit(ix, iy, 5.0);
+            }
+            for (pos, _hut) in self.world.query::<(&Position, &HutBuilding)>().iter() {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                self.home_scent.emit(ix, iy, 3.0);
+            }
+            for (pos, _garrison) in self.world.query::<(&Position, &GarrisonBuilding)>().iter() {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                self.home_scent.emit(ix, iy, 3.0);
+            }
+            for (pos, _hall) in self.world.query::<(&Position, &TownHallBuilding)>().iter() {
+                let ix = pos.x.round() as usize;
+                let iy = pos.y.round() as usize;
+                self.home_scent.emit(ix, iy, 8.0);
+            }
+        }
+
+        // --- Danger scent: decay every 5 ticks, diffuse every 10 ticks ---
+        if self.tick.is_multiple_of(5) {
+            self.danger_scent.decay();
+        }
+        if self.tick.is_multiple_of(10) {
+            self.danger_scent.diffuse();
+        }
+
+        // --- Home scent: decay every 10 ticks, diffuse every 10 ticks ---
+        if self.tick.is_multiple_of(10) {
+            self.home_scent.decay();
+            self.home_scent.diffuse();
+        }
+    }
+
     /// Spawn new stone deposits near the settlement center when stone stockpile is critically low.
     /// DEPRECATED: Resources should be discovered through exploration, not spawned.
     /// Kept as dead code for reference. See docs/design/pillar1_geography/precomputed_resource_map.md

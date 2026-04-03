@@ -26,6 +26,8 @@ impl Game {
             terrain_config: serde_json::from_value(serde_json::to_value(&self.terrain_config)?)?,
             events: self.events.clone(),
             traffic: serde_json::from_value(serde_json::to_value(&self.traffic)?)?,
+            danger_scent: serde_json::from_value(serde_json::to_value(&self.danger_scent)?)?,
+            home_scent: serde_json::from_value(serde_json::to_value(&self.home_scent)?)?,
             resource_map: Some(self.resource_map.clone()),
         };
         let file = std::fs::File::create(path)?;
@@ -74,6 +76,16 @@ impl Game {
             overlay: OverlayMode::None,
             events: state.events,
             traffic: state.traffic,
+            danger_scent: if state.danger_scent.width > 0 {
+                state.danger_scent
+            } else {
+                crate::simulation::ScentMap::new(map_w, map_h, 0.990, 0.06)
+            },
+            home_scent: if state.home_scent.width > 0 {
+                state.home_scent
+            } else {
+                crate::simulation::ScentMap::new(map_w, map_h, 0.998, 0.08)
+            },
             exploration: ExplorationMap::new(map_w, map_h),
             particles: Vec::new(),
             game_speed: 1,

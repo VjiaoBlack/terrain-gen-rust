@@ -18,8 +18,8 @@ use crate::ecs::{
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{
-    DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, Season, SimConfig, SoilFertilityMap,
-    TrafficMap, VegetationMap, WaterMap,
+    DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, ScentMap, Season, SimConfig,
+    SoilFertilityMap, TrafficMap, VegetationMap, WaterMap,
 };
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
@@ -312,6 +312,10 @@ pub struct SaveState {
     #[serde(default)]
     pub traffic: TrafficMap,
     #[serde(default)]
+    pub danger_scent: ScentMap,
+    #[serde(default)]
+    pub home_scent: ScentMap,
+    #[serde(default)]
     pub resource_map: Option<crate::terrain_pipeline::ResourceMap>,
 }
 
@@ -355,6 +359,12 @@ pub struct Game {
     pub overlay: OverlayMode,
     pub events: EventSystem,
     pub traffic: TrafficMap,
+    /// Danger scent: predators emit at their position, decays ~0.002/tick (half-life ~350 ticks).
+    /// Villager pathfinding reads this to avoid dangerous areas.
+    pub danger_scent: ScentMap,
+    /// Home scent: buildings emit, creating a gradient toward the settlement.
+    /// Lost/migrant villagers follow this to find home.
+    pub home_scent: ScentMap,
     pub exploration: ExplorationMap,
     pub particles: Vec<Particle>,
     pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
@@ -1061,6 +1071,12 @@ impl Game {
             overlay: OverlayMode::None,
             events: EventSystem::default(),
             traffic: TrafficMap::new(map_width, map_height),
+            // Danger scent: decay_rate 0.990 applied every 5 ticks → half-life ~350 ticks.
+            // Spread factor 0.06 — danger feels larger than the exact spot.
+            danger_scent: ScentMap::new(map_width, map_height, 0.990, 0.06),
+            // Home scent: decay_rate 0.998 applied every 10 ticks → half-life ~3500 ticks.
+            // Spread factor 0.08 — radiates broadly from settlement.
+            home_scent: ScentMap::new(map_width, map_height, 0.998, 0.08),
             exploration: ExplorationMap::new(map_width, map_height),
             particles: Vec::new(),
             game_speed: 1,
@@ -1683,6 +1699,8 @@ impl Game {
                     &self.knowledge.frontier,
                     self.tick,
                     &self.fire_tiles,
+                    &self.danger_scent,
+                    &self.home_scent,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -2094,6 +2112,9 @@ impl Game {
 
                 // Track villager foot traffic and auto-build roads
                 self.update_traffic();
+
+                // Update environmental scent traces (danger, home)
+                self.update_traces();
 
                 // Population growth check
                 self.try_population_growth();
@@ -2907,6 +2928,8 @@ mod tests {
             &[],
             0,
             &[],
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -4864,6 +4887,8 @@ mod tests {
             &[],
             0,
             &game.fire_tiles,
+            &ScentMap::default(),
+            &ScentMap::default(),
         );
 
         let state = game.world.get::<&crate::ecs::Behavior>(v).unwrap().state;

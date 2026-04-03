@@ -134,6 +134,83 @@ pub(super) fn move_toward_cached(
     d
 }
 
+/// Like `move_toward_cached` but uses a cost overlay (e.g. danger scent) in A* pathfinding.
+/// The overlay adds extra cost per tile, causing paths to route around high-overlay areas.
+pub(super) fn move_toward_cached_with_overlay(
+    pos: &Position,
+    tx: f64,
+    ty: f64,
+    speed: f64,
+    vel: &mut Velocity,
+    map: &TileMap,
+    cache: &mut PathCache,
+    current_tick: u64,
+    cost_overlay: &[f64],
+) -> f64 {
+    let d = dist(pos.x, pos.y, tx, ty);
+    if d < 0.5 {
+        return d;
+    }
+
+    // Short distance: direct A* without overlay (negligible benefit)
+    if d <= 3.0 {
+        return move_toward_astar(pos, tx, ty, speed, vel, map);
+    }
+
+    // Check if cache is valid
+    let cache_valid = cache.cursor < cache.waypoints.len()
+        && (cache.dest_x - tx).abs() < 0.5
+        && (cache.dest_y - ty).abs() < 0.5
+        && (current_tick - cache.computed_tick) < 120;
+
+    let cache_valid = cache_valid && {
+        let (wx, wy) = cache.waypoints[cache.cursor];
+        dist(pos.x, pos.y, wx, wy) < 3.0
+    };
+
+    let cache_valid = cache_valid && {
+        let end = cache.waypoints.len().min(cache.cursor + 3);
+        (cache.cursor..end).all(|i| {
+            let (wx, wy) = cache.waypoints[i];
+            map.is_walkable(wx, wy)
+        })
+    };
+
+    if !cache_valid {
+        let budget = (d as usize * 4).min(600);
+        if let Some(path) =
+            map.astar_full_path_with_cost_overlay(pos.x, pos.y, tx, ty, budget, cost_overlay)
+        {
+            cache.waypoints = path;
+            cache.dest_x = tx;
+            cache.dest_y = ty;
+            cache.computed_tick = current_tick;
+            cache.cursor = 0;
+        } else {
+            return move_toward(pos, tx, ty, speed, vel);
+        }
+    }
+
+    if cache.cursor >= cache.waypoints.len() {
+        return move_toward(pos, tx, ty, speed, vel);
+    }
+
+    let (wx, wy) = cache.waypoints[cache.cursor];
+    let wd = dist(pos.x, pos.y, wx, wy);
+
+    if wd < 0.8 {
+        cache.cursor += 1;
+        if cache.cursor >= cache.waypoints.len() {
+            return move_toward(pos, tx, ty, speed, vel);
+        }
+        let (wx2, wy2) = cache.waypoints[cache.cursor];
+        move_toward(pos, wx2, wy2, speed, vel);
+    } else {
+        move_toward(pos, wx, wy, speed, vel);
+    }
+    d
+}
+
 pub(super) fn wander(
     pos: &Position,
     vel: &mut Velocity,
@@ -555,6 +632,8 @@ pub(super) fn ai_villager(
     stockpile_fullness: &StockpileState,
     cache: &mut PathCache,
     current_tick: u64,
+    danger_scent: &crate::simulation::ScentMap,
+    home_scent: &crate::simulation::ScentMap,
 ) -> (
     BehaviorState,
     f64,
@@ -621,8 +700,23 @@ pub(super) fn ai_villager(
                 .unwrap_or((creature.home_x, creature.home_y));
 
             let mut vel = Velocity { dx: 0.0, dy: 0.0 };
-            let d =
-                move_toward_cached(pos, hx, hy, speed * 1.5, &mut vel, map, cache, current_tick);
+            // Use danger-scent-aware pathfinding when fleeing, so villagers
+            // route around the area they're fleeing from.
+            let d = if danger_scent.has_scent() {
+                move_toward_cached_with_overlay(
+                    pos,
+                    hx,
+                    hy,
+                    speed * 1.5,
+                    &mut vel,
+                    map,
+                    cache,
+                    current_tick,
+                    danger_scent.values(),
+                )
+            } else {
+                move_toward_cached(pos, hx, hy, speed * 1.5, &mut vel, map, cache, current_tick)
+            };
             if d < 1.5 {
                 (
                     BehaviorState::Idle {
@@ -1525,6 +1619,38 @@ pub(super) fn ai_villager(
                             target_x: tx,
                             target_y: ty,
                             timer: 300,
+                        },
+                        vel.dx,
+                        vel.dy,
+                        hunger,
+                        None,
+                        None,
+                    );
+                }
+            }
+
+            // Home scent following: when nothing else to do, drift toward settlement
+            // via home scent gradient. This helps lost/migrant villagers find home.
+            if home_scent.has_scent() {
+                let vx = pos.x.round() as usize;
+                let vy = pos.y.round() as usize;
+                if let Some((hx, hy, _strength)) = home_scent.sample_gradient(vx, vy, 12, 0.5) {
+                    let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                    move_toward_cached(
+                        pos,
+                        hx as f64,
+                        hy as f64,
+                        speed,
+                        &mut vel,
+                        map,
+                        cache,
+                        current_tick,
+                    );
+                    return (
+                        BehaviorState::Seek {
+                            target_x: hx as f64,
+                            target_y: hy as f64,
+                            reason: SeekReason::Stockpile,
                         },
                         vel.dx,
                         vel.dy,

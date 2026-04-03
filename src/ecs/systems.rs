@@ -110,6 +110,8 @@ pub fn system_ai(
     frontier: &[(usize, usize)],
     current_tick: u64,
     fire_tiles: &[(usize, usize, u32)],
+    danger_scent: &crate::simulation::ScentMap,
+    home_scent: &crate::simulation::ScentMap,
 ) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
@@ -312,6 +314,8 @@ pub fn system_ai(
                     &stockpile_fullness,
                     &mut path_cache,
                     current_tick,
+                    danger_scent,
+                    home_scent,
                 );
 
                 // Write back PathCache

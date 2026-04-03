@@ -757,6 +757,174 @@ impl TileMap {
         None
     }
 
+    /// A* pathfinding with an additional per-tile cost overlay (e.g., danger scent).
+    /// `cost_overlay` must have the same length as `self.tiles` (width * height).
+    /// Each overlay value is added to the base terrain move cost for that tile.
+    /// Falls back to `astar_full_path` when overlay is empty or all-zero.
+    pub fn astar_full_path_with_cost_overlay(
+        &self,
+        sx: f64,
+        sy: f64,
+        gx: f64,
+        gy: f64,
+        max_steps: usize,
+        cost_overlay: &[f64],
+    ) -> Option<Vec<(f64, f64)>> {
+        use std::cmp::Ordering;
+        use std::collections::BinaryHeap;
+
+        // If overlay is wrong size, fall back to regular A*
+        if cost_overlay.len() != self.width * self.height {
+            return self.astar_full_path(sx, sy, gx, gy, max_steps);
+        }
+
+        let si = sx.round() as i32;
+        let sj = sy.round() as i32;
+        let gi = gx.round() as i32;
+        let gj = gy.round() as i32;
+
+        if si == gi && sj == gj {
+            return Some(vec![(gx, gy)]);
+        }
+
+        #[derive(Clone)]
+        struct Node {
+            cost: f64,
+            heuristic: f64,
+            x: i32,
+            y: i32,
+            parent: usize,
+        }
+        impl PartialEq for Node {
+            fn eq(&self, o: &Self) -> bool {
+                self.cost + self.heuristic == o.cost + o.heuristic
+            }
+        }
+        impl Eq for Node {}
+        impl PartialOrd for Node {
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for Node {
+            fn cmp(&self, o: &Self) -> Ordering {
+                let a = self.cost + self.heuristic;
+                let b = o.cost + o.heuristic;
+                b.partial_cmp(&a).unwrap_or(Ordering::Equal)
+            }
+        }
+
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let mut visited = vec![false; self.width * self.height];
+        let mut nodes: Vec<Node> = Vec::new();
+        struct HeapEntry(Node, usize);
+        impl PartialEq for HeapEntry {
+            fn eq(&self, o: &Self) -> bool {
+                self.0 == o.0
+            }
+        }
+        impl Eq for HeapEntry {}
+        impl PartialOrd for HeapEntry {
+            fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for HeapEntry {
+            fn cmp(&self, o: &Self) -> Ordering {
+                self.0.cmp(&o.0)
+            }
+        }
+        let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::new();
+
+        let heuristic =
+            |x: i32, y: i32| -> f64 { ((x - gi) as f64).abs() + ((y - gj) as f64).abs() };
+
+        let start = Node {
+            cost: 0.0,
+            heuristic: heuristic(si, sj),
+            x: si,
+            y: sj,
+            parent: usize::MAX,
+        };
+        nodes.push(start.clone());
+        heap.push(HeapEntry(start, 0));
+
+        const DIRS: [(i32, i32); 8] = [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ];
+
+        let mut steps = 0;
+        while let Some(HeapEntry(node, idx)) = heap.pop() {
+            if steps >= max_steps {
+                break;
+            }
+            steps += 1;
+
+            let vx = node.x as usize;
+            let vy = node.y as usize;
+            if vx >= self.width || vy >= self.height {
+                continue;
+            }
+            if visited[vy * self.width + vx] {
+                continue;
+            }
+            visited[vy * self.width + vx] = true;
+
+            if node.x == gi && node.y == gj {
+                let mut path = Vec::new();
+                let mut cur = idx;
+                while nodes[cur].parent != usize::MAX {
+                    path.push((nodes[cur].x as f64, nodes[cur].y as f64));
+                    cur = nodes[cur].parent;
+                }
+                path.reverse();
+                return Some(path);
+            }
+
+            for &(dx, dy) in &DIRS {
+                let nx = node.x + dx;
+                let ny = node.y + dy;
+                if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                    continue;
+                }
+                let ni = ny as usize * self.width + nx as usize;
+                if visited[ni] {
+                    continue;
+                }
+
+                let terrain = &self.tiles[ni];
+                if !terrain.is_walkable() {
+                    continue;
+                }
+
+                let base_cost = terrain.move_cost() * if dx != 0 && dy != 0 { 1.414 } else { 1.0 };
+                // Add overlay cost (danger scent penalty, capped at +2.0)
+                let overlay_penalty = (cost_overlay[ni] / 20.0).min(2.0);
+                let step_cost = base_cost + overlay_penalty;
+                let new_cost = node.cost + step_cost;
+                let new_node = Node {
+                    cost: new_cost,
+                    heuristic: heuristic(nx, ny),
+                    x: nx,
+                    y: ny,
+                    parent: idx,
+                };
+                let new_idx = nodes.len();
+                nodes.push(new_node.clone());
+                heap.push(HeapEntry(new_node, new_idx));
+            }
+        }
+        None
+    }
+
     /// Find the nearest walkable tile to a position. Returns None if no walkable
     /// tile exists within search radius 50. Used to rescue entities stranded on
     /// impassable tiles (e.g. water after rivers become barriers).
@@ -1785,6 +1953,62 @@ mod tests {
             *map.get(3, 3).unwrap(),
             Terrain::Marsh,
             "should revert to original Marsh, not Grass"
+        );
+    }
+
+    #[test]
+    fn astar_cost_overlay_avoids_high_cost_area() {
+        // Create a map where the direct path goes through a danger zone
+        let map = TileMap::new(20, 10, Terrain::Grass);
+        let w = 20;
+        let h = 10;
+        let mut overlay = vec![0.0f64; w * h];
+
+        // Place heavy danger scent across the direct path (y=5, x=5..15)
+        for x in 5..15 {
+            overlay[5 * w + x] = 100.0; // very high danger
+        }
+
+        // Path from (0, 5) to (19, 5) — direct path goes through danger zone
+        let path_danger =
+            map.astar_full_path_with_cost_overlay(0.0, 5.0, 19.0, 5.0, 1000, &overlay);
+        let path_normal = map.astar_full_path(0.0, 5.0, 19.0, 5.0, 1000);
+
+        assert!(path_danger.is_some(), "should find path even with danger");
+        assert!(path_normal.is_some(), "should find normal path");
+
+        let danger_path = path_danger.unwrap();
+        let normal_path = path_normal.unwrap();
+
+        // The danger-aware path should be longer (detours around the scent zone)
+        assert!(
+            danger_path.len() >= normal_path.len(),
+            "danger-aware path should be at least as long as normal: {} vs {}",
+            danger_path.len(),
+            normal_path.len()
+        );
+
+        // Check that the danger-aware path avoids the danger zone (y=5, x=5..15)
+        let enters_danger_zone = danger_path
+            .iter()
+            .any(|(x, y)| *y == 5.0 && *x >= 5.0 && *x < 15.0);
+        // With very high danger (100.0 / 20.0 = 5.0 penalty per tile), the path
+        // should strongly prefer going around
+        assert!(
+            !enters_danger_zone || danger_path.len() > normal_path.len(),
+            "danger-aware path should avoid or detour around the danger zone"
+        );
+    }
+
+    #[test]
+    fn astar_cost_overlay_wrong_size_falls_back() {
+        let map = TileMap::new(10, 10, Terrain::Grass);
+        // Wrong-size overlay should fall back to regular A*
+        let overlay = vec![0.0; 5]; // wrong size
+        let path = map.astar_full_path_with_cost_overlay(0.0, 0.0, 9.0, 9.0, 500, &overlay);
+        assert!(
+            path.is_some(),
+            "should fall back to regular A* with wrong-size overlay"
         );
     }
 }
