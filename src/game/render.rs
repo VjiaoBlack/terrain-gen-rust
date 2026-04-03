@@ -1191,12 +1191,28 @@ impl super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        let (ch, fg, bg) =
-                            self.map_terrain_glyph(terrain, wx as usize, wy as usize);
-                        // Apply worn terrain visual from foot traffic
-                        let (ch, fg, bg) =
-                            self.worn_terrain_override(wx as usize, wy as usize, ch, fg, bg);
-                        renderer.draw(sx, sy, ch, fg, Some(bg));
+                        // Water depth override
+                        let water_depth = self.water.get(wx as usize, wy as usize);
+                        if water_depth > 0.001
+                            && !matches!(
+                                terrain,
+                                Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
+                            )
+                        {
+                            renderer.draw(
+                                sx,
+                                sy,
+                                '~',
+                                Color(60, 120, 220),
+                                Some(Color(20, 50, 120)),
+                            );
+                        } else {
+                            let (ch, fg, bg) =
+                                self.map_terrain_glyph(terrain, wx as usize, wy as usize);
+                            let (ch, fg, bg) =
+                                self.worn_terrain_override(wx as usize, wy as usize, ch, fg, bg);
+                            renderer.draw(sx, sy, ch, fg, Some(bg));
+                        }
                     }
                 }
             }
@@ -1372,12 +1388,35 @@ impl super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        let (ch, fg, bg) =
-                            self.landscape_terrain_glyph(terrain, wx as usize, wy as usize);
-                        // Apply worn terrain visual from foot traffic
-                        let (ch, fg, bg) =
-                            self.worn_terrain_override(wx as usize, wy as usize, ch, fg, bg);
-                        renderer.draw(sx, sy, ch, fg, Some(bg));
+                        // Check for runtime water depth
+                        let water_depth = self.water.get(wx as usize, wy as usize);
+                        if water_depth > 0.001
+                            && !matches!(
+                                terrain,
+                                Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
+                            )
+                        {
+                            let intensity = (water_depth * 4.0).min(1.0);
+                            let water_fg = Color(
+                                (30.0 * (1.0 - intensity)) as u8,
+                                (60.0 + 40.0 * intensity) as u8,
+                                (140.0 + 60.0 * intensity) as u8,
+                            );
+                            let water_bg = Color(
+                                (15.0 * (1.0 - intensity)) as u8,
+                                (30.0 + 20.0 * intensity) as u8,
+                                (80.0 + 40.0 * intensity) as u8,
+                            );
+                            let water_chars = ['~', '≈', '∼'];
+                            let anim = ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
+                            renderer.draw(sx, sy, water_chars[anim], water_fg, Some(water_bg));
+                        } else {
+                            let (ch, fg, bg) =
+                                self.landscape_terrain_glyph(terrain, wx as usize, wy as usize);
+                            let (ch, fg, bg) =
+                                self.worn_terrain_override(wx as usize, wy as usize, ch, fg, bg);
+                            renderer.draw(sx, sy, ch, fg, Some(bg));
+                        }
                     }
                 }
             }
