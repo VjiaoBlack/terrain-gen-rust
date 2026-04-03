@@ -1486,4 +1486,100 @@ impl super::Game {
             self.notify("Building demolished.".to_string());
         }
     }
+
+    /// Recompute settlement knowledge: known resource locations and frontier tiles.
+    pub(super) fn update_settlement_knowledge(&mut self) {
+        let villager_pos: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &Creature)>()
+            .iter()
+            .filter(|(_, c)| c.species == Species::Villager)
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+        if villager_pos.is_empty() {
+            return;
+        }
+        let cx = villager_pos.iter().map(|p| p.0).sum::<f64>() / villager_pos.len() as f64;
+        let cy = villager_pos.iter().map(|p| p.1).sum::<f64>() / villager_pos.len() as f64;
+        let cxi = cx as i32;
+        let cyi = cy as i32;
+
+        let known_radius = 20i32;
+        let frontier_radius = known_radius + 8;
+
+        let mut known_wood = Vec::new();
+        let mut known_stone = Vec::new();
+        let mut known_food = Vec::new();
+        let mut frontier = Vec::new();
+
+        let w = self.map.width as i32;
+        let h = self.map.height as i32;
+
+        for dy in -known_radius..=known_radius {
+            for dx in -known_radius..=known_radius {
+                let tx = cxi + dx;
+                let ty = cyi + dy;
+                if tx < 0 || ty < 0 || tx >= w || ty >= h {
+                    continue;
+                }
+                let ux = tx as usize;
+                let uy = ty as usize;
+                if let Some(terrain) = self.map.get(ux, uy) {
+                    match terrain {
+                        Terrain::Forest => known_wood.push((ux, uy)),
+                        Terrain::Mountain => known_stone.push((ux, uy)),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        for (pos, _) in self
+            .world
+            .query::<(&Position, &crate::ecs::FoodSource)>()
+            .iter()
+        {
+            let d = ((pos.x - cx).powi(2) + (pos.y - cy).powi(2)).sqrt();
+            if d < known_radius as f64 {
+                known_food.push((pos.x as usize, pos.y as usize));
+            }
+        }
+
+        for (pos, _) in self
+            .world
+            .query::<(&Position, &crate::ecs::StoneDeposit)>()
+            .iter()
+        {
+            let d = ((pos.x - cx).powi(2) + (pos.y - cy).powi(2)).sqrt();
+            if d < known_radius as f64 {
+                known_stone.push((pos.x as usize, pos.y as usize));
+            }
+        }
+
+        for dy in -frontier_radius..=frontier_radius {
+            for dx in -frontier_radius..=frontier_radius {
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq < known_radius * known_radius
+                    || dist_sq > frontier_radius * frontier_radius
+                {
+                    continue;
+                }
+                let tx = cxi + dx;
+                let ty = cyi + dy;
+                if tx < 0 || ty < 0 || tx >= w || ty >= h {
+                    continue;
+                }
+                if self.map.is_walkable(tx as f64, ty as f64) {
+                    frontier.push((tx as usize, ty as usize));
+                }
+            }
+        }
+
+        self.knowledge = super::SettlementKnowledge {
+            known_wood,
+            known_stone,
+            known_food,
+            frontier,
+        };
+    }
 }

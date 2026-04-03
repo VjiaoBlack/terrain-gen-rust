@@ -474,6 +474,7 @@ pub(super) fn ai_villager(
     rng: &mut impl rand::RngExt,
     hut_positions: &[(f64, f64)],
     is_night: bool,
+    frontier: &[(usize, usize)],
 ) -> (
     BehaviorState,
     f64,
@@ -857,6 +858,101 @@ pub(super) fn ai_villager(
                     None,
                 )
             }
+        }
+        BehaviorState::Exploring {
+            target_x,
+            target_y,
+            timer,
+        } => {
+            if predator_nearby {
+                return (
+                    BehaviorState::FleeHome { timer: 120 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
+            }
+            if hunger > 0.5 || *timer == 0 {
+                return (
+                    BehaviorState::Idle { timer: 10 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
+            }
+            let wood_nearby = find_nearest_terrain(pos, map, Terrain::Forest, creature.sight_range);
+            let stone_nearby = stone_deposits
+                .iter()
+                .map(|&(dx, dy)| (dx, dy, dist(pos.x, pos.y, dx, dy)))
+                .filter(|(_, _, d)| *d < creature.sight_range)
+                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+
+            if stockpile_wood < 10 {
+                if let Some((fx, fy)) = wood_nearby {
+                    let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                    move_toward_astar(pos, fx, fy, speed, &mut vel, map);
+                    return (
+                        BehaviorState::Seek {
+                            target_x: fx,
+                            target_y: fy,
+                            reason: SeekReason::Wood,
+                        },
+                        vel.dx,
+                        vel.dy,
+                        hunger,
+                        None,
+                        None,
+                    );
+                }
+            }
+            if stockpile_stone < 10 {
+                if let Some((dx, dy, _)) = stone_nearby {
+                    let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                    move_toward_astar(pos, dx, dy, speed, &mut vel, map);
+                    return (
+                        BehaviorState::Seek {
+                            target_x: dx,
+                            target_y: dy,
+                            reason: SeekReason::Stone,
+                        },
+                        vel.dx,
+                        vel.dy,
+                        hunger,
+                        None,
+                        None,
+                    );
+                }
+            }
+
+            let d = dist(pos.x, pos.y, *target_x, *target_y);
+            if d < 2.0 {
+                return (
+                    BehaviorState::Idle { timer: 10 },
+                    0.0,
+                    0.0,
+                    hunger,
+                    None,
+                    None,
+                );
+            }
+            let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+            move_toward_astar(pos, *target_x, *target_y, speed, &mut vel, map);
+            (
+                BehaviorState::Exploring {
+                    target_x: *target_x,
+                    target_y: *target_y,
+                    timer: timer - 1,
+                },
+                vel.dx,
+                vel.dy,
+                hunger,
+                None,
+                None,
+            )
         }
         _ => {
             // If villager is stuck inside a completed building (on BuildingFloor), try to leave.
@@ -1294,6 +1390,30 @@ pub(super) fn ai_villager(
                         );
                     }
                 }
+            }
+
+            // Exploration: when stockpiles are low and no local resources found,
+            // send villager to explore frontier tiles to discover new resource areas.
+            let resources_scarce = stockpile_wood < 10 || stockpile_stone < 10;
+            if resources_scarce && !frontier.is_empty() && hunger < 0.4 {
+                let idx = rng.random_range(0..frontier.len() as u32) as usize;
+                let (fx, fy) = frontier[idx];
+                let tx = fx as f64;
+                let ty = fy as f64;
+                let mut vel = Velocity { dx: 0.0, dy: 0.0 };
+                move_toward_astar(pos, tx, ty, speed, &mut vel, map);
+                return (
+                    BehaviorState::Exploring {
+                        target_x: tx,
+                        target_y: ty,
+                        timer: 300,
+                    },
+                    vel.dx,
+                    vel.dy,
+                    hunger,
+                    None,
+                    None,
+                );
             }
 
             // Default: wander

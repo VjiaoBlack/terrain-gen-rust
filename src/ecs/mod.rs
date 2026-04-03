@@ -248,6 +248,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -285,6 +286,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -324,6 +326,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -362,6 +365,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
@@ -428,6 +432,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -466,6 +471,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -499,6 +505,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -535,6 +542,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -571,6 +579,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -611,6 +620,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
 
@@ -676,6 +686,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
 
@@ -743,6 +754,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
@@ -776,6 +788,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -815,6 +828,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -854,6 +868,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -897,6 +912,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -951,6 +967,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
@@ -1021,6 +1038,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1067,6 +1085,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1184,6 +1203,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -1457,6 +1477,7 @@ mod tests {
                 &SkillMults::default(),
                 false,
                 false,
+                &[],
             );
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
@@ -1515,6 +1536,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1557,6 +1579,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1959,6 +1982,7 @@ mod tests {
             &SkillMults::default(),
             true,
             false,
+            &[],
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2003,6 +2027,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2144,6 +2169,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         if result.grain_consumed > 0 || result.food_consumed > 0 {
@@ -2262,6 +2288,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
@@ -2305,6 +2332,7 @@ mod tests {
             &SkillMults::default(),
             false,
             false,
+            &[],
         );
 
         assert!(

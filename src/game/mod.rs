@@ -1123,6 +1123,7 @@ impl Game {
                     &skill_mults,
                     settlement_defended,
                     self.day_night.is_night(),
+                    &self.knowledge.frontier,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -1436,16 +1437,9 @@ impl Game {
                     self.auto_build_tick();
                 }
 
-                // Stone deposit discovery: when stone is critically low, discover new deposits.
-                // Simulates settlement expanding its territory to find new stone sources.
-                if self.tick.is_multiple_of(2000) && self.resources.stone < 50 {
-                    self.discover_stone_deposits();
-                }
-
-                // Timber grove discovery: when wood is critically low, reveal a nearby grove.
-                // Prevents permanent wood starvation on forest-sparse map seeds.
-                if self.tick.is_multiple_of(3000) && self.resources.wood < 8 {
-                    self.discover_timber_grove();
+                // Update settlement knowledge (frontier, known resources) for exploration AI.
+                if self.tick.is_multiple_of(100) {
+                    self.update_settlement_knowledge();
                 }
 
                 // Seasonal config for rain/water
@@ -1540,6 +1534,105 @@ impl Game {
             snapshots.push(self.step_headless(input, renderer)?);
         }
         Ok(snapshots)
+    }
+
+    /// Collect structured diagnostics data as a JSON-serializable map.
+    pub fn collect_diagnostics(&self) -> serde_json::Value {
+        use std::collections::BTreeMap;
+
+        // Population count
+        let mut villager_count = 0u32;
+        let mut wolf_count = 0u32;
+        let mut rabbit_count = 0u32;
+        let mut villager_states: BTreeMap<String, u32> = BTreeMap::new();
+
+        for creature in self.world.query::<(&Creature, &Behavior)>().iter() {
+            let (c, b) = creature;
+            match c.species {
+                Species::Villager => {
+                    villager_count += 1;
+                    let state_name = match &b.state {
+                        BehaviorState::Wander { .. } => "Wander",
+                        BehaviorState::Seek { .. } => "Seek",
+                        BehaviorState::Idle { .. } => "Idle",
+                        BehaviorState::Eating { .. } => "Eating",
+                        BehaviorState::FleeHome { .. } => "FleeHome",
+                        BehaviorState::AtHome { .. } => "AtHome",
+                        BehaviorState::Hunting { .. } => "Hunting",
+                        BehaviorState::Captured => "Captured",
+                        BehaviorState::Gathering { .. } => "Gathering",
+                        BehaviorState::Hauling { .. } => "Hauling",
+                        BehaviorState::Sleeping { .. } => "Sleeping",
+                        BehaviorState::Building { .. } => "Building",
+                        BehaviorState::Exploring { .. } => "Exploring",
+                        BehaviorState::Farming { .. } => "Farming",
+                        BehaviorState::Working { .. } => "Working",
+                    };
+                    *villager_states.entry(state_name.to_string()).or_insert(0) += 1;
+                }
+                Species::Predator => wolf_count += 1,
+                Species::Prey => rabbit_count += 1,
+            }
+        }
+
+        // Building counts
+        let mut building_counts: BTreeMap<String, u32> = BTreeMap::new();
+        for building in self.world.query::<&BuildSite>().iter() {
+            // BuildSite = pending construction, counted separately
+            let _ = building;
+        }
+        let build_site_count = self.world.query::<&BuildSite>().iter().count() as u32;
+
+        // Count completed buildings by type
+        for bt in self.world.query::<&BuildingType>().iter() {
+            let name = format!("{:?}", bt);
+            *building_counts.entry(name).or_insert(0) += 1;
+        }
+
+        // Events
+        let event_names: Vec<String> = self
+            .events
+            .active_events
+            .iter()
+            .map(|e| match e {
+                GameEvent::Drought { .. } => "Drought".to_string(),
+                GameEvent::BountifulHarvest { .. } => "BountifulHarvest".to_string(),
+                GameEvent::Migration { .. } => "Migration".to_string(),
+                GameEvent::WolfSurge { .. } => "WolfSurge".to_string(),
+                GameEvent::Plague { .. } => "Plague".to_string(),
+                GameEvent::Blizzard { .. } => "Blizzard".to_string(),
+                GameEvent::BanditRaid { .. } => "BanditRaid".to_string(),
+            })
+            .collect();
+
+        serde_json::json!({
+            "tick": self.tick,
+            "population": villager_count,
+            "resources": {
+                "food": self.resources.food,
+                "wood": self.resources.wood,
+                "stone": self.resources.stone,
+                "planks": self.resources.planks,
+                "masonry": self.resources.masonry,
+                "grain": self.resources.grain,
+                "bread": self.resources.bread,
+            },
+            "villager_states": villager_states,
+            "buildings": building_counts,
+            "build_sites": build_site_count,
+            "season": self.day_night.season.name(),
+            "year": self.day_night.year + 1,
+            "day_night": if self.day_night.is_night() { "night" } else { "day" },
+            "events": event_names,
+            "wolves": wolf_count,
+            "rabbits": rabbit_count,
+            "skills": {
+                "farm": self.skills.farming,
+                "mine": self.skills.mining,
+                "wood": self.skills.woodcutting,
+                "build": self.skills.building,
+            },
+        })
     }
 
     fn snapshot(&self, renderer: &HeadlessRenderer) -> FrameSnapshot {
@@ -2035,6 +2128,7 @@ mod tests {
             &SkillMults::default(),
             false,
             true,
+            &[],
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;

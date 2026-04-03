@@ -320,13 +320,19 @@ fn main() -> Result<()> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(42);
 
+        let diagnostics = args.iter().any(|a| a == "--diagnostics");
+        let diagnostics_interval: u64 = args
+            .iter()
+            .position(|a| a == "--diagnostics-interval")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1000);
+
         let mut r = headless_renderer::HeadlessRenderer::new(w, h);
         let mut game_obj = Game::new(60, seed);
-        // auto_build starts disabled; enable it via --auto-build flag or
-        // input:ToggleAutoBuild in the --inputs sequence (at tick 100 by convention).
-        // Do NOT set it true here — that inverts the ToggleAutoBuild semantics.
-        // IMPORTANT: setting game_obj.auto_build = true here causes ToggleAutoBuild
-        // input to DISABLE auto_build (true→false). This is the recurring Session 18/21/24/26/28 bug.
+        if args.iter().any(|a| a == "--auto-build") {
+            game_obj.auto_build = true;
+        }
 
         let inputs_str = args
             .iter()
@@ -334,7 +340,22 @@ fn main() -> Result<()> {
             .and_then(|i| args.get(i + 1).cloned())
             .unwrap_or_default();
 
-        if inputs_str.is_empty() {
+        if diagnostics {
+            // Diagnostics mode: run ticks, emit JSON lines, suppress frame output
+            let ticks: u64 = args
+                .iter()
+                .position(|a| a == "--ticks")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(200);
+            for _ in 0..ticks {
+                game_obj.step(GameInput::None, &mut r)?;
+                if game_obj.tick % diagnostics_interval == 0 {
+                    println!("{}", game_obj.collect_diagnostics());
+                }
+            }
+            println!("{}", game_obj.collect_diagnostics());
+        } else if inputs_str.is_empty() {
             // Just run ticks and dump
             let ticks: u64 = args
                 .iter()

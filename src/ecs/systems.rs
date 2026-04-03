@@ -84,6 +84,7 @@ pub fn system_ai(
     skill_mults: &SkillMults,
     settlement_defended: bool,
     is_night: bool,
+    frontier: &[(usize, usize)],
 ) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
@@ -269,6 +270,7 @@ pub fn system_ai(
                     &mut rng,
                     &hut_positions,
                     is_night,
+                    frontier,
                 );
 
                 // Villager just started eating near stockpile: grain → bread → food
