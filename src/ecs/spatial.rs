@@ -128,6 +128,16 @@ impl SpatialHashGrid {
         }
     }
 
+    /// Collect all entries matching `category_mask` across the entire grid.
+    pub fn all_of_category(&self, category_mask: u16) -> Vec<SpatialEntry> {
+        self.cells
+            .iter()
+            .flat_map(|cell| cell.iter())
+            .filter(|e| e.categories & category_mask != 0)
+            .copied()
+            .collect()
+    }
+
     /// Populate the grid from the hecs World in a single pass.
     pub fn populate(&mut self, world: &World) {
         self.clear();

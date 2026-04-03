@@ -116,6 +116,8 @@ pub fn spawn_stone_deposit(world: &mut World, x: f64, y: f64) -> Entity {
 }
 
 pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
+    let mut memory = VillagerMemory::new();
+    memory.home = Some((x, y));
     world.spawn((
         Position { x, y },
         Velocity { dx: 0.0, dy: 0.0 },
@@ -136,6 +138,7 @@ pub fn spawn_villager(world: &mut World, x: f64, y: f64) -> Entity {
         },
         PathCache::default(),
         TickSchedule::default(), // next_ai_tick: 0 → runs immediately on first tick
+        memory,
     ))
 }
 

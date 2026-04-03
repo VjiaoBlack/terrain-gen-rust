@@ -9,6 +9,18 @@ use crate::renderer::{Color, Renderer};
 use crate::simulation::{MoistureMap, Season};
 use crate::tilemap::{Terrain, TileMap};
 
+/// Eight cardinal + diagonal directions for terrain sampling.
+const EIGHT_DIRS: [(f64, f64); 8] = [
+    (1.0, 0.0),
+    (-1.0, 0.0),
+    (0.0, 1.0),
+    (0.0, -1.0),
+    (0.7071, 0.7071),
+    (-0.7071, 0.7071),
+    (0.7071, -0.7071),
+    (-0.7071, -0.7071),
+];
+
 // --- Systems ---
 
 /// Move entities with terrain collision. Each axis is tested independently so
@@ -318,6 +330,32 @@ pub fn system_ai(
 
         if let Some(resource) = deposited {
             deposited_resources.push(resource);
+
+            // Villager just deposited at stockpile — update their believed stockpile counts.
+            // This is the "bulletin board read": beliefs refresh on visit.
+            if creature.species == Species::Villager {
+                // Compute what the stockpile will look like after all deposits so far this tick
+                let mut dep_food = 0u32;
+                let mut dep_wood = 0u32;
+                let mut dep_stone = 0u32;
+                for r in &deposited_resources {
+                    match r {
+                        ResourceType::Food => dep_food += 1,
+                        ResourceType::Wood => dep_wood += 1,
+                        ResourceType::Stone => dep_stone += 1,
+                        _ => {}
+                    }
+                }
+                let believed = BelievedStockpile {
+                    food: stockpile_food.saturating_sub(food_consumed) + dep_food,
+                    wood: stockpile_wood + dep_wood,
+                    stone: stockpile_stone + dep_stone,
+                    tick_observed: current_tick,
+                };
+                if let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) {
+                    memory.believed_stockpile = Some(believed);
+                }
+            }
         }
 
         // Write back
@@ -1184,4 +1222,135 @@ pub fn system_wolf_raids(
         }
     }
     false
+}
+
+/// Per-villager memory observation and decay system.
+/// Each tick, villagers observe their surroundings and record memories.
+/// Confidence on all entries decays, and stale entries are evicted.
+///
+/// This is Phase 1: additive only. AI still reads global state for decisions.
+/// Phase 2 (local_awareness #30) will switch AI to read from memory.
+pub fn system_update_memories(
+    world: &mut World,
+    map: &TileMap,
+    grid: &SpatialHashGrid,
+    current_tick: u64,
+) {
+    // Snapshot entity positions for observation targets
+    let food_positions: Vec<(f64, f64)> = grid
+        .all_of_category(category::FOOD_SOURCE)
+        .iter()
+        .map(|e| (e.x, e.y))
+        .collect();
+    let stone_positions: Vec<(f64, f64)> = grid
+        .all_of_category(category::STONE_DEPOSIT)
+        .iter()
+        .map(|e| (e.x, e.y))
+        .collect();
+    let build_site_positions: Vec<(f64, f64)> = grid
+        .all_of_category(category::BUILD_SITE)
+        .iter()
+        .map(|e| (e.x, e.y))
+        .collect();
+    let predator_positions: Vec<(f64, f64)> = grid
+        .all_of_category(category::PREDATOR)
+        .iter()
+        .map(|e| (e.x, e.y))
+        .collect();
+    let stockpile_positions: Vec<(f64, f64)> = grid
+        .all_of_category(category::STOCKPILE)
+        .iter()
+        .map(|e| (e.x, e.y))
+        .collect();
+
+    // Collect villager entities first to avoid borrow issues
+    let villager_entities: Vec<Entity> = world
+        .query::<(Entity, &Creature, &VillagerMemory)>()
+        .iter()
+        .filter(|(_, c, _)| c.species == Species::Villager)
+        .map(|(e, _, _)| e)
+        .collect();
+
+    for e in villager_entities {
+        let Some((pos_x, pos_y, sight_range)) = world.get::<&Position>(e).ok().and_then(|p| {
+            world
+                .get::<&Creature>(e)
+                .ok()
+                .map(|c| (p.x, p.y, c.sight_range))
+        }) else {
+            continue;
+        };
+
+        let Ok(mut memory) = world.get::<&mut VillagerMemory>(e) else {
+            continue;
+        };
+
+        // Record nearest stockpile location (pinned, does not need MemoryEntry)
+        if memory.stockpile_loc.is_none() {
+            let mut best_d = f64::MAX;
+            for &(sx, sy) in &stockpile_positions {
+                let d = ((pos_x - sx).powi(2) + (pos_y - sy).powi(2)).sqrt();
+                if d < best_d {
+                    best_d = d;
+                    memory.stockpile_loc = Some((sx, sy));
+                }
+            }
+        }
+
+        // Observe terrain within sight range (sample 8 directions at 3 distances)
+        let sr_sq = sight_range * sight_range;
+        for &sample_dist in &[3.0, 6.0, 12.0] {
+            for &(dx, dy) in &EIGHT_DIRS {
+                let sx = pos_x + dx * sample_dist;
+                let sy = pos_y + dy * sample_dist;
+                let dsq = (pos_x - sx).powi(2) + (pos_y - sy).powi(2);
+                if dsq > sr_sq {
+                    continue;
+                }
+                let tx = sx.round() as i64;
+                let ty = sy.round() as i64;
+                if tx < 0 || ty < 0 {
+                    continue;
+                }
+                match map.get(tx as usize, ty as usize) {
+                    Some(Terrain::Forest) => {
+                        memory.upsert(MemoryKind::WoodSource, sx, sy, current_tick);
+                    }
+                    Some(Terrain::Mountain) => {
+                        memory.upsert(MemoryKind::StoneDeposit, sx, sy, current_tick);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Observe entities within sight range
+        for &(fx, fy) in &food_positions {
+            let dsq = (pos_x - fx).powi(2) + (pos_y - fy).powi(2);
+            if dsq < sr_sq {
+                memory.upsert(MemoryKind::FoodSource, fx, fy, current_tick);
+            }
+        }
+        for &(sx, sy) in &stone_positions {
+            let dsq = (pos_x - sx).powi(2) + (pos_y - sy).powi(2);
+            if dsq < sr_sq {
+                memory.upsert(MemoryKind::StoneDeposit, sx, sy, current_tick);
+            }
+        }
+        for &(bx, by) in &build_site_positions {
+            let dsq = (pos_x - bx).powi(2) + (pos_y - by).powi(2);
+            if dsq < sr_sq {
+                memory.upsert(MemoryKind::BuildSite, bx, by, current_tick);
+            }
+        }
+        for &(px, py) in &predator_positions {
+            let dsq = (pos_x - px).powi(2) + (pos_y - py).powi(2);
+            if dsq < sr_sq {
+                memory.upsert(MemoryKind::DangerZone, px, py, current_tick);
+            }
+        }
+
+        // Decay all entries
+        memory.decay_tick();
+    }
 }

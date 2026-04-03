@@ -15,6 +15,8 @@ pub enum SerializedEntity {
         creature: Creature,
         #[serde(default)]
         tick_schedule: Option<TickSchedule>,
+        #[serde(default)]
+        memory: Option<VillagerMemory>,
     },
     Prey {
         pos: Position,
@@ -83,7 +85,7 @@ pub enum SerializedEntity {
 pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
     let mut entities = Vec::new();
 
-    for (pos, vel, sprite, behavior, creature, schedule) in world
+    for (pos, vel, sprite, behavior, creature, schedule, memory) in world
         .query::<(
             &Position,
             &Velocity,
@@ -91,6 +93,7 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
             &Behavior,
             &Creature,
             Option<&TickSchedule>,
+            Option<&VillagerMemory>,
         )>()
         .iter()
     {
@@ -102,6 +105,7 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
                 behavior: *behavior,
                 creature: *creature,
                 tick_schedule: schedule.copied(),
+                memory: memory.cloned(),
             },
             Species::Prey => SerializedEntity::Prey {
                 pos: *pos,
@@ -219,12 +223,18 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
                 behavior,
                 creature,
                 tick_schedule,
+                memory,
             } => {
                 // Reset next_ai_tick to 0 on load so entities re-evaluate immediately
                 let schedule = TickSchedule {
                     next_ai_tick: 0,
                     interval: tick_schedule.map(|s| s.interval).unwrap_or(1),
                 };
+                let mem = memory.clone().unwrap_or_else(|| {
+                    let mut m = VillagerMemory::new();
+                    m.home = Some((pos.x, pos.y));
+                    m
+                });
                 world.spawn((
                     *pos,
                     *vel,
@@ -233,6 +243,7 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
                     *creature,
                     schedule,
                     PathCache::default(),
+                    mem,
                 ));
             }
             SerializedEntity::Prey {

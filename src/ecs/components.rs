@@ -40,6 +40,175 @@ pub struct AiResult {
     pub depleted_stone_positions: Vec<(f64, f64)>,
 }
 
+// --- Villager Memory ---
+
+/// Maximum entries per villager memory.
+pub const MEMORY_CAPACITY: usize = 32;
+/// Confidence lost per tick (~350-tick half-life).
+pub const MEMORY_DECAY_RATE: f64 = 0.002;
+/// Below this confidence, entries are evicted.
+pub const MEMORY_FORGET_THRESHOLD: f64 = 0.05;
+/// Distance threshold for upsert deduplication (same-kind entries within this range are merged).
+pub const MEMORY_UPSERT_RADIUS: f64 = 5.0;
+
+/// What kind of thing a villager remembers.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum MemoryKind {
+    FoodSource,
+    WoodSource,
+    StoneDeposit,
+    DangerZone,
+    BuildSite,
+}
+
+impl MemoryKind {
+    /// Pinned kinds do not decay (home, stockpile locations are handled separately).
+    /// Currently all observation-based kinds decay.
+    pub fn decays(&self) -> bool {
+        true
+    }
+}
+
+/// A single thing a villager remembers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEntry {
+    pub kind: MemoryKind,
+    pub x: f64,
+    pub y: f64,
+    pub tick_observed: u64,
+    pub confidence: f64, // 0.0-1.0, decays over time
+}
+
+/// What a villager believes the stockpile contains.
+/// Updated ONLY when the villager is physically at a stockpile.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct BelievedStockpile {
+    pub food: u32,
+    pub wood: u32,
+    pub stone: u32,
+    pub tick_observed: u64,
+}
+
+/// Per-villager knowledge store. Stores personal observations alongside global state.
+/// Phase 1: additive (AI still reads globals). Phase 2 will switch AI to read from memory.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VillagerMemory {
+    pub entries: Vec<MemoryEntry>,
+    pub home: Option<(f64, f64)>,
+    pub stockpile_loc: Option<(f64, f64)>,
+    pub believed_stockpile: Option<BelievedStockpile>,
+}
+
+impl VillagerMemory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert or update a memory entry. If an entry of the same kind exists within
+    /// MEMORY_UPSERT_RADIUS, refresh it instead of creating a duplicate.
+    pub fn upsert(&mut self, kind: MemoryKind, x: f64, y: f64, tick: u64) {
+        // Check for existing nearby entry of same kind
+        for entry in &mut self.entries {
+            if entry.kind == kind {
+                let dx = entry.x - x;
+                let dy = entry.y - y;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d < MEMORY_UPSERT_RADIUS {
+                    // Refresh existing entry
+                    entry.x = x;
+                    entry.y = y;
+                    entry.tick_observed = tick;
+                    entry.confidence = 1.0;
+                    return;
+                }
+            }
+        }
+
+        // No existing entry — insert new one
+        let entry = MemoryEntry {
+            kind,
+            x,
+            y,
+            tick_observed: tick,
+            confidence: 1.0,
+        };
+
+        if self.entries.len() < MEMORY_CAPACITY {
+            self.entries.push(entry);
+        } else {
+            // Evict: first remove entries below forget threshold
+            self.entries
+                .retain(|e| e.confidence >= MEMORY_FORGET_THRESHOLD);
+
+            if self.entries.len() >= MEMORY_CAPACITY {
+                // Still full — remove lowest-confidence entry
+                if let Some(min_idx) = self
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        a.confidence
+                            .partial_cmp(&b.confidence)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(i, _)| i)
+                {
+                    self.entries.swap_remove(min_idx);
+                }
+            }
+            self.entries.push(entry);
+        }
+    }
+
+    /// Decay all entry confidences by MEMORY_DECAY_RATE. Evict entries below forget threshold.
+    pub fn decay_tick(&mut self) {
+        for entry in &mut self.entries {
+            if entry.kind.decays() {
+                entry.confidence -= MEMORY_DECAY_RATE;
+            }
+        }
+        self.entries
+            .retain(|e| e.confidence >= MEMORY_FORGET_THRESHOLD);
+    }
+
+    /// Best-known location for a resource type, weighted by confidence and distance.
+    /// Returns (x, y, score) where score = confidence - distance/100.
+    pub fn best_resource(
+        &self,
+        kind: MemoryKind,
+        from_x: f64,
+        from_y: f64,
+    ) -> Option<(f64, f64, f64)> {
+        self.entries
+            .iter()
+            .filter(|e| e.kind == kind)
+            .map(|e| {
+                let dx = e.x - from_x;
+                let dy = e.y - from_y;
+                let d = (dx * dx + dy * dy).sqrt();
+                let score = e.confidence - d / 100.0;
+                (e.x, e.y, score)
+            })
+            .max_by(|(_, _, a), (_, _, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+    }
+
+    /// Check if there is a danger memory near the given location.
+    pub fn danger_near(&self, x: f64, y: f64, radius: f64) -> bool {
+        self.entries.iter().any(|e| {
+            e.kind == MemoryKind::DangerZone && {
+                let dx = e.x - x;
+                let dy = e.y - y;
+                (dx * dx + dy * dy).sqrt() < radius
+            }
+        })
+    }
+
+    /// Number of entries (for testing/debug).
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+}
+
 // --- Path Caching ---
 
 /// Per-entity cached A* path. Stores waypoints so A* runs once per trip instead of every tick.

@@ -3699,4 +3699,347 @@ mod tests {
         );
         // Just verify no panic — prey/predator AI ran without TickSchedule
     }
+
+    // --- VillagerMemory tests ---
+
+    #[test]
+    fn spawn_villager_has_memory() {
+        let mut world = World::new();
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        let memory = world.get::<&VillagerMemory>(v);
+        assert!(
+            memory.is_ok(),
+            "villager should have VillagerMemory component"
+        );
+        let mem = memory.unwrap();
+        assert_eq!(mem.home, Some((5.0, 5.0)));
+        assert!(mem.believed_stockpile.is_none());
+        assert_eq!(mem.entry_count(), 0);
+    }
+
+    #[test]
+    fn memory_upsert_creates_entry() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        assert_eq!(mem.entry_count(), 1);
+        assert_eq!(mem.entries[0].kind, MemoryKind::WoodSource);
+        assert_eq!(mem.entries[0].confidence, 1.0);
+    }
+
+    #[test]
+    fn memory_upsert_deduplicates_nearby() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        // Same kind, within MEMORY_UPSERT_RADIUS (5.0)
+        mem.upsert(MemoryKind::WoodSource, 12.0, 21.0, 200);
+        assert_eq!(
+            mem.entry_count(),
+            1,
+            "nearby same-kind entries should merge"
+        );
+        assert_eq!(mem.entries[0].tick_observed, 200, "should update tick");
+        assert_eq!(mem.entries[0].confidence, 1.0);
+    }
+
+    #[test]
+    fn memory_upsert_different_kinds_not_merged() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        mem.upsert(MemoryKind::StoneDeposit, 10.0, 20.0, 100);
+        assert_eq!(
+            mem.entry_count(),
+            2,
+            "different kinds at same location should be separate"
+        );
+    }
+
+    #[test]
+    fn memory_upsert_distant_same_kind_not_merged() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        mem.upsert(MemoryKind::WoodSource, 50.0, 60.0, 100);
+        assert_eq!(
+            mem.entry_count(),
+            2,
+            "distant same-kind entries should be separate"
+        );
+    }
+
+    #[test]
+    fn memory_decay_reduces_confidence() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        assert_eq!(mem.entries[0].confidence, 1.0);
+
+        mem.decay_tick();
+        let expected = 1.0 - MEMORY_DECAY_RATE;
+        assert!(
+            (mem.entries[0].confidence - expected).abs() < 1e-10,
+            "confidence should decrease by MEMORY_DECAY_RATE"
+        );
+    }
+
+    #[test]
+    fn memory_decay_evicts_stale_entries() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+
+        // Set confidence just above threshold
+        mem.entries[0].confidence = MEMORY_FORGET_THRESHOLD + 0.001;
+        mem.decay_tick();
+        assert_eq!(
+            mem.entry_count(),
+            0,
+            "entry below forget threshold should be evicted"
+        );
+    }
+
+    #[test]
+    fn memory_capacity_limit() {
+        let mut mem = VillagerMemory::new();
+        // Fill to capacity with distinct locations
+        for i in 0..MEMORY_CAPACITY + 5 {
+            let x = (i as f64) * 10.0; // far apart to avoid dedup
+            mem.upsert(MemoryKind::WoodSource, x, 0.0, 100);
+        }
+        assert!(
+            mem.entry_count() <= MEMORY_CAPACITY,
+            "should not exceed MEMORY_CAPACITY, got {}",
+            mem.entry_count()
+        );
+    }
+
+    #[test]
+    fn memory_best_resource_returns_highest_score() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 50.0, 50.0, 100);
+        mem.upsert(MemoryKind::WoodSource, 100.0, 100.0, 100);
+
+        // Query from (48, 48) — first is closer
+        let result = mem.best_resource(MemoryKind::WoodSource, 48.0, 48.0);
+        assert!(result.is_some());
+        let (x, y, _) = result.unwrap();
+        assert!(
+            (x - 50.0).abs() < 1.0,
+            "should prefer closer resource, got ({}, {})",
+            x,
+            y
+        );
+    }
+
+    #[test]
+    fn memory_best_resource_returns_none_for_missing_kind() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::WoodSource, 10.0, 20.0, 100);
+        assert!(
+            mem.best_resource(MemoryKind::StoneDeposit, 0.0, 0.0)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn memory_danger_near() {
+        let mut mem = VillagerMemory::new();
+        mem.upsert(MemoryKind::DangerZone, 10.0, 10.0, 100);
+        assert!(mem.danger_near(12.0, 10.0, 5.0));
+        assert!(!mem.danger_near(50.0, 50.0, 5.0));
+    }
+
+    #[test]
+    fn system_update_memories_observes_terrain() {
+        let mut world = World::new();
+        let mut map = TileMap::new(40, 40, Terrain::Grass);
+        // Place forest within sight range
+        map.set(15, 10, Terrain::Forest);
+        map.set(16, 10, Terrain::Forest);
+        // Place mountain within sight range
+        map.set(10, 15, Terrain::Mountain);
+
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        // Also place a food source entity within sight range
+        spawn_berry_bush(&mut world, 12.0, 12.0);
+
+        let grid = make_grid(&world, &map);
+        system_update_memories(&mut world, &map, &grid, 1);
+
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        // Should have observed something (terrain sampling is probabilistic based on
+        // direction alignment, but food source entity should always be detected)
+        let has_food = memory
+            .entries
+            .iter()
+            .any(|e| e.kind == MemoryKind::FoodSource);
+        assert!(
+            has_food,
+            "villager should observe nearby food source entity"
+        );
+    }
+
+    #[test]
+    fn system_update_memories_observes_predators() {
+        let mut world = World::new();
+        let map = walkable_map(40, 40);
+
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_predator(&mut world, 15.0, 10.0);
+
+        let grid = make_grid(&world, &map);
+        system_update_memories(&mut world, &map, &grid, 1);
+
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        let has_danger = memory
+            .entries
+            .iter()
+            .any(|e| e.kind == MemoryKind::DangerZone);
+        assert!(
+            has_danger,
+            "villager should observe nearby predator as danger"
+        );
+    }
+
+    #[test]
+    fn system_update_memories_decays_each_tick() {
+        let mut world = World::new();
+        let map = walkable_map(40, 40);
+
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        // Manually insert a memory entry
+        {
+            let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
+            memory.upsert(MemoryKind::WoodSource, 50.0, 50.0, 0); // far away, won't be refreshed
+        }
+
+        let grid = make_grid(&world, &map);
+        // Run several ticks
+        for tick in 1..=10 {
+            system_update_memories(&mut world, &map, &grid, tick);
+        }
+
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        if let Some(entry) = memory
+            .entries
+            .iter()
+            .find(|e| e.kind == MemoryKind::WoodSource)
+        {
+            assert!(
+                entry.confidence < 1.0,
+                "confidence should have decayed after 10 ticks"
+            );
+            let expected = 1.0 - (MEMORY_DECAY_RATE * 10.0);
+            assert!(
+                (entry.confidence - expected).abs() < 0.01,
+                "confidence should be ~{}, got {}",
+                expected,
+                entry.confidence
+            );
+        }
+        // Entry might also have been evicted if confidence dropped enough (unlikely in 10 ticks)
+    }
+
+    #[test]
+    fn memory_stockpile_loc_set_by_observation() {
+        let mut world = World::new();
+        let map = walkable_map(40, 40);
+
+        let v = spawn_villager(&mut world, 10.0, 10.0);
+        spawn_stockpile(&mut world, 12.0, 10.0);
+
+        let grid = make_grid(&world, &map);
+        system_update_memories(&mut world, &map, &grid, 1);
+
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        assert_eq!(
+            memory.stockpile_loc,
+            Some((12.0, 10.0)),
+            "should learn stockpile location from observation"
+        );
+    }
+
+    #[test]
+    fn memory_believed_stockpile_updated_on_deposit() {
+        let mut world = World::new();
+        let map = walkable_map(30, 30);
+
+        // Villager hauling wood to stockpile, about to arrive
+        let v = spawn_villager(&mut world, 5.1, 5.0);
+        {
+            let mut behavior = world.get::<&mut Behavior>(v).unwrap();
+            behavior.state = BehaviorState::Hauling {
+                target_x: 5.0,
+                target_y: 5.0,
+                resource_type: ResourceType::Wood,
+            };
+        }
+        spawn_stockpile(&mut world, 5.0, 5.0);
+
+        let grid = make_grid(&world, &map);
+        let result = system_ai(
+            &mut world,
+            &map,
+            &grid,
+            0.4,
+            10, // food
+            5,  // wood
+            3,  // stone
+            0,
+            0,
+            &SkillMults::default(),
+            false,
+            false,
+            &[],
+            0,
+        );
+
+        // Check that deposit happened
+        assert!(
+            !result.deposited.is_empty(),
+            "villager should have deposited resource"
+        );
+
+        // Check that believed_stockpile was updated
+        let memory = world.get::<&VillagerMemory>(v).unwrap();
+        assert!(
+            memory.believed_stockpile.is_some(),
+            "believed_stockpile should be set after deposit"
+        );
+        let belief = memory.believed_stockpile.unwrap();
+        assert_eq!(belief.tick_observed, 0);
+        // wood should be stockpile_wood + 1 (the deposited wood)
+        assert_eq!(belief.wood, 6, "believed wood should include the deposit");
+    }
+
+    #[test]
+    fn memory_serialize_round_trip() {
+        let mut world = World::new();
+        let v = spawn_villager(&mut world, 5.0, 5.0);
+        {
+            let mut memory = world.get::<&mut VillagerMemory>(v).unwrap();
+            memory.upsert(MemoryKind::WoodSource, 10.0, 20.0, 42);
+            memory.believed_stockpile = Some(BelievedStockpile {
+                food: 5,
+                wood: 10,
+                stone: 3,
+                tick_observed: 42,
+            });
+        }
+
+        let serialized = serialize_world(&world);
+        let world2 = deserialize_world(&serialized);
+
+        // Find the villager in the deserialized world
+        let mut found = false;
+        for (_, memory) in world2.query::<(&Creature, &VillagerMemory)>().iter() {
+            if memory.entry_count() > 0 {
+                assert_eq!(memory.entries[0].kind, MemoryKind::WoodSource);
+                assert!(memory.believed_stockpile.is_some());
+                let belief = memory.believed_stockpile.unwrap();
+                assert_eq!(belief.wood, 10);
+                found = true;
+            }
+        }
+        assert!(
+            found,
+            "deserialized world should contain villager with memory"
+        );
+    }
 }

@@ -1254,6 +1254,12 @@ impl Game {
                     build_speed: (self.skills.building / 50.0).floor() as u32,
                 };
                 self.spatial_grid.populate(&self.world);
+                ecs::system_update_memories(
+                    &mut self.world,
+                    &self.map,
+                    &self.spatial_grid,
+                    self.tick,
+                );
                 let ai_result = ecs::system_ai(
                     &mut self.world,
                     &self.map,
