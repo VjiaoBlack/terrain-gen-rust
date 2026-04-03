@@ -314,6 +314,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -355,6 +356,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -398,6 +400,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -440,6 +443,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
             let pos = *world.get::<&Position>(e).unwrap();
@@ -510,6 +514,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -552,6 +557,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -589,6 +595,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(prey).unwrap().state;
@@ -629,6 +636,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -669,6 +677,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(predator).unwrap().state;
@@ -713,6 +722,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
 
@@ -782,6 +792,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
 
@@ -853,6 +864,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let hunger = world.get::<&Creature>(prey).unwrap().hunger;
@@ -890,6 +902,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -933,6 +946,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -976,6 +990,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1023,6 +1038,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1081,6 +1097,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         assert_eq!(result.deposited.len(), 1, "should deposit one resource");
@@ -1155,6 +1172,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1205,6 +1223,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let s = world.get::<&BuildSite>(site).unwrap();
@@ -1326,6 +1345,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             system_movement(&mut world, &map);
         }
@@ -1719,6 +1739,7 @@ mod tests {
                 false,
                 &[],
                 0,
+                &[],
             );
             deposits.extend(r.deposited);
             system_movement(&mut world, &map);
@@ -1781,6 +1802,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -1827,6 +1849,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(villager).unwrap().state;
@@ -2233,6 +2256,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2281,6 +2305,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let wolf_state = world.get::<&Behavior>(wolf).unwrap().state;
@@ -2426,6 +2451,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         if result.grain_consumed > 0 || result.food_consumed > 0 {
@@ -2548,6 +2574,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let after = world.get::<&ResourceYield>(bush).unwrap().remaining;
@@ -2595,6 +2622,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         assert!(
@@ -2654,6 +2682,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         assert!(
@@ -3052,6 +3081,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         assert!(
@@ -3144,6 +3174,7 @@ mod tests {
             true, // is_night
             &[],
             0,
+            &[],
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3189,6 +3220,7 @@ mod tests {
             true, // is_night
             &[],
             0,
+            &[],
         );
 
         let behavior = world.get::<&Behavior>(v).unwrap();
@@ -3231,6 +3263,7 @@ mod tests {
             false,
             &[],
             100,
+            &[],
         );
 
         // Villager should have a PathCache with content
@@ -3276,6 +3309,7 @@ mod tests {
             false,
             &[],
             100,
+            &[],
         );
         system_movement(&mut world, &map);
 
@@ -3303,6 +3337,7 @@ mod tests {
             false,
             &[],
             101,
+            &[],
         );
 
         let cache_after_second = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3343,6 +3378,7 @@ mod tests {
             false,
             &[],
             100,
+            &[],
         );
 
         let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3373,6 +3409,7 @@ mod tests {
             false,
             &[],
             101,
+            &[],
         );
 
         let cache_second = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3410,6 +3447,7 @@ mod tests {
             false,
             &[],
             100,
+            &[],
         );
 
         let cache_first = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3432,6 +3470,7 @@ mod tests {
             false,
             &[],
             300,
+            &[],
         );
 
         let cache_after = (*world.get::<&PathCache>(v).unwrap()).clone();
@@ -3471,6 +3510,7 @@ mod tests {
             false,
             &[],
             100,
+            &[],
         );
 
         let cache = world.get::<&PathCache>(v).unwrap();
@@ -3594,6 +3634,7 @@ mod tests {
             false,
             &[],
             50, // current_tick < next_ai_tick (100)
+            &[],
         );
 
         let state_after = world.get::<&Behavior>(v).unwrap().state;
@@ -3632,6 +3673,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         let schedule = *world.get::<&TickSchedule>(v).unwrap();
@@ -3667,6 +3709,7 @@ mod tests {
             false,
             &[],
             10,
+            &[],
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -3712,6 +3755,7 @@ mod tests {
             false,
             &[],
             50,
+            &[],
         );
 
         let schedule = *world.get::<&TickSchedule>(v).unwrap();
@@ -3787,6 +3831,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
         // Just verify no panic — prey/predator AI ran without TickSchedule
     }
@@ -4090,6 +4135,7 @@ mod tests {
             false,
             &[],
             0,
+            &[],
         );
 
         // Check that deposit happened
@@ -4452,6 +4498,7 @@ mod tests {
             false,
             &[],
             200,
+            &[],
         );
 
         // The board should now have the wood sighting
@@ -5106,6 +5153,7 @@ mod tests {
             false,
             &[],
             1,
+            &[],
         );
 
         // Check: villager should be in confused Idle with timer = STALE_ARRIVAL_PAUSE
@@ -5180,6 +5228,7 @@ mod tests {
             false,
             &[],
             1,
+            &[],
         );
 
         // WoodSource memory should still be present (not deleted)
@@ -5230,6 +5279,7 @@ mod tests {
             false,
             &[],
             1,
+            &[],
         );
 
         // Should be in confused idle

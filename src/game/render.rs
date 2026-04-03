@@ -1597,6 +1597,8 @@ impl super::Game {
                     Some(Terrain::Road) => Color(100, 90, 70),
                     Some(Terrain::Ford) => Color(80, 140, 220),
                     Some(Terrain::Bridge) => Color(140, 100, 50),
+                    Some(Terrain::Burning) => Color(255, 120, 20),
+                    Some(Terrain::Scorched) => Color(60, 50, 40),
                     _ => Color(60, 60, 60),
                 };
 
@@ -1680,6 +1682,8 @@ impl super::Game {
                         Terrain::Bridge => ('#', Color(140, 100, 50)),
                         Terrain::Ice => ('=', Color(180, 210, 240)),
                         Terrain::FloodWater => ('~', Color(100, 150, 200)),
+                        Terrain::Burning => ('*', Color(255, 120, 20)),
+                        Terrain::Scorched => ('`', Color(80, 70, 60)),
                     };
                     renderer.draw(sx, sy, ch, black, Some(bg));
                 }

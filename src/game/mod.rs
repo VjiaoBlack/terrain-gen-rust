@@ -372,6 +372,9 @@ pub struct Game {
     pub flooded_tiles: Vec<(usize, usize)>,
     /// Transient flag: set when a raid/wolf surge is repelled with zero deaths.
     pub raid_survived_clean: bool,
+    /// Active fire tiles: (x, y, burn_ticks_remaining). Processed each tick for
+    /// fire spread and burnout — O(fire_front), not O(map).
+    pub fire_tiles: Vec<(usize, usize, u32)>,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -1072,6 +1075,7 @@ impl Game {
             flood_start_tick: 0,
             flooded_tiles: Vec::new(),
             raid_survived_clean: false,
+            fire_tiles: Vec::new(),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -1162,6 +1166,227 @@ impl Game {
                 }
             }
         }
+    }
+
+    // --- Forest fire system ---
+
+    /// Check for fire ignition. Called once per in-game day during summer
+    /// when conditions are right: low moisture on flammable tiles.
+    fn check_fire_ignition(&mut self) {
+        let season = self.day_night.season;
+        // Fire only ignites in summer
+        if season != Season::Summer {
+            return;
+        }
+
+        let mut rng = rand::rng();
+        let w = self.map.width;
+        let h = self.map.height;
+
+        // Sample up to 50 random tiles for lightning ignition
+        let samples = 50usize.min(w * h);
+        for _ in 0..samples {
+            let x = rng.random_range(0..w as u32) as usize;
+            let y = rng.random_range(0..h as u32) as usize;
+            let Some(terrain) = self.map.get(x, y).copied() else {
+                continue;
+            };
+            if !terrain.is_flammable() {
+                continue;
+            }
+            let moisture = self.moisture.get(x, y);
+            if moisture >= 0.15 {
+                continue;
+            }
+            // 0.01% chance per eligible tile per day-tick (0.0001)
+            if rng.random_range(0u32..10000) < 1 {
+                self.ignite_tile(x, y, &mut rng);
+                return; // At most one lightning ignition per day
+            }
+        }
+
+        // Smithy/bakery building ignition: check tiles within 2 of each
+        let building_positions: Vec<(f64, f64)> = self
+            .world
+            .query::<(&Position, &ProcessingBuilding)>()
+            .iter()
+            .filter(|(_, pb)| matches!(pb.recipe, Recipe::StoneToMasonry | Recipe::GrainToBread))
+            .map(|(pos, _)| (pos.x, pos.y))
+            .collect();
+
+        for (bx, by) in building_positions {
+            let ix = bx.round() as i32;
+            let iy = by.round() as i32;
+            for dy in -2i32..=2 {
+                for dx in -2i32..=2 {
+                    let nx = ix + dx;
+                    let ny = iy + dy;
+                    if nx < 0 || ny < 0 || nx as usize >= w || ny as usize >= h {
+                        continue;
+                    }
+                    let ux = nx as usize;
+                    let uy = ny as usize;
+                    let Some(terrain) = self.map.get(ux, uy).copied() else {
+                        continue;
+                    };
+                    if !terrain.is_flammable() {
+                        continue;
+                    }
+                    let moisture = self.moisture.get(ux, uy);
+                    if moisture >= 0.15 {
+                        continue;
+                    }
+                    // 0.1% chance per tile per day (0.001)
+                    if rng.random_range(0u32..1000) < 1 {
+                        self.ignite_tile(ux, uy, &mut rng);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ignite a single tile: set it to Burning, assign burn timer, add to fire_tiles.
+    fn ignite_tile(&mut self, x: usize, y: usize, rng: &mut impl rand::RngExt) {
+        self.map.set(x, y, Terrain::Burning);
+        let burn_ticks = rng.random_range(30u32..=50);
+        self.fire_tiles.push((x, y, burn_ticks));
+        self.notify("Fire! A forest fire has started!".to_string());
+    }
+
+    /// Process fire spread and burnout each tick. Only iterates over active
+    /// fire tiles — O(fire_front), not O(map).
+    fn tick_fire(&mut self) {
+        if self.fire_tiles.is_empty() {
+            return;
+        }
+
+        let mut rng = rand::rng();
+        let w = self.map.width;
+        let h = self.map.height;
+        let mut new_fires: Vec<(usize, usize, u32)> = Vec::new();
+
+        // Build a set of currently burning positions for fast lookup
+        let burning_set: std::collections::HashSet<(usize, usize)> =
+            self.fire_tiles.iter().map(|&(x, y, _)| (x, y)).collect();
+
+        // Decrement timers and collect spread candidates
+        for entry in &mut self.fire_tiles {
+            let (x, y, ref mut timer) = *entry;
+
+            if *timer > 0 {
+                *timer -= 1;
+            }
+
+            // Try to spread to 8 neighbors
+            for dy in -1i32..=1 {
+                for dx in -1i32..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx < 0 || ny < 0 || nx as usize >= w || ny as usize >= h {
+                        continue;
+                    }
+                    let ux = nx as usize;
+                    let uy = ny as usize;
+                    let Some(terrain) = self.map.get(ux, uy).copied() else {
+                        continue;
+                    };
+                    if !terrain.is_flammable() {
+                        continue;
+                    }
+                    // High moisture blocks spread
+                    let moisture = self.moisture.get(ux, uy);
+                    if moisture > 0.6 {
+                        continue;
+                    }
+                    // spread_probability = 0.03 * (1.0 - moisture) * vegetation_factor
+                    let veg = self.vegetation.get(ux, uy).clamp(0.3, 1.0);
+                    let prob = 0.03 * (1.0 - moisture) * veg;
+                    let roll = rng.random_range(0u32..10000) as f64 / 10000.0;
+                    if roll < prob {
+                        let already = burning_set.contains(&(ux, uy))
+                            || new_fires.iter().any(|(fx, fy, _)| *fx == ux && *fy == uy);
+                        if !already {
+                            let burn_ticks = rng.random_range(30u32..=50);
+                            new_fires.push((ux, uy, burn_ticks));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Burnout: tiles whose timer hit 0 become Scorched
+        let mut burned_out: Vec<(usize, usize)> = Vec::new();
+        self.fire_tiles.retain(|&(x, y, timer)| {
+            if timer == 0 {
+                burned_out.push((x, y));
+                false
+            } else {
+                true
+            }
+        });
+        for (x, y) in &burned_out {
+            self.map.set(*x, *y, Terrain::Scorched);
+            // Ash fertility bonus
+            self.soil_fertility.add(*x, *y, 0.05);
+            // Clear vegetation
+            if let Some(v) = self.vegetation.get_mut(*x, *y) {
+                *v = 0.0;
+            }
+        }
+
+        // Set new fire tiles on the map and add to tracking list
+        for &(x, y, _) in &new_fires {
+            self.map.set(x, y, Terrain::Burning);
+        }
+        self.fire_tiles.extend(new_fires);
+
+        // Damage entities on burning tiles
+        self.fire_damage_entities();
+    }
+
+    /// Entities standing on Burning tiles take hunger damage.
+    fn fire_damage_entities(&mut self) {
+        let mut damage_targets: Vec<hecs::Entity> = Vec::new();
+        for (entity, (pos, _creature)) in self
+            .world
+            .query::<(hecs::Entity, (&Position, &Creature))>()
+            .iter()
+        {
+            let tx = pos.x.round() as usize;
+            let ty = pos.y.round() as usize;
+            if self.map.get(tx, ty) == Some(&Terrain::Burning) {
+                damage_targets.push(entity);
+            }
+        }
+        for entity in damage_targets {
+            if let Ok(mut creature) = self.world.get::<&mut Creature>(entity) {
+                creature.hunger += 2.0;
+            }
+        }
+    }
+
+    /// Check if there are any burning tiles visible from a position.
+    pub fn burning_tiles_near(&self, x: f64, y: f64, range: f64) -> Option<(f64, f64)> {
+        if self.fire_tiles.is_empty() {
+            return None;
+        }
+        let range_sq = range * range;
+        let mut nearest_dist_sq = f64::INFINITY;
+        let mut nearest = None;
+        for &(fx, fy, _) in &self.fire_tiles {
+            let dx = fx as f64 - x;
+            let dy = fy as f64 - y;
+            let d2 = dx * dx + dy * dy;
+            if d2 < range_sq && d2 < nearest_dist_sq {
+                nearest_dist_sq = d2;
+                nearest = Some((fx as f64, fy as f64));
+            }
+        }
+        nearest
     }
 
     pub fn step(&mut self, input: GameInput, renderer: &mut dyn Renderer) -> Result<()> {
@@ -1454,6 +1679,7 @@ impl Game {
                     self.day_night.is_night(),
                     &self.knowledge.frontier,
                     self.tick,
+                    &self.fire_tiles,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -1836,6 +2062,13 @@ impl Game {
 
                 // Resource regrowth (deforestation lifecycle: Stump -> Bare -> Sapling -> Forest)
                 ecs::system_regrowth(&mut self.world, &mut self.map, &self.vegetation, self.tick);
+
+                // Forest fire system: check ignition ~once per in-game day (1200 ticks)
+                if self.tick.is_multiple_of(1200) {
+                    self.check_fire_ignition();
+                }
+                // Process fire spread and burnout every tick
+                self.tick_fire();
 
                 // Soil fertility recovery (every 50 ticks)
                 if self.tick.is_multiple_of(50) {
@@ -2664,6 +2897,7 @@ mod tests {
             true,
             &[],
             0,
+            &[],
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -4245,5 +4479,417 @@ mod tests {
             *game.map.get(0, 0).unwrap(),
             "base terrain should match active terrain at start"
         );
+    }
+
+    // --- Forest fire tests ---
+
+    #[test]
+    fn burning_terrain_properties() {
+        assert!(Terrain::Burning.is_walkable());
+        assert_eq!(Terrain::Burning.ch(), '*');
+        assert_eq!(Terrain::Burning.move_cost(), 10.0);
+        assert_eq!(Terrain::Burning.speed_multiplier(), 0.3);
+        assert!(Terrain::Burning.bg().is_some());
+        assert!(!Terrain::Burning.is_flammable());
+    }
+
+    #[test]
+    fn scorched_terrain_properties() {
+        assert!(Terrain::Scorched.is_walkable());
+        assert_eq!(Terrain::Scorched.ch(), '`');
+        assert_eq!(Terrain::Scorched.move_cost(), 1.3);
+        assert_eq!(Terrain::Scorched.speed_multiplier(), 0.9);
+        assert!(Terrain::Scorched.bg().is_some());
+        assert!(!Terrain::Scorched.is_flammable());
+        assert!(Terrain::Scorched.is_firebreak());
+    }
+
+    #[test]
+    fn flammable_terrain_types() {
+        assert!(Terrain::Forest.is_flammable());
+        assert!(Terrain::Sapling.is_flammable());
+        assert!(Terrain::Stump.is_flammable());
+        assert!(Terrain::Scrubland.is_flammable());
+        assert!(!Terrain::Grass.is_flammable());
+        assert!(!Terrain::Water.is_flammable());
+        assert!(!Terrain::Road.is_flammable());
+    }
+
+    #[test]
+    fn firebreak_terrain_types() {
+        assert!(Terrain::Water.is_firebreak());
+        assert!(Terrain::Ford.is_firebreak());
+        assert!(Terrain::Sand.is_firebreak());
+        assert!(Terrain::Desert.is_firebreak());
+        assert!(Terrain::Mountain.is_firebreak());
+        assert!(Terrain::Road.is_firebreak());
+        assert!(Terrain::Scorched.is_firebreak());
+        assert!(!Terrain::Forest.is_firebreak());
+        assert!(!Terrain::Grass.is_firebreak());
+    }
+
+    #[test]
+    fn fire_ignition_only_in_summer() {
+        let mut game = Game::new(60, 42);
+        // Set season to Spring
+        game.day_night.season = Season::Spring;
+        // Place a dry forest tile
+        game.map.set(50, 50, Terrain::Forest);
+        game.moisture.set(50, 50, 0.0);
+
+        // Run ignition check many times — should never ignite in spring
+        for _ in 0..100 {
+            game.check_fire_ignition();
+        }
+        assert!(
+            game.fire_tiles.is_empty(),
+            "fire should not ignite in spring"
+        );
+
+        // Set to winter — same result
+        game.day_night.season = Season::Winter;
+        for _ in 0..100 {
+            game.check_fire_ignition();
+        }
+        assert!(
+            game.fire_tiles.is_empty(),
+            "fire should not ignite in winter"
+        );
+    }
+
+    #[test]
+    fn fire_ignition_requires_low_moisture() {
+        let mut game = Game::new(60, 42);
+        game.day_night.season = Season::Summer;
+        // Set all forest tiles to high moisture
+        for y in 0..game.map.height {
+            for x in 0..game.map.width {
+                if game.map.get(x, y) == Some(&Terrain::Forest) {
+                    game.moisture.set(x, y, 0.5); // above 0.15 threshold
+                }
+            }
+        }
+
+        for _ in 0..200 {
+            game.check_fire_ignition();
+        }
+        assert!(
+            game.fire_tiles.is_empty(),
+            "fire should not ignite when moisture is above 0.15"
+        );
+    }
+
+    #[test]
+    fn fire_burns_out_to_scorched() {
+        let mut game = Game::new(60, 42);
+        // Manually ignite a tile with a short burn timer
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 1)); // 1 tick remaining
+
+        // No adjacent flammable tiles (surround with grass which isn't flammable)
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                game.map
+                    .set((50 + dx) as usize, (50 + dy) as usize, Terrain::Grass);
+            }
+        }
+
+        game.tick_fire();
+
+        assert_eq!(
+            game.map.get(50, 50),
+            Some(&Terrain::Scorched),
+            "burning tile should become scorched after timer expires"
+        );
+        assert!(
+            game.fire_tiles.is_empty(),
+            "burned out tile should be removed from fire_tiles"
+        );
+    }
+
+    #[test]
+    fn fire_does_not_spread_across_water() {
+        let mut game = Game::new(60, 42);
+        // Set up: burning tile at (50,50), water at (51,50), forest at (52,50)
+        game.map.set(50, 50, Terrain::Burning);
+        game.map.set(51, 50, Terrain::Water);
+        game.map.set(52, 50, Terrain::Forest);
+        game.moisture.set(52, 50, 0.0);
+        game.fire_tiles.push((50, 50, 100));
+
+        // Surround with non-flammable to isolate test
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = (50 + dx) as usize;
+                let ny = (50 + dy) as usize;
+                if nx != 51 || ny != 50 {
+                    game.map.set(nx, ny, Terrain::Grass);
+                }
+            }
+        }
+
+        // Run fire spread many times
+        for _ in 0..200 {
+            game.tick_fire();
+        }
+
+        // Water tile should still be water
+        assert_eq!(game.map.get(51, 50), Some(&Terrain::Water));
+        // Forest behind water should not have burned
+        assert_eq!(
+            game.map.get(52, 50),
+            Some(&Terrain::Forest),
+            "fire should not cross water tile"
+        );
+    }
+
+    #[test]
+    fn fire_does_not_spread_across_road() {
+        let mut game = Game::new(60, 42);
+        game.map.set(50, 50, Terrain::Burning);
+        game.map.set(51, 50, Terrain::Road);
+        game.map.set(52, 50, Terrain::Forest);
+        game.moisture.set(52, 50, 0.0);
+        game.fire_tiles.push((50, 50, 100));
+
+        // Surround with non-flammable except road direction
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = (50 + dx) as usize;
+                let ny = (50 + dy) as usize;
+                if !(nx == 51 && ny == 50) && !(nx == 52 && ny == 50) {
+                    game.map.set(nx, ny, Terrain::Grass);
+                }
+            }
+        }
+
+        for _ in 0..200 {
+            game.tick_fire();
+        }
+
+        assert_eq!(game.map.get(51, 50), Some(&Terrain::Road));
+        assert_eq!(
+            game.map.get(52, 50),
+            Some(&Terrain::Forest),
+            "fire should not cross road tile"
+        );
+    }
+
+    #[test]
+    fn fire_spreads_to_adjacent_forest() {
+        let mut game = Game::new(60, 42);
+        // Put burning tile surrounded by dry forest
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 200)); // long burn
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = (50 + dx) as usize;
+                let ny = (50 + dy) as usize;
+                game.map.set(nx, ny, Terrain::Forest);
+                game.moisture.set(nx, ny, 0.0); // bone dry
+                // Set vegetation high for max spread chance
+                if let Some(v) = game.vegetation.get_mut(nx, ny) {
+                    *v = 1.0;
+                }
+            }
+        }
+
+        // Run many ticks — with 0 moisture and 1.0 vegetation, spread prob is 0.03
+        // Over many ticks, at least one neighbor should catch fire
+        for _ in 0..500 {
+            game.tick_fire();
+        }
+
+        let burned_neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)]
+            .iter()
+            .filter(|&&(dx, dy)| {
+                let nx = (50 + dx) as usize;
+                let ny = (50 + dy) as usize;
+                matches!(
+                    game.map.get(nx, ny),
+                    Some(&Terrain::Burning) | Some(&Terrain::Scorched)
+                )
+            })
+            .count();
+
+        assert!(
+            burned_neighbors > 0,
+            "fire should have spread to at least one adjacent forest tile"
+        );
+    }
+
+    #[test]
+    fn high_moisture_prevents_spread() {
+        let mut game = Game::new(60, 42);
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 200));
+
+        // Set all neighbors to forest with high moisture (>0.6 blocks spread)
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = (50 + dx) as usize;
+                let ny = (50 + dy) as usize;
+                game.map.set(nx, ny, Terrain::Forest);
+                game.moisture.set(nx, ny, 0.8);
+            }
+        }
+
+        for _ in 0..500 {
+            game.tick_fire();
+        }
+
+        let spread = game.fire_tiles.len();
+        // Only the original fire tile (or it burned out)
+        assert!(
+            spread <= 1,
+            "fire should not spread when moisture > 0.6, but {} tiles burning",
+            spread
+        );
+    }
+
+    #[test]
+    fn scorched_gets_fertility_bonus() {
+        let mut game = Game::new(60, 42);
+        // Set fertility to a value below max so the bonus is visible
+        game.soil_fertility.set(50, 50, 0.5);
+        let initial_fertility = game.soil_fertility.get(50, 50);
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 1)); // burns out next tick
+
+        // Surround with non-flammable
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                game.map
+                    .set((50 + dx) as usize, (50 + dy) as usize, Terrain::Grass);
+            }
+        }
+
+        game.tick_fire();
+
+        let new_fertility = game.soil_fertility.get(50, 50);
+        assert!(
+            new_fertility >= initial_fertility + 0.04,
+            "scorched tile should get +0.05 fertility bonus, was {} now {}",
+            initial_fertility,
+            new_fertility
+        );
+    }
+
+    #[test]
+    fn entity_on_burning_tile_takes_damage() {
+        let mut game = Game::new(60, 42);
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 100));
+
+        let v = ecs::spawn_villager(&mut game.world, 50.0, 50.0);
+        let hunger_before = game.world.get::<&Creature>(v).unwrap().hunger;
+
+        game.fire_damage_entities();
+
+        let hunger_after = game.world.get::<&Creature>(v).unwrap().hunger;
+        assert!(
+            hunger_after > hunger_before,
+            "entity on burning tile should take hunger damage: before={}, after={}",
+            hunger_before,
+            hunger_after
+        );
+        assert!(
+            (hunger_after - hunger_before - 2.0).abs() < 0.01,
+            "fire damage should be 2.0 hunger per tick"
+        );
+    }
+
+    #[test]
+    fn villager_flees_from_fire() {
+        let mut game = Game::new(60, 42);
+        // Clear area and place fire near a villager
+        for y in 45..56 {
+            for x in 45..56 {
+                game.map.set(x, y, Terrain::Grass);
+            }
+        }
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 200));
+
+        let v = ecs::spawn_villager(&mut game.world, 52.0, 50.0);
+        ecs::spawn_stockpile(&mut game.world, 55.0, 50.0);
+
+        // Run AI with fire_tiles — the fire is within threat range (8 tiles)
+        let grid = crate::ecs::spatial::SpatialHashGrid::new(game.map.width, game.map.height, 16);
+        let mut grid = grid;
+        grid.populate(&game.world);
+
+        let result = ecs::system_ai(
+            &mut game.world,
+            &game.map,
+            &grid,
+            0.4,
+            10,
+            0,
+            0,
+            0,
+            0,
+            &crate::ecs::SkillMults::default(),
+            false,
+            false,
+            &[],
+            0,
+            &game.fire_tiles,
+        );
+
+        let state = game.world.get::<&crate::ecs::Behavior>(v).unwrap().state;
+        assert!(
+            matches!(state, crate::ecs::BehaviorState::FleeHome { .. }),
+            "villager near fire should flee, got: {:?}",
+            state
+        );
+    }
+
+    #[test]
+    fn fire_tile_tracking_efficiency() {
+        let mut game = Game::new(60, 42);
+        // Start with no fire tiles
+        assert!(game.fire_tiles.is_empty());
+
+        // Add a fire
+        game.map.set(50, 50, Terrain::Burning);
+        game.fire_tiles.push((50, 50, 2));
+        // Surround with grass (not flammable)
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx != 0 || dy != 0 {
+                    game.map
+                        .set((50 + dx) as usize, (50 + dy) as usize, Terrain::Grass);
+                }
+            }
+        }
+
+        // After 2 ticks, fire should burn out
+        game.tick_fire(); // timer 2->1
+        assert_eq!(game.fire_tiles.len(), 1);
+        game.tick_fire(); // timer 1->0, burns out
+        assert!(
+            game.fire_tiles.is_empty(),
+            "fire_tiles should be empty after burnout"
+        );
+        assert_eq!(game.map.get(50, 50), Some(&Terrain::Scorched));
     }
 }

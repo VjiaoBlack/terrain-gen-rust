@@ -90,6 +90,7 @@ impl Game {
             flood_start_tick: 0,
             flooded_tiles: Vec::new(),
             raid_survived_clean: false,
+            fire_tiles: Vec::new(),
             #[cfg(feature = "lua")]
             script_engine: None,
         })

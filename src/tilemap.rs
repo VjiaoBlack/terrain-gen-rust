@@ -32,13 +32,17 @@ pub enum Terrain {
     Ice,
     /// Temporary spring flood — impassable, sediment-laden water near rivers.
     FloodWater,
+    /// Active fire — walkable but dangerous, very high A* cost.
+    Burning,
+    /// Burned-out ground — dark grey, walkable, blocks further fire spread.
+    Scorched,
 }
 
 impl Terrain {
     pub fn is_walkable(&self) -> bool {
         match self {
             Terrain::Water | Terrain::BuildingWall | Terrain::Cliff | Terrain::FloodWater => false,
-            _ => true,
+            _ => true, // Burning and Scorched are walkable
         }
     }
 
@@ -69,6 +73,8 @@ impl Terrain {
             Terrain::Bridge => '#',
             Terrain::Ice => '=',
             Terrain::FloodWater => '~',
+            Terrain::Burning => '*',
+            Terrain::Scorched => '`',
         }
     }
 
@@ -99,6 +105,8 @@ impl Terrain {
             Terrain::Bridge => Color(140, 100, 50),
             Terrain::Ice => Color(180, 210, 240),
             Terrain::FloodWater => Color(100, 150, 200),
+            Terrain::Burning => Color(255, 120, 20),
+            Terrain::Scorched => Color(80, 70, 60),
         }
     }
 
@@ -129,6 +137,8 @@ impl Terrain {
             Terrain::Bridge => Some(Color(80, 60, 30)),
             Terrain::Ice => Some(Color(120, 150, 180)),
             Terrain::FloodWater => Some(Color(40, 70, 110)),
+            Terrain::Burning => Some(Color(180, 40, 10)),
+            Terrain::Scorched => Some(Color(40, 35, 25)),
         }
     }
 
@@ -150,6 +160,8 @@ impl Terrain {
             Terrain::Marsh => 0.3,
             Terrain::Mountain => 0.25,
             Terrain::Ice => 0.5,
+            Terrain::Burning => 0.3,
+            Terrain::Scorched => 0.9,
             Terrain::Water | Terrain::BuildingWall | Terrain::Cliff | Terrain::FloodWater => 0.0,
         }
     }
@@ -171,10 +183,40 @@ impl Terrain {
             Terrain::Marsh => 3.0,
             Terrain::Mountain => 4.0,
             Terrain::Ice => 2.0,
+            Terrain::Burning => 10.0,
+            Terrain::Scorched => 1.3,
             Terrain::Water | Terrain::BuildingWall | Terrain::Cliff | Terrain::FloodWater => {
                 f64::INFINITY
             }
         }
+    }
+
+    /// Returns true if this terrain type can catch fire.
+    pub fn is_flammable(&self) -> bool {
+        matches!(
+            self,
+            Terrain::Forest | Terrain::Sapling | Terrain::Stump | Terrain::Scrubland
+        )
+    }
+
+    /// Returns true if this terrain type blocks fire spread (natural firebreak).
+    pub fn is_firebreak(&self) -> bool {
+        matches!(
+            self,
+            Terrain::Water
+                | Terrain::Ford
+                | Terrain::Sand
+                | Terrain::Desert
+                | Terrain::Mountain
+                | Terrain::Snow
+                | Terrain::Tundra
+                | Terrain::Road
+                | Terrain::Bridge
+                | Terrain::Scorched
+                | Terrain::BuildingWall
+                | Terrain::Ice
+                | Terrain::FloodWater
+        )
     }
 }
 

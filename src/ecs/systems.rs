@@ -109,6 +109,7 @@ pub fn system_ai(
     is_night: bool,
     frontier: &[(usize, usize)],
     current_tick: u64,
+    fire_tiles: &[(usize, usize, u32)],
 ) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
@@ -268,6 +269,14 @@ pub fn system_ai(
                 let threat_range = 8.0_f64.min(creature.sight_range);
                 let predator_nearby =
                     grid.any_within(pos.x, pos.y, threat_range, category::PREDATOR);
+
+                // Also flee from nearby fire (Burning tiles within threat range)
+                let fire_nearby = fire_tiles.iter().any(|&(fx, fy, _)| {
+                    let dx = fx as f64 - pos.x;
+                    let dy = fy as f64 - pos.y;
+                    dx * dx + dy * dy < threat_range * threat_range
+                });
+                let predator_nearby = predator_nearby || fire_nearby;
 
                 let remaining_grain = stockpile_grain.saturating_sub(grain_consumed);
                 let remaining_food = stockpile_food.saturating_sub(food_consumed);
