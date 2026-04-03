@@ -29,8 +29,8 @@ pub struct SimConfig {
 impl Default for SimConfig {
     fn default() -> Self {
         Self {
-            rain_rate: 0.02,
-            rain_amount: 0.001,
+            rain_rate: 0.03,
+            rain_amount: 0.005,
             flow_fraction: 0.5,
             evaporation: 0.00001,
             erosion_enabled: false,
