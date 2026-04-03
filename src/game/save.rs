@@ -55,7 +55,7 @@ impl Game {
             day_night: state.day_night,
             scroll_speed: 2,
             raining: state.raining,
-            debug_view: false,
+            render_mode: super::RenderMode::Normal,
             paused: false,
             query_mode: false,
             query_cx: 0,

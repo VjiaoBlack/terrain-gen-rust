@@ -799,10 +799,11 @@ mod tests {
     }
 
     #[test]
-    fn toggle_debug_view() {
+    fn toggle_render_mode_cycle() {
+        use terrain_gen_rust::game::RenderMode;
         let mut r = HeadlessRenderer::new(140, 20);
         let mut game = test_game();
-        assert!(!game.debug_view);
+        assert_eq!(game.render_mode, RenderMode::Normal);
 
         game.step(GameInput::None, &mut r).unwrap();
         let frame = r.frame_as_string();
@@ -812,8 +813,19 @@ mod tests {
             frame
         );
 
+        // First toggle: Normal -> Map
         game.step(GameInput::ToggleDebugView, &mut r).unwrap();
-        assert!(game.debug_view);
+        assert_eq!(game.render_mode, RenderMode::Map);
+        let frame = r.frame_as_string();
+        assert!(
+            frame.contains("view:[v]M"),
+            "should show Map view:\n{}",
+            frame
+        );
+
+        // Second toggle: Map -> Debug
+        game.step(GameInput::ToggleDebugView, &mut r).unwrap();
+        assert_eq!(game.render_mode, RenderMode::Debug);
         let frame = r.frame_as_string();
         assert!(
             frame.contains("view:[v]D"),
@@ -828,6 +840,10 @@ mod tests {
             "debug view should use uppercase terrain letters:\n{}",
             frame
         );
+
+        // Third toggle: Debug -> Normal
+        game.step(GameInput::ToggleDebugView, &mut r).unwrap();
+        assert_eq!(game.render_mode, RenderMode::Normal);
     }
 
     #[test]

@@ -111,6 +111,84 @@ fn prey_visual(state: &BehaviorState) -> (char, Color) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Map Mode entity visuals: bright, saturated glyphs on muted terrain.
+// These intentionally differ from entity_visual() — Map Mode uses its own
+// glyph language (design doc: pillar4_observable/map_rendering_mode.md).
+// ---------------------------------------------------------------------------
+
+/// Map Mode glyph + color for an entity, keyed on (species, behavior_state).
+/// Returns `None` for entities that should be hidden (e.g. prey AtHome).
+pub(super) fn map_mode_entity_visual(
+    species: Species,
+    state: &BehaviorState,
+) -> Option<(char, Color)> {
+    match species {
+        Species::Villager => Some(map_villager_visual(state)),
+        Species::Predator => Some(map_predator_visual(state)),
+        Species::Prey => map_prey_visual(state),
+    }
+}
+
+fn map_villager_visual(state: &BehaviorState) -> (char, Color) {
+    match state {
+        BehaviorState::Idle { .. } | BehaviorState::Wander { .. } => ('@', Color(80, 200, 255)),
+        BehaviorState::Seek { .. } => ('@', Color(180, 200, 100)),
+        BehaviorState::Gathering { resource_type, .. } => match resource_type {
+            ResourceType::Wood => ('$', Color(160, 110, 50)),
+            ResourceType::Stone => ('$', Color(150, 150, 160)),
+            ResourceType::Food => ('$', Color(80, 200, 80)),
+            _ => ('$', Color(180, 180, 100)),
+        },
+        BehaviorState::Hauling { .. } => ('%', Color(220, 190, 60)),
+        BehaviorState::Building { .. } => ('&', Color(255, 220, 50)),
+        BehaviorState::Farming { .. } => ('f', Color(80, 200, 80)),
+        BehaviorState::Working { .. } => ('g', Color(210, 140, 60)),
+        BehaviorState::Sleeping { .. } => ('z', Color(100, 100, 180)),
+        BehaviorState::FleeHome { .. } => ('!', Color(255, 60, 60)),
+        BehaviorState::Exploring { .. } => ('?', Color(160, 220, 160)),
+        BehaviorState::Captured => ('x', Color(120, 30, 30)),
+        BehaviorState::Eating { .. } => ('@', Color(80, 200, 255)),
+        BehaviorState::Hunting { .. } => ('@', Color(80, 200, 255)),
+        BehaviorState::AtHome { .. } => ('@', Color(80, 200, 255)),
+    }
+}
+
+fn map_predator_visual(state: &BehaviorState) -> (char, Color) {
+    match state {
+        BehaviorState::Hunting { .. } => ('W', Color(255, 40, 40)),
+        _ => ('w', Color(200, 50, 50)),
+    }
+}
+
+fn map_prey_visual(state: &BehaviorState) -> Option<(char, Color)> {
+    match state {
+        BehaviorState::AtHome { .. } => None, // hidden in den
+        BehaviorState::Eating { .. } => Some(('r', Color(140, 200, 90))),
+        BehaviorState::FleeHome { .. } => Some(('!', Color(255, 150, 50))),
+        BehaviorState::Captured => Some(('x', Color(200, 50, 50))),
+        _ => Some(('r', Color(190, 155, 90))),
+    }
+}
+
+/// Map Mode glyph for a building type's center marker tile.
+fn map_building_center_glyph(bt: &BuildingType) -> (char, Color) {
+    match bt {
+        BuildingType::Hut => ('\u{2302}', Color(170, 140, 100)), // ⌂
+        BuildingType::Stockpile => ('\u{25A0}', Color(190, 150, 60)), // ■
+        BuildingType::Farm => ('\u{2261}', Color(90, 180, 60)),  // ≡
+        BuildingType::Workshop => ('\u{2699}', Color(200, 180, 110)), // ⚙
+        BuildingType::Smithy => ('\u{2206}', Color(200, 100, 40)), // ∆
+        BuildingType::Garrison => ('\u{2694}', Color(180, 50, 50)), // ⚔
+        BuildingType::Granary => ('G', Color(200, 180, 80)),
+        BuildingType::Bakery => ('B', Color(210, 160, 90)),
+        BuildingType::TownHall => ('H', Color(255, 220, 60)),
+        BuildingType::Wall => ('#', Color(170, 150, 120)),
+        BuildingType::Road => ('=', Color(170, 145, 90)),
+        BuildingType::Bridge => ('#', Color(140, 100, 50)),
+    }
+}
+
 impl super::Game {
     /// Apply seasonal color tinting to vegetation-sensitive terrain.
     fn season_tint(&self, color: Color, terrain: &Terrain) -> Color {
@@ -812,6 +890,221 @@ impl super::Game {
         self.draw_status(renderer);
     }
 
+    // -----------------------------------------------------------------------
+    // Map Mode: flat symbolic rendering (no lighting, no animation).
+    // -----------------------------------------------------------------------
+
+    pub fn draw_map_mode(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH;
+
+        // Panel (shared with normal mode)
+        self.draw_panel(renderer);
+
+        // --- Terrain pass: flat glyphs, no lighting, no season tint ---
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx in panel_w..w {
+                let wx = self.camera.x + (sx - panel_w) as i32 / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx >= 0 && wy >= 0 {
+                    // Fog of exploration
+                    if !self.exploration.is_revealed(wx as usize, wy as usize) {
+                        renderer.draw(
+                            sx,
+                            sy,
+                            '\u{2591}', // ░
+                            Color(35, 35, 40),
+                            Some(Color(12, 12, 15)),
+                        );
+                        continue;
+                    }
+                    if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
+                        let (ch, fg, bg) =
+                            self.map_terrain_glyph(terrain, wx as usize, wy as usize);
+                        renderer.draw(sx, sy, ch, fg, Some(bg));
+                    }
+                }
+            }
+        }
+
+        // --- Building center markers (on top of terrain) ---
+        // Completed buildings with marker components:
+        for (pos, _stockpile) in self.world.query::<(&Position, &Stockpile)>().iter() {
+            self.draw_map_building_marker(renderer, pos, &BuildingType::Stockpile, aspect, panel_w);
+        }
+        for (pos, _hut) in self.world.query::<(&Position, &ecs::HutBuilding)>().iter() {
+            self.draw_map_building_marker(renderer, pos, &BuildingType::Hut, aspect, panel_w);
+        }
+        for (pos, _garrison) in self
+            .world
+            .query::<(&Position, &ecs::GarrisonBuilding)>()
+            .iter()
+        {
+            self.draw_map_building_marker(renderer, pos, &BuildingType::Garrison, aspect, panel_w);
+        }
+        for (pos, _hall) in self
+            .world
+            .query::<(&Position, &ecs::TownHallBuilding)>()
+            .iter()
+        {
+            self.draw_map_building_marker(renderer, pos, &BuildingType::TownHall, aspect, panel_w);
+        }
+        for (pos, proc_bld) in self
+            .world
+            .query::<(&Position, &ecs::ProcessingBuilding)>()
+            .iter()
+        {
+            let bt = match proc_bld.recipe {
+                ecs::Recipe::WoodToPlanks => BuildingType::Workshop,
+                ecs::Recipe::StoneToMasonry => BuildingType::Smithy,
+                ecs::Recipe::FoodToGrain => BuildingType::Granary,
+                ecs::Recipe::GrainToBread => BuildingType::Bakery,
+            };
+            self.draw_map_building_marker(renderer, pos, &bt, aspect, panel_w);
+        }
+        // Build sites: show ? marker
+        for (pos, _site) in self.world.query::<(&Position, &ecs::BuildSite)>().iter() {
+            let sx_i = (pos.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+            let sy_i = pos.y.round() as i32 - self.camera.y;
+            if sx_i >= panel_w as i32
+                && sy_i >= 0
+                && (sx_i as u16) < w
+                && (sy_i as u16) < h.saturating_sub(status_h)
+            {
+                renderer.draw(sx_i as u16, sy_i as u16, '?', Color(200, 180, 100), None);
+            }
+        }
+
+        // --- Entity pass: bright glyphs, no day/night tinting ---
+        for (e, (pos, sprite)) in self
+            .world
+            .query::<(hecs::Entity, (&Position, &Sprite))>()
+            .iter()
+        {
+            let creature_opt = self.world.get::<&Creature>(e).ok();
+            let bstate = self.world.get::<&Behavior>(e).ok().map(|b| b.state);
+
+            // Only creatures with behavior states get map-mode visuals
+            let (display_ch, display_fg) =
+                if let (Some(creature), Some(bstate_val)) = (creature_opt.as_deref(), &bstate) {
+                    match map_mode_entity_visual(creature.species, bstate_val) {
+                        Some(vis) => vis,
+                        None => continue, // hidden entity (e.g. prey AtHome)
+                    }
+                } else {
+                    // Non-creature entities (food sources, stone deposits, dens)
+                    // Render with their normal sprite — they are world objects
+                    (sprite.ch, sprite.fg)
+                };
+
+            // Hide entities on unexplored tiles
+            if !self
+                .exploration
+                .is_revealed(pos.x.round() as usize, pos.y.round() as usize)
+            {
+                continue;
+            }
+
+            let sx_i = (pos.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+            let sy_i = pos.y.round() as i32 - self.camera.y;
+            if sx_i >= panel_w as i32
+                && sy_i >= 0
+                && (sx_i as u16) < w
+                && (sy_i as u16) < h.saturating_sub(status_h)
+            {
+                // Full brightness — no day/night dimming in Map Mode
+                renderer.draw(sx_i as u16, sy_i as u16, display_ch, display_fg, None);
+            }
+        }
+
+        // --- Shared UI overlays (same as Normal mode) ---
+        if self.overlay == OverlayMode::Resources {
+            self.draw_resource_overlay(renderer);
+        } else if self.overlay == OverlayMode::Threats {
+            self.draw_threat_overlay(renderer);
+        } else if self.overlay == OverlayMode::Traffic {
+            self.draw_traffic_overlay(renderer);
+        }
+
+        if self.query_mode {
+            self.draw_query_cursor(renderer);
+            self.draw_query_panel(renderer);
+        }
+
+        if self.build_mode {
+            self.draw_build_mode(renderer);
+        }
+
+        self.draw_notifications(renderer);
+        // No weather in Map Mode (design decision: no visual noise)
+        self.draw_minimap(renderer);
+        self.draw_status(renderer);
+    }
+
+    /// Resolve terrain glyph for Map Mode, including vegetation overlay.
+    fn map_terrain_glyph(&self, terrain: &Terrain, wx: usize, wy: usize) -> (char, Color, Color) {
+        // Base terrain
+        let mut ch = terrain.map_ch();
+        let mut fg = terrain.map_fg();
+        let bg = terrain.map_bg();
+
+        // Vegetation overlay on grass/scrubland tiles
+        if matches!(terrain, Terrain::Grass | Terrain::Scrubland | Terrain::Bare) {
+            if wx < self.vegetation.width && wy < self.vegetation.height {
+                let v = self.vegetation.get(wx, wy);
+                if v > 0.8 {
+                    ch = '\u{2660}'; // ♠
+                    fg = Color(15, 90, 20);
+                } else if v > 0.5 {
+                    ch = '\u{2663}'; // ♣
+                    fg = Color(25, 120, 30);
+                } else if v > 0.2 {
+                    ch = '\'';
+                    fg = Color(50, 150, 50);
+                }
+                // v <= 0.2: keep base terrain glyph
+            }
+        }
+
+        (ch, fg, bg)
+    }
+
+    /// Draw a building center marker at the building's position.
+    fn draw_map_building_marker(
+        &self,
+        renderer: &mut dyn Renderer,
+        pos: &Position,
+        bt: &BuildingType,
+        aspect: i32,
+        panel_w: u16,
+    ) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let (bw, bh) = bt.size();
+        // Center of building footprint
+        let cx = pos.x.round() as i32 + bw / 2;
+        let cy = pos.y.round() as i32 + bh / 2;
+        let sx_i = (cx - self.camera.x) * aspect + panel_w as i32;
+        let sy_i = cy - self.camera.y;
+        if sx_i >= panel_w as i32
+            && sy_i >= 0
+            && (sx_i as u16) < w
+            && (sy_i as u16) < h.saturating_sub(status_h)
+        {
+            let (glyph, color) = map_building_center_glyph(bt);
+            // Use building wall bg for contrast
+            renderer.draw(
+                sx_i as u16,
+                sy_i as u16,
+                glyph,
+                color,
+                Some(Terrain::BuildingFloor.map_bg()),
+            );
+        }
+    }
+
     /// Draw weather effects: rain drops, snowflakes, or fog overlay.
     fn draw_weather(&self, renderer: &mut dyn Renderer) {
         let (w, h) = renderer.size();
@@ -1356,7 +1649,7 @@ impl super::Game {
                 "-"
             },
             if self.day_night.enabled { "+" } else { "-" },
-            if self.debug_view { "D" } else { "-" },
+            self.render_mode.label(),
         );
 
         for (i, ch) in status.chars().enumerate() {
@@ -2360,5 +2653,268 @@ mod tests {
         let s = dummy_sprite();
         let (ch, _) = entity_visual(Species::Villager, &BehaviorState::Captured, 0.0, 0.0, &s);
         assert_eq!(ch, 'X');
+    }
+
+    // --- Map Mode entity visuals ---
+
+    #[test]
+    fn map_villager_idle_shows_at_sign() {
+        let (ch, color) =
+            map_mode_entity_visual(Species::Villager, &BehaviorState::Idle { timer: 10 }).unwrap();
+        assert_eq!(ch, '@');
+        assert_eq!(color, Color(80, 200, 255));
+    }
+
+    #[test]
+    fn map_villager_gathering_wood_shows_dollar() {
+        let state = BehaviorState::Gathering {
+            resource_type: ResourceType::Wood,
+            timer: 5,
+        };
+        let (ch, color) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, '$');
+        assert_eq!(color, Color(160, 110, 50));
+    }
+
+    #[test]
+    fn map_villager_hauling_shows_percent() {
+        let state = BehaviorState::Hauling {
+            resource_type: ResourceType::Stone,
+            target_x: 0.0,
+            target_y: 0.0,
+        };
+        let (ch, _) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, '%');
+    }
+
+    #[test]
+    fn map_villager_building_shows_ampersand() {
+        let state = BehaviorState::Building {
+            target_x: 0.0,
+            target_y: 0.0,
+            timer: 0,
+        };
+        let (ch, _) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, '&');
+    }
+
+    #[test]
+    fn map_villager_farming_shows_f() {
+        let state = BehaviorState::Farming {
+            target_x: 0.0,
+            target_y: 0.0,
+            lease: 5,
+        };
+        let (ch, _) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, 'f');
+    }
+
+    #[test]
+    fn map_villager_working_shows_g() {
+        let state = BehaviorState::Working {
+            target_x: 0.0,
+            target_y: 0.0,
+            lease: 3,
+        };
+        let (ch, _) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, 'g');
+    }
+
+    #[test]
+    fn map_villager_sleeping_shows_z() {
+        let state = BehaviorState::Sleeping { timer: 10 };
+        let (ch, _) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, 'z');
+    }
+
+    #[test]
+    fn map_villager_fleeing_shows_exclamation() {
+        let state = BehaviorState::FleeHome { timer: 10 };
+        let (ch, color) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, '!');
+        assert_eq!(color, Color(255, 60, 60));
+    }
+
+    #[test]
+    fn map_villager_exploring_shows_question() {
+        let state = BehaviorState::Exploring {
+            target_x: 0.0,
+            target_y: 0.0,
+            timer: 0,
+        };
+        let (ch, _) = map_mode_entity_visual(Species::Villager, &state).unwrap();
+        assert_eq!(ch, '?');
+    }
+
+    #[test]
+    fn map_predator_hunting_uppercase_w() {
+        let state = BehaviorState::Hunting {
+            target_x: 0.0,
+            target_y: 0.0,
+        };
+        let (ch, _) = map_mode_entity_visual(Species::Predator, &state).unwrap();
+        assert_eq!(ch, 'W');
+    }
+
+    #[test]
+    fn map_predator_wander_lowercase_w() {
+        let state = BehaviorState::Wander { timer: 5 };
+        let (ch, _) = map_mode_entity_visual(Species::Predator, &state).unwrap();
+        assert_eq!(ch, 'w');
+    }
+
+    #[test]
+    fn map_prey_at_home_hidden() {
+        let state = BehaviorState::AtHome { timer: 5 };
+        assert!(map_mode_entity_visual(Species::Prey, &state).is_none());
+    }
+
+    #[test]
+    fn map_prey_fleeing_shows_orange_exclamation() {
+        let state = BehaviorState::FleeHome { timer: 10 };
+        let (ch, color) = map_mode_entity_visual(Species::Prey, &state).unwrap();
+        assert_eq!(ch, '!');
+        assert_eq!(color, Color(255, 150, 50));
+    }
+
+    #[test]
+    fn map_mode_glyph_uniqueness_terrain_vs_entity() {
+        // Verify that key entity glyphs (@, $, %, &, f, g, z, !) are not used
+        // as terrain glyphs (except documented exceptions like # for wall/cliff).
+        use crate::tilemap::Terrain;
+        let entity_chars = ['@', '$', '%', '&', 'f', 'g', 'z', 'w', 'W', 'r'];
+        let terrains = [
+            Terrain::Water,
+            Terrain::Sand,
+            Terrain::Grass,
+            Terrain::Forest,
+            Terrain::Mountain,
+            Terrain::Snow,
+            Terrain::Cliff,
+            Terrain::Marsh,
+            Terrain::Desert,
+            Terrain::Tundra,
+            Terrain::Scrubland,
+            Terrain::Road,
+            Terrain::BuildingFloor,
+            Terrain::BuildingWall,
+        ];
+        for t in &terrains {
+            let tch = t.map_ch();
+            for &ech in &entity_chars {
+                assert_ne!(
+                    tch, ech,
+                    "terrain {:?} map glyph '{}' conflicts with entity glyph '{}'",
+                    t, tch, ech
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn map_mode_behavior_coverage() {
+        // Every BehaviorState variant must produce a result for every Species.
+        // We only test Villager here since it has the most states.
+        let states: Vec<BehaviorState> = vec![
+            BehaviorState::Idle { timer: 0 },
+            BehaviorState::Wander { timer: 0 },
+            BehaviorState::Seek {
+                target_x: 0.0,
+                target_y: 0.0,
+                reason: SeekReason::Food,
+            },
+            BehaviorState::Gathering {
+                resource_type: ResourceType::Wood,
+                timer: 0,
+            },
+            BehaviorState::Hauling {
+                resource_type: ResourceType::Wood,
+                target_x: 0.0,
+                target_y: 0.0,
+            },
+            BehaviorState::Building {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 0,
+            },
+            BehaviorState::Farming {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 0,
+            },
+            BehaviorState::Working {
+                target_x: 0.0,
+                target_y: 0.0,
+                lease: 0,
+            },
+            BehaviorState::Sleeping { timer: 0 },
+            BehaviorState::FleeHome { timer: 0 },
+            BehaviorState::Exploring {
+                target_x: 0.0,
+                target_y: 0.0,
+                timer: 0,
+            },
+            BehaviorState::Captured,
+            BehaviorState::Eating { timer: 0 },
+            BehaviorState::Hunting {
+                target_x: 0.0,
+                target_y: 0.0,
+            },
+            BehaviorState::AtHome { timer: 0 },
+        ];
+        for state in &states {
+            let result = map_mode_entity_visual(Species::Villager, state);
+            assert!(
+                result.is_some(),
+                "Villager should have a map glyph for {:?}",
+                state
+            );
+        }
+    }
+
+    #[test]
+    fn map_building_center_glyphs_distinct() {
+        use crate::ecs::BuildingType;
+        // Center markers for major buildings should all be distinct
+        let buildings = [
+            BuildingType::Hut,
+            BuildingType::Stockpile,
+            BuildingType::Farm,
+            BuildingType::Workshop,
+            BuildingType::Smithy,
+            BuildingType::Garrison,
+            BuildingType::Granary,
+            BuildingType::Bakery,
+            BuildingType::TownHall,
+        ];
+        let glyphs: Vec<char> = buildings
+            .iter()
+            .map(|b| map_building_center_glyph(b).0)
+            .collect();
+        for i in 0..glyphs.len() {
+            for j in (i + 1)..glyphs.len() {
+                assert_ne!(
+                    glyphs[i], glyphs[j],
+                    "building {:?} and {:?} share glyph '{}'",
+                    buildings[i], buildings[j], glyphs[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn render_mode_cycle() {
+        use super::super::RenderMode;
+        assert_eq!(RenderMode::Normal.next(), RenderMode::Map);
+        assert_eq!(RenderMode::Map.next(), RenderMode::Debug);
+        assert_eq!(RenderMode::Debug.next(), RenderMode::Normal);
+    }
+
+    #[test]
+    fn render_mode_labels() {
+        use super::super::RenderMode;
+        assert_eq!(RenderMode::Normal.label(), "-");
+        assert_eq!(RenderMode::Map.label(), "M");
+        assert_eq!(RenderMode::Debug.label(), "D");
     }
 }

@@ -142,6 +142,101 @@ impl Terrain {
         }
     }
 
+    // --- Map Mode rendering: flat symbolic glyphs, no lighting ---
+
+    /// Map Mode glyph: one semantic symbol per terrain type.
+    pub fn map_ch(&self) -> char {
+        match self {
+            Terrain::Water | Terrain::FloodWater => '~',
+            Terrain::Sand => ',',
+            Terrain::Grass => '.',
+            Terrain::Forest => '\u{2660}',   // ♠
+            Terrain::Mountain => '\u{25B2}', // ▲
+            Terrain::Snow => '*',
+            Terrain::Cliff => '#',
+            Terrain::Marsh => '"',
+            Terrain::Desert => ':',
+            Terrain::Tundra => '-',
+            Terrain::Scrubland => ';',
+            Terrain::Stump => '%',
+            Terrain::Bare => '.',
+            Terrain::Sapling => '\'',
+            Terrain::Quarry => 'U',
+            Terrain::QuarryDeep => 'V',
+            Terrain::ScarredGround => '.',
+            Terrain::BuildingFloor => '+',
+            Terrain::BuildingWall => '#',
+            Terrain::Road => '=',
+            Terrain::Ford => '~',
+            Terrain::Bridge => '#',
+            Terrain::Ice => '=',
+            Terrain::Burning => '*',
+            Terrain::Scorched => '`',
+        }
+    }
+
+    /// Map Mode foreground: flat, low-saturation color. No lighting applied.
+    pub fn map_fg(&self) -> Color {
+        match self {
+            Terrain::Water | Terrain::FloodWater => Color(70, 120, 220),
+            Terrain::Sand => Color(190, 170, 100),
+            Terrain::Grass => Color(60, 140, 60),
+            Terrain::Forest => Color(20, 100, 25),
+            Terrain::Mountain => Color(140, 130, 120),
+            Terrain::Snow => Color(220, 225, 240),
+            Terrain::Cliff => Color(110, 100, 85),
+            Terrain::Marsh => Color(50, 110, 70),
+            Terrain::Desert => Color(200, 180, 120),
+            Terrain::Tundra => Color(155, 165, 175),
+            Terrain::Scrubland => Color(140, 125, 65),
+            Terrain::Stump => Color(100, 80, 40),
+            Terrain::Bare => Color(90, 80, 50),
+            Terrain::Sapling => Color(50, 150, 50),
+            Terrain::Quarry => Color(140, 130, 115),
+            Terrain::QuarryDeep => Color(110, 100, 90),
+            Terrain::ScarredGround => Color(145, 135, 120),
+            Terrain::BuildingFloor => Color(150, 130, 100),
+            Terrain::BuildingWall => Color(170, 150, 120),
+            Terrain::Road => Color(170, 145, 90),
+            Terrain::Ford => Color(80, 140, 220),
+            Terrain::Bridge => Color(140, 100, 50),
+            Terrain::Ice => Color(180, 210, 240),
+            Terrain::Burning => Color(255, 120, 20),
+            Terrain::Scorched => Color(80, 70, 60),
+        }
+    }
+
+    /// Map Mode background: muted, paired with map_fg. No lighting.
+    pub fn map_bg(&self) -> Color {
+        match self {
+            Terrain::Water | Terrain::FloodWater => Color(20, 40, 110),
+            Terrain::Sand => Color(150, 135, 80),
+            Terrain::Grass => Color(30, 80, 30),
+            Terrain::Forest => Color(15, 60, 18),
+            Terrain::Mountain => Color(90, 82, 75),
+            Terrain::Snow => Color(180, 185, 200),
+            Terrain::Cliff => Color(65, 60, 50),
+            Terrain::Marsh => Color(30, 65, 45),
+            Terrain::Desert => Color(160, 140, 90),
+            Terrain::Tundra => Color(120, 130, 140),
+            Terrain::Scrubland => Color(100, 90, 45),
+            Terrain::Stump => Color(40, 60, 30),
+            Terrain::Bare => Color(55, 50, 35),
+            Terrain::Sapling => Color(30, 80, 30),
+            Terrain::Quarry => Color(90, 80, 70),
+            Terrain::QuarryDeep => Color(65, 58, 50),
+            Terrain::ScarredGround => Color(115, 105, 90),
+            Terrain::BuildingFloor => Color(100, 85, 65),
+            Terrain::BuildingWall => Color(120, 105, 85),
+            Terrain::Road => Color(120, 100, 60),
+            Terrain::Ford => Color(40, 70, 120),
+            Terrain::Bridge => Color(80, 60, 30),
+            Terrain::Ice => Color(120, 150, 180),
+            Terrain::Burning => Color(180, 40, 10),
+            Terrain::Scorched => Color(40, 35, 25),
+        }
+    }
+
     /// Movement speed multiplier for this terrain.
     pub fn speed_multiplier(&self) -> f64 {
         match self {
@@ -2010,5 +2105,102 @@ mod tests {
             path.is_some(),
             "should fall back to regular A* with wrong-size overlay"
         );
+    }
+
+    // --- Map Mode terrain glyph tests ---
+
+    #[test]
+    fn map_mode_water_glyph_is_tilde() {
+        assert_eq!(Terrain::Water.map_ch(), '~');
+    }
+
+    #[test]
+    fn map_mode_grass_glyph_is_dot() {
+        assert_eq!(Terrain::Grass.map_ch(), '.');
+    }
+
+    #[test]
+    fn map_mode_forest_glyph_is_spade() {
+        assert_eq!(Terrain::Forest.map_ch(), '\u{2660}'); // ♠
+    }
+
+    #[test]
+    fn map_mode_mountain_glyph_is_triangle() {
+        assert_eq!(Terrain::Mountain.map_ch(), '\u{25B2}'); // ▲
+    }
+
+    #[test]
+    fn map_mode_road_glyph_is_equals() {
+        assert_eq!(Terrain::Road.map_ch(), '=');
+    }
+
+    #[test]
+    fn map_mode_building_floor_is_plus() {
+        assert_eq!(Terrain::BuildingFloor.map_ch(), '+');
+    }
+
+    #[test]
+    fn map_mode_all_terrains_have_colors() {
+        // Every terrain variant must return valid map fg/bg colors.
+        let terrains = [
+            Terrain::Water,
+            Terrain::Sand,
+            Terrain::Grass,
+            Terrain::Forest,
+            Terrain::Mountain,
+            Terrain::Snow,
+            Terrain::Cliff,
+            Terrain::Marsh,
+            Terrain::Desert,
+            Terrain::Tundra,
+            Terrain::Scrubland,
+            Terrain::Stump,
+            Terrain::Bare,
+            Terrain::Sapling,
+            Terrain::Quarry,
+            Terrain::QuarryDeep,
+            Terrain::ScarredGround,
+            Terrain::BuildingFloor,
+            Terrain::BuildingWall,
+            Terrain::Road,
+            Terrain::Ford,
+            Terrain::Bridge,
+            Terrain::Ice,
+            Terrain::FloodWater,
+            Terrain::Burning,
+            Terrain::Scorched,
+        ];
+        for t in &terrains {
+            let _ch = t.map_ch();
+            let _fg = t.map_fg();
+            let _bg = t.map_bg();
+            // Just verify no panic — the match arms are exhaustive
+        }
+    }
+
+    #[test]
+    fn map_mode_terrain_bg_dimmer_than_fg() {
+        // Map Mode design: terrain bg should generally be dimmer than fg.
+        let terrains = [
+            Terrain::Grass,
+            Terrain::Forest,
+            Terrain::Water,
+            Terrain::Mountain,
+            Terrain::Sand,
+            Terrain::Snow,
+        ];
+        for t in &terrains {
+            let Color(fr, fg, fb) = t.map_fg();
+            let Color(br, bg, bb) = t.map_bg();
+            let fg_lum = fr as u32 + fg as u32 + fb as u32;
+            let bg_lum = br as u32 + bg as u32 + bb as u32;
+            assert!(
+                fg_lum >= bg_lum,
+                "terrain {:?}: map fg luminance ({}) should be >= bg luminance ({})",
+                t,
+                fg_lum,
+                bg_lum,
+            );
+        }
     }
 }

@@ -126,6 +126,36 @@ pub enum GameInput {
 /// Width of the left-side UI panel in screen columns.
 pub const PANEL_WIDTH: u16 = 24;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderMode {
+    /// Atmospheric view: lighting, seasons, water shimmer, weather effects.
+    Normal,
+    /// Symbolic map: flat colors, semantic glyphs, no lighting. Gameplay readability mode.
+    Map,
+    /// Developer debug view: uppercase terrain letters, raw data.
+    Debug,
+}
+
+impl RenderMode {
+    /// Cycle to the next render mode: Normal -> Map -> Debug -> Normal.
+    pub fn next(self) -> Self {
+        match self {
+            RenderMode::Normal => RenderMode::Map,
+            RenderMode::Map => RenderMode::Debug,
+            RenderMode::Debug => RenderMode::Normal,
+        }
+    }
+
+    /// Short status bar label.
+    pub fn label(self) -> &'static str {
+        match self {
+            RenderMode::Normal => "-",
+            RenderMode::Map => "M",
+            RenderMode::Debug => "D",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OverlayMode {
     None,
@@ -379,7 +409,7 @@ pub struct Game {
     pub day_night: DayNightCycle,
     pub scroll_speed: i32,
     pub raining: bool,
-    pub debug_view: bool,
+    pub render_mode: RenderMode,
     pub paused: bool,
     pub query_mode: bool,
     pub query_cx: i32, // cursor world X
@@ -1100,7 +1130,7 @@ impl Game {
             scroll_speed: 2,
             raining: false,
             paused: false,
-            debug_view: false,
+            render_mode: RenderMode::Normal,
             query_mode: false,
             query_cx: scx as i32,
             query_cy: scy as i32,
@@ -1499,7 +1529,7 @@ impl Game {
                 self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled
             }
             GameInput::ToggleDayNight => self.day_night.enabled = !self.day_night.enabled,
-            GameInput::ToggleDebugView => self.debug_view = !self.debug_view,
+            GameInput::ToggleDebugView => self.render_mode = self.render_mode.next(),
             GameInput::TogglePause => self.paused = !self.paused,
             GameInput::ToggleQueryMode => {
                 self.query_mode = !self.query_mode;
@@ -2362,10 +2392,10 @@ impl Game {
 
         // render
         renderer.clear();
-        if self.debug_view {
-            self.draw_debug(renderer);
-        } else {
-            self.draw(renderer);
+        match self.render_mode {
+            RenderMode::Debug => self.draw_debug(renderer),
+            RenderMode::Map => self.draw_map_mode(renderer),
+            RenderMode::Normal => self.draw(renderer),
         }
         if self.game_over {
             self.draw_game_over(renderer);
