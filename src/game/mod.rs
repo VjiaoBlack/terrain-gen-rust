@@ -296,6 +296,36 @@ pub struct SettlementKnowledge {
     pub frontier: Vec<(usize, usize)>,
 }
 
+// ─── Outpost system ─────────────────────────────────────────────────────────
+
+/// Minimum distance (tiles) from the main stockpile for a tile to qualify as outpost-worthy.
+pub const OUTPOST_MIN_DISTANCE: f64 = 30.0;
+/// Minimum traffic on a tile before it can trigger outpost creation.
+pub const OUTPOST_TRAFFIC_THRESHOLD: f64 = 20.0;
+/// Minimum settlement population before outposts can be built.
+pub const OUTPOST_MIN_POP: u32 = 15;
+/// Minimum distance between two outposts (prevents stacking).
+pub const OUTPOST_EXCLUSION_RADIUS: f64 = 25.0;
+/// Ticks with no nearby gathering activity before an outpost is abandoned.
+pub const OUTPOST_IDLE_TICKS: u64 = 500;
+
+/// A satellite settlement near a distant resource deposit. Outposts emerge from
+/// sustained high traffic and consist of a stockpile + shelter. Villagers naturally
+/// use the closer stockpile; existing systems handle gathering, hauling, and road
+/// formation without special outpost-specific AI.
+#[derive(Debug, Clone)]
+pub struct Outpost {
+    /// Position of the outpost stockpile.
+    pub stockpile_x: f64,
+    pub stockpile_y: f64,
+    /// Tick at which the outpost was established.
+    pub established_tick: u64,
+    /// Tick of the last nearby gathering activity (resets outpost idle timer).
+    pub last_activity_tick: u64,
+    /// Whether a walkable path to the main stockpile exists.
+    pub road_intact: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EventSystem {
     pub active_events: Vec<GameEvent>,
@@ -497,6 +527,8 @@ pub struct Game {
     pub threat_score: f64,
     /// Tick of the last threat spawn, used to enforce a minimum cooldown between threats.
     pub last_threat_tick: u64,
+    /// Active outposts — satellite settlements near distant resources.
+    pub outposts: Vec<Outpost>,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -1217,6 +1249,7 @@ impl Game {
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
+            outposts: Vec::new(),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -2534,6 +2567,11 @@ impl Game {
                 // resource windows, e.g. wood=8-9 where Workshop is affordable but Hut is not)
                 if self.auto_build && self.tick.is_multiple_of(50) {
                     self.auto_build_tick();
+                }
+
+                // Outpost lifecycle: update activity and abandon depleted outposts.
+                if self.tick.is_multiple_of(100) {
+                    self.update_outposts();
                 }
 
                 // Update settlement knowledge (frontier, known resources) for exploration AI.

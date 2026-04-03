@@ -116,6 +116,7 @@ impl Game {
             threat_map: crate::simulation::ThreatMap::new(map_w, map_h),
             threat_score: 0.0,
             last_threat_tick: 0,
+            outposts: Vec::new(),
             #[cfg(feature = "lua")]
             script_engine: None,
         };

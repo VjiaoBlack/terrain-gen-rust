@@ -796,6 +796,19 @@ pub struct StockpileState {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Stockpile;
 
+/// Marker for an outpost stockpile — a smaller-capacity stockpile placed near a
+/// distant resource deposit. Entities with this component also have `Stockpile`,
+/// so the spatial grid's `category::STOCKPILE` lookup finds them automatically.
+/// Capacity is max units per resource type (vs unlimited for main stockpile).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct OutpostStockpile {
+    pub capacity: u32,
+}
+
+/// Marker for a shelter building at an outpost (smaller than a Hut, houses 2-3 villagers).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ShelterBuilding;
+
 /// Resource carried by a villager or stored at stockpile.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CarriedResource {
@@ -906,6 +919,8 @@ pub enum BuildingType {
     TownHall,
     /// Bridge over water — enables river crossing. Player-placed via build mode.
     Bridge,
+    /// Small shelter at an outpost — cheaper/smaller than a Hut, houses 2-3 villagers.
+    Shelter,
 }
 
 /// Tile layout pattern for a building footprint.
@@ -1065,6 +1080,17 @@ impl BuildingType {
                 size: (1, 1),
                 layout: TileLayout::Single(Terrain::Bridge),
             },
+            BuildingType::Shelter => BuildingDef {
+                name: "Shelter",
+                cost: Resources {
+                    wood: 6,
+                    stone: 2,
+                    ..DEF_RES
+                },
+                build_time: 120,
+                size: (3, 3),
+                layout: TileLayout::WallsDoorSouth,
+            },
         }
     }
 
@@ -1156,6 +1182,7 @@ impl BuildingType {
             BuildingType::Bakery,
             BuildingType::TownHall,
             BuildingType::Bridge,
+            BuildingType::Shelter,
         ]
     }
 }

@@ -84,6 +84,17 @@ pub enum SerializedEntity {
         sprite: Sprite,
         hut: HutBuilding,
     },
+    OutpostStockpileEntity {
+        pos: Position,
+        sprite: Sprite,
+        outpost_stockpile: OutpostStockpile,
+        #[serde(default)]
+        board: Option<BulletinBoard>,
+    },
+    ShelterEntity {
+        pos: Position,
+        sprite: Sprite,
+    },
 }
 
 pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
@@ -155,10 +166,39 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
             sprite: *sprite,
         });
     }
-    for (pos, sprite, _, board) in world
-        .query::<(&Position, &Sprite, &Stockpile, Option<&BulletinBoard>)>()
+    // Outpost stockpiles first (they also have Stockpile, so collect their entity
+    // IDs to exclude from the regular Stockpile query below).
+    let mut outpost_stockpile_ids = std::collections::HashSet::new();
+    for (entity, (pos, sprite, outpost_sp, board)) in world
+        .query::<(
+            hecs::Entity,
+            (
+                &Position,
+                &Sprite,
+                &OutpostStockpile,
+                Option<&BulletinBoard>,
+            ),
+        )>()
         .iter()
     {
+        outpost_stockpile_ids.insert(entity);
+        entities.push(SerializedEntity::OutpostStockpileEntity {
+            pos: *pos,
+            sprite: *sprite,
+            outpost_stockpile: *outpost_sp,
+            board: board.cloned(),
+        });
+    }
+    for (entity, (pos, sprite, _, board)) in world
+        .query::<(
+            hecs::Entity,
+            (&Position, &Sprite, &Stockpile, Option<&BulletinBoard>),
+        )>()
+        .iter()
+    {
+        if outpost_stockpile_ids.contains(&entity) {
+            continue; // already serialized as OutpostStockpileEntity
+        }
         entities.push(SerializedEntity::StockpileEntity {
             pos: *pos,
             sprite: *sprite,
@@ -220,6 +260,15 @@ pub fn serialize_world(world: &World) -> Vec<SerializedEntity> {
             pos: *pos,
             sprite: *sprite,
             hut: *hut,
+        });
+    }
+    for (pos, sprite, _) in world
+        .query::<(&Position, &Sprite, &ShelterBuilding)>()
+        .iter()
+    {
+        entities.push(SerializedEntity::ShelterEntity {
+            pos: *pos,
+            sprite: *sprite,
         });
     }
 
@@ -338,6 +387,18 @@ pub fn deserialize_world(entities: &[SerializedEntity]) -> World {
             }
             SerializedEntity::HutEntity { pos, sprite, hut } => {
                 world.spawn((*pos, *sprite, *hut));
+            }
+            SerializedEntity::OutpostStockpileEntity {
+                pos,
+                sprite,
+                outpost_stockpile,
+                board,
+            } => {
+                let bb = board.clone().unwrap_or_default();
+                world.spawn((*pos, *sprite, Stockpile, *outpost_stockpile, bb));
+            }
+            SerializedEntity::ShelterEntity { pos, sprite } => {
+                world.spawn((*pos, *sprite, ShelterBuilding));
             }
         }
     }

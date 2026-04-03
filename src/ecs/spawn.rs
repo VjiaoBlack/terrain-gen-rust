@@ -189,6 +189,33 @@ pub fn spawn_stockpile(world: &mut World, x: f64, y: f64) -> Entity {
     ))
 }
 
+/// Spawn an outpost stockpile — has both `Stockpile` (for spatial grid pickup)
+/// and `OutpostStockpile` (for capacity tracking). Distinct color from main stockpile.
+pub fn spawn_outpost_stockpile(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite {
+            ch: '□',
+            fg: Color(160, 120, 80),
+        }, // lighter/smaller-looking stockpile
+        Stockpile,
+        OutpostStockpile { capacity: 50 },
+        BulletinBoard::default(),
+    ))
+}
+
+/// Spawn a shelter marker entity at the given position.
+pub fn spawn_shelter(world: &mut World, x: f64, y: f64) -> Entity {
+    world.spawn((
+        Position { x, y },
+        Sprite {
+            ch: '⌂',
+            fg: Color(140, 110, 70),
+        },
+        ShelterBuilding,
+    ))
+}
+
 pub fn spawn_farm_plot(world: &mut World, x: f64, y: f64) -> Entity {
     world.spawn((
         Position { x, y },

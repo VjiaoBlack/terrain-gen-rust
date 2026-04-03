@@ -318,6 +318,27 @@ impl super::Game {
             if site.building_type == BuildingType::Bakery {
                 ecs::spawn_processing_building(&mut self.world, pos.x, pos.y, Recipe::GrainToBread);
             }
+            if site.building_type == BuildingType::Shelter {
+                let (sw, sh) = site.building_type.size();
+                let cx = pos.x + sw as f64 / 2.0;
+                let cy = pos.y + sh as f64 / 2.0;
+                ecs::spawn_shelter(&mut self.world, cx, cy);
+            }
+            // For Stockpile: check if this is near an outpost. If so, spawn an
+            // outpost stockpile (with capacity limit). Otherwise it's a regular
+            // stockpile that was manually placed.
+            if site.building_type == BuildingType::Stockpile {
+                let is_outpost = self.outposts.iter().any(|o| {
+                    let dx = pos.x - o.stockpile_x;
+                    let dy = pos.y - o.stockpile_y;
+                    dx * dx + dy * dy < 4.0 // within 2 tiles of registered outpost
+                });
+                if is_outpost {
+                    ecs::spawn_outpost_stockpile(&mut self.world, pos.x, pos.y);
+                } else {
+                    ecs::spawn_stockpile(&mut self.world, pos.x, pos.y);
+                }
+            }
             self.world.despawn(e).ok();
         }
         for &(_, _, site) in &completed {
@@ -463,6 +484,50 @@ impl super::Game {
             self.home_scent.decay();
             self.home_scent.diffuse();
         }
+    }
+
+    /// Update outpost lifecycle: track gathering activity near each outpost and
+    /// abandon outposts that have been idle (no nearby gathering) for too long.
+    pub fn update_outposts(&mut self) {
+        if self.outposts.is_empty() {
+            return;
+        }
+
+        // Collect gatherer positions for proximity check.
+        let gatherers: Vec<(f64, f64)> = self
+            .world
+            .query::<(&ecs::Position, &ecs::Behavior)>()
+            .iter()
+            .filter(|(_, b)| matches!(b.state, ecs::BehaviorState::Gathering { .. }))
+            .map(|(p, _)| (p.x, p.y))
+            .collect();
+
+        let tick = self.tick;
+        for outpost in &mut self.outposts {
+            // Check if any gatherer is active within 15 tiles of the outpost stockpile.
+            let activity_range = 15.0f64;
+            let has_activity = gatherers.iter().any(|&(gx, gy)| {
+                let dx = gx - outpost.stockpile_x;
+                let dy = gy - outpost.stockpile_y;
+                dx * dx + dy * dy < activity_range * activity_range
+            });
+            if has_activity {
+                outpost.last_activity_tick = tick;
+            }
+        }
+
+        // Remove abandoned outposts (idle for OUTPOST_IDLE_TICKS).
+        let idle_limit = super::OUTPOST_IDLE_TICKS;
+        self.outposts.retain(|o| {
+            let idle_time = tick.saturating_sub(o.last_activity_tick);
+            if idle_time > idle_limit {
+                // Outpost abandoned — buildings remain as ruins (existing terrain).
+                // Future: could convert to ruin terrain type.
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /// Recompute the ThreatMap: wolf territory from danger scent + forest tiles,
@@ -1318,6 +1383,193 @@ impl super::Game {
                 }
             }
         }
+
+        // Priority 7: Outpost — satellite settlement near distant high-traffic tiles.
+        // Only evaluate every 200 ticks to avoid scanning traffic map every tick.
+        if self.tick % 200 == 0
+            && villager_count >= super::OUTPOST_MIN_POP
+            && self.resources.wood >= 30
+            && self.resources.stone >= 15
+            && self.resources.food >= 20
+        {
+            self.try_place_outpost(cx, cy, villager_count);
+        }
+    }
+
+    // ─── Outpost placement ────────────────────────────────────────────────────
+
+    /// Scan the traffic map for high-traffic tiles far from the main stockpile.
+    /// If conditions are met, place an outpost stockpile + shelter there.
+    fn try_place_outpost(&mut self, _cx: f64, _cy: f64, _villager_count: u32) {
+        use super::{
+            OUTPOST_EXCLUSION_RADIUS, OUTPOST_MIN_DISTANCE, OUTPOST_TRAFFIC_THRESHOLD, Outpost,
+        };
+
+        // Find main stockpile position (first stockpile that is NOT an outpost stockpile).
+        let main_stockpile_pos: Option<(f64, f64)> = {
+            let mut pos = None;
+            for (p, _s) in self
+                .world
+                .query::<(&ecs::Position, &ecs::Stockpile)>()
+                .iter()
+            {
+                // Skip outpost stockpiles — they also have the Stockpile marker.
+                // Main stockpile has no OutpostStockpile component.
+                pos = Some((p.x, p.y));
+                break; // first one is the main stockpile (spawned at game start)
+            }
+            pos
+        };
+        let (sx, sy) = match main_stockpile_pos {
+            Some(p) => p,
+            None => return,
+        };
+
+        // Scan traffic map for the best outpost candidate tile.
+        let w = self.map.width;
+        let h = self.map.height;
+        let mut best_traffic = 0.0f64;
+        let mut best_tile: Option<(usize, usize)> = None;
+
+        // Coarse scan: step by 3 tiles to keep cost manageable on large maps.
+        let step = 3;
+        for ty in (0..h).step_by(step) {
+            for tx in (0..w).step_by(step) {
+                let traffic = self.traffic.get(tx, ty);
+                if traffic < OUTPOST_TRAFFIC_THRESHOLD {
+                    continue;
+                }
+                let dx = tx as f64 - sx;
+                let dy = ty as f64 - sy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist < OUTPOST_MIN_DISTANCE {
+                    continue;
+                }
+                // Check exclusion radius against existing outposts.
+                let too_close = self.outposts.iter().any(|o| {
+                    let odx = tx as f64 - o.stockpile_x;
+                    let ody = ty as f64 - o.stockpile_y;
+                    (odx * odx + ody * ody).sqrt() < OUTPOST_EXCLUSION_RADIUS
+                });
+                if too_close {
+                    continue;
+                }
+                // Must be walkable terrain.
+                if !self.map.is_walkable(tx as f64, ty as f64) {
+                    continue;
+                }
+                if traffic > best_traffic {
+                    best_traffic = traffic;
+                    best_tile = Some((tx, ty));
+                }
+            }
+        }
+
+        let (otx, oty) = match best_tile {
+            Some(t) => t,
+            None => return,
+        };
+
+        // Find a placement spot for the outpost stockpile near the candidate tile.
+        let stockpile_cost = ecs::BuildingType::Stockpile.cost();
+        let shelter_cost = ecs::BuildingType::Shelter.cost();
+        let total_cost = crate::ecs::Resources {
+            wood: stockpile_cost.wood + shelter_cost.wood,
+            stone: stockpile_cost.stone + shelter_cost.stone,
+            food: stockpile_cost.food + shelter_cost.food,
+            planks: stockpile_cost.planks + shelter_cost.planks,
+            masonry: stockpile_cost.masonry + shelter_cost.masonry,
+            grain: stockpile_cost.grain + shelter_cost.grain,
+            bread: stockpile_cost.bread + shelter_cost.bread,
+        };
+        if !self.resources.can_afford(&total_cost) {
+            return;
+        }
+
+        // Place stockpile: find best walkable spot within 8 tiles of the candidate.
+        let stockpile_spot =
+            self.find_outpost_spot(otx as f64, oty as f64, ecs::BuildingType::Stockpile, 8);
+        let (spx, spy) = match stockpile_spot {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Place shelter: find spot within 10 tiles of the stockpile, preferring side toward main settlement.
+        let shelter_spot =
+            self.find_outpost_spot(spx as f64, spy as f64, ecs::BuildingType::Shelter, 10);
+        let (shx, shy) = match shelter_spot {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Deduct resources and place both build sites.
+        self.resources.deduct(&total_cost);
+        self.place_build_site(spx, spy, ecs::BuildingType::Stockpile);
+        self.place_build_site(shx, shy, ecs::BuildingType::Shelter);
+
+        // Register the outpost.
+        let outpost = Outpost {
+            stockpile_x: spx as f64,
+            stockpile_y: spy as f64,
+            established_tick: self.tick,
+            last_activity_tick: self.tick,
+            road_intact: true,
+        };
+        self.outposts.push(outpost);
+        self.notify("Auto-build: Outpost established!".to_string());
+    }
+
+    /// Find a building spot near a remote target (for outpost placement).
+    /// Unlike `find_building_spot` which searches around the settlement centroid,
+    /// this searches around `(tx, ty)` within `radius` tiles.
+    fn find_outpost_spot(
+        &self,
+        tx: f64,
+        ty: f64,
+        bt: ecs::BuildingType,
+        radius: i32,
+    ) -> Option<(i32, i32)> {
+        let (bw, bh) = bt.size();
+        let mut best_score = f64::NEG_INFINITY;
+        let mut best_pos: Option<(i32, i32)> = None;
+
+        let step = bw.max(bh).max(1);
+        let steps = radius / step;
+        for dy in -steps..=steps {
+            for dx in -steps..=steps {
+                let bx = tx as i32 + dx * step;
+                let by = ty as i32 + dy * step;
+                if self.can_place_building_impl(bx, by, bt, false) {
+                    // Simple scoring: prefer flat terrain close to the target.
+                    let dist = ((bx as f64 - tx).powi(2) + (by as f64 - ty).powi(2)).sqrt();
+                    let score = -dist; // closer is better
+                    if score > best_score {
+                        best_score = score;
+                        best_pos = Some((bx, by));
+                    }
+                }
+            }
+        }
+
+        // Fine-grid fallback if coarse found nothing.
+        if best_pos.is_none() {
+            for r in 1..radius {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        if dx.abs() != r && dy.abs() != r {
+                            continue;
+                        }
+                        let bx = tx as i32 + dx;
+                        let by = ty as i32 + dy;
+                        if self.can_place_building_impl(bx, by, bt, false) {
+                            return Some((bx, by));
+                        }
+                    }
+                }
+            }
+        }
+
+        best_pos
     }
 
     /// BFS flood-fill to find all walkable tiles reachable from (cx, cy) within `radius` tiles.
@@ -1429,6 +1681,7 @@ impl super::Game {
             BuildingType::TownHall => (0.5, 0.0, 1.5, 0.0, 0.0, 2.0, 0.0, 0.0, 3.0, -0.5),
             BuildingType::Road => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0),
             BuildingType::Bridge => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            BuildingType::Shelter => (0.3, 0.0, 1.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, -0.5),
         };
 
         let mut score = 0.0;

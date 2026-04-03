@@ -239,6 +239,7 @@ fn map_building_center_glyph(bt: &BuildingType) -> (char, Color) {
         BuildingType::Wall => ('#', Color(170, 150, 120)),
         BuildingType::Road => ('=', Color(170, 145, 90)),
         BuildingType::Bridge => ('#', Color(140, 100, 50)),
+        BuildingType::Shelter => ('\u{2302}', Color(140, 110, 70)), // ⌂ (dimmer than Hut)
     }
 }
 
@@ -1120,6 +1121,13 @@ impl super::Game {
             .iter()
         {
             self.draw_map_building_marker(renderer, pos, &BuildingType::TownHall, aspect, panel_w);
+        }
+        for (pos, _shelter) in self
+            .world
+            .query::<(&Position, &ecs::ShelterBuilding)>()
+            .iter()
+        {
+            self.draw_map_building_marker(renderer, pos, &BuildingType::Shelter, aspect, panel_w);
         }
         for (pos, proc_bld) in self
             .world
