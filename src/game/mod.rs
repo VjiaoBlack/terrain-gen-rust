@@ -586,7 +586,9 @@ impl Game {
                 }
             }
         }
-        let moisture = MoistureMap::new(map_width, map_height);
+        let mut moisture = MoistureMap::new(map_width, map_height);
+        // Initialize average moisture from pipeline so vegetation starts sensible
+        moisture.avg_moisture = result.moisture.clone();
         let mut vegetation = VegetationMap::new(map_width, map_height);
 
         // Seed vegetation from biome so the map looks alive from tick 0

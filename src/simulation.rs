@@ -311,6 +311,10 @@ pub struct MoistureMap {
     pub width: usize,
     pub height: usize,
     moisture: Vec<f64>,
+    /// Long-term average moisture — slowly tracks current moisture.
+    /// Vegetation and biome respond to this instead of instantaneous moisture.
+    #[serde(default)]
+    pub avg_moisture: Vec<f64>,
 }
 
 impl MoistureMap {
@@ -319,6 +323,7 @@ impl MoistureMap {
             width,
             height,
             moisture: vec![0.0; width * height],
+            avg_moisture: vec![0.0; width * height],
         }
     }
 
@@ -333,6 +338,34 @@ impl MoistureMap {
     pub fn set(&mut self, x: usize, y: usize, val: f64) {
         if x < self.width && y < self.height {
             self.moisture[y * self.width + x] = val;
+        }
+    }
+
+    /// Get the long-term average moisture at a position.
+    pub fn get_avg(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            let idx = y * self.width + x;
+            if idx < self.avg_moisture.len() {
+                self.avg_moisture[idx]
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    }
+
+    /// Update the long-term average toward current values.
+    /// Called periodically (e.g. every 50 ticks). Blend factor controls speed:
+    /// 0.02 means average moves 2% toward current each call.
+    pub fn update_average(&mut self) {
+        if self.avg_moisture.len() != self.moisture.len() {
+            self.avg_moisture = self.moisture.clone();
+            return;
+        }
+        let blend = 0.02;
+        for i in 0..self.moisture.len() {
+            self.avg_moisture[i] += (self.moisture[i] - self.avg_moisture[i]) * blend;
         }
     }
 
@@ -398,8 +431,11 @@ impl MoistureMap {
         // Step 3: box blur
         self.box_blur();
 
-        // Step 4: vegetation responds to moisture (after blur for stable values)
-        // No vegetation on sand or water terrain
+        // Step 3.5: update long-term moisture average
+        self.update_average();
+
+        // Step 4: vegetation responds to AVERAGE moisture (not instantaneous).
+        // This prevents vegetation from flickering with short-term rain.
         for y in 0..self.height {
             for x in 0..self.width {
                 let terrain = map.get(x, y);
@@ -409,9 +445,23 @@ impl MoistureMap {
                     }
                     _ => true,
                 };
-                let m = self.moisture[y * self.width + x];
-                if can_grow && m > 0.1 && m < 0.5 {
-                    vegetation.grow(x, y);
+                let idx = y * self.width + x;
+                let m = if idx < self.avg_moisture.len() {
+                    self.avg_moisture[idx]
+                } else {
+                    self.moisture[idx]
+                };
+                // Vegetation grows when avg moisture is adequate (>0.1).
+                // Very high moisture (>0.9) is waterlogged — slows growth but doesn't kill.
+                if can_grow && m > 0.1 {
+                    if m > 0.9 {
+                        // Waterlogged: slow growth (50% rate)
+                        if vegetation.get(x, y) < 0.5 {
+                            vegetation.grow(x, y);
+                        }
+                    } else {
+                        vegetation.grow(x, y);
+                    }
                 } else {
                     vegetation.decay(x, y);
                 }
