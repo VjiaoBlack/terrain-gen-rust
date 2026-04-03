@@ -1049,8 +1049,27 @@ pub fn system_farms(
 
     // Pass 1: advance growth only if a worker is present
     // Collect harvest positions for fertility degradation after the query.
+    // Also handles auto-fallow: enter fallow when tile fertility < 0.3,
+    // exit fallow (hysteresis) when fertility recovers above 0.6.
     let mut harvest_tiles: Vec<(usize, usize)> = Vec::new();
     for farm in world.query_mut::<&mut FarmPlot>() {
+        let tile_fert = fertility.get(farm.tile_x, farm.tile_y);
+
+        // Auto-fallow logic with hysteresis
+        if !farm.fallow && tile_fert < 0.3 {
+            farm.fallow = true;
+            farm.harvest_ready = false;
+            farm.growth = 0.0;
+        } else if farm.fallow && tile_fert > 0.6 {
+            farm.fallow = false;
+        }
+
+        // Fallow farms skip growth entirely
+        if farm.fallow {
+            farm.worker_present = false;
+            continue;
+        }
+
         if farm.harvest_ready {
             // Harvest: produce pending food for villager pickup
             if farm.worker_present {
@@ -1062,7 +1081,7 @@ pub fn system_farms(
         } else if farm.worker_present {
             let moisture_val = moisture.get(farm.tile_x, farm.tile_y);
             let moisture_factor = moisture_ramp(moisture_val);
-            let fertility_factor = fertility.get(farm.tile_x, farm.tile_y).clamp(0.1, 1.0);
+            let fertility_factor = tile_fert.clamp(0.1, 1.0);
             let growth_rate = base_rate * skill_mult * moisture_factor * fertility_factor;
             farm.growth += growth_rate;
             if farm.growth >= 1.0 {
@@ -1084,23 +1103,46 @@ pub fn system_farms(
         }
     }
 
-    // Pass 2: update sprite visuals based on growth stage
+    // Pass 2: update sprite visuals based on growth stage and fertility.
+    // Fertility modulates color saturation: high = vivid, low = desaturated grey-brown.
     for (farm, sprite) in world.query_mut::<(&FarmPlot, &mut Sprite)>() {
-        if farm.pending_food > 0 {
+        let fert = fertility.get(farm.tile_x, farm.tile_y);
+
+        if farm.fallow {
+            // Fallow visual: grey-brown to pale green depending on fertility
+            if fert < 0.2 {
+                sprite.fg = Color(140, 130, 120); // grey-brown — exhausted
+            } else {
+                // Lerp from pale tan (fert=0.2) to pale green (fert=0.6)
+                let t = ((fert - 0.2) / 0.4).clamp(0.0, 1.0);
+                let r = (160.0 - 60.0 * t) as u8; // 160 -> 100
+                let g = (140.0 + 40.0 * t) as u8; // 140 -> 180
+                let b = (100.0 - 30.0 * t) as u8; // 100 -> 70
+                sprite.fg = Color(r, g, b);
+            }
+            sprite.ch = '·';
+        } else if farm.pending_food > 0 {
             sprite.fg = Color(255, 200, 50); // bright gold — food waiting for pickup
             sprite.ch = '♣';
         } else if farm.harvest_ready {
             sprite.fg = Color(220, 200, 40); // harvest ready — gold
             sprite.ch = '♣';
-        } else if farm.growth < 0.3 {
-            sprite.fg = Color(120, 80, 30); // dirt
-            sprite.ch = '·';
-        } else if farm.growth < 0.7 {
-            sprite.fg = Color(80, 160, 40); // growing
-            sprite.ch = '♠';
         } else {
-            sprite.fg = Color(60, 180, 40); // mature
-            sprite.ch = '"';
+            // Growth-stage base color, modulated by fertility
+            let (base_r, base_g, base_b, ch) = if farm.growth < 0.3 {
+                (120u8, 80u8, 30u8, '·') // dirt
+            } else if farm.growth < 0.7 {
+                (80, 160, 40, '♠') // growing
+            } else {
+                (60, 180, 40, '"') // mature
+            };
+            // Desaturate toward grey-brown (140, 130, 120) as fertility drops
+            let desat = 1.0 - fert;
+            let r = (base_r as f64 + (140.0 - base_r as f64) * desat).clamp(0.0, 255.0) as u8;
+            let g = (base_g as f64 + (130.0 - base_g as f64) * desat).clamp(0.0, 255.0) as u8;
+            let b = (base_b as f64 + (120.0 - base_b as f64) * desat).clamp(0.0, 255.0) as u8;
+            sprite.fg = Color(r, g, b);
+            sprite.ch = ch;
         }
     }
 }
@@ -1873,10 +1915,13 @@ pub fn system_soil_recovery(
     let w = fertility.width;
     let h = fertility.height;
 
-    // Collect farm tile positions so we skip them during recovery
+    // Collect active (non-fallow) farm tile positions so we skip them during recovery.
+    // Fallow farms ARE allowed to recover -- that's the point of lying fallow.
     let mut farm_tiles = std::collections::HashSet::new();
     for farm in world.query::<&FarmPlot>().iter() {
-        farm_tiles.insert((farm.tile_x, farm.tile_y));
+        if !farm.fallow {
+            farm_tiles.insert((farm.tile_x, farm.tile_y));
+        }
     }
 
     // Base recovery rate: +0.0001 per tick, but we run every 50 ticks so apply 50x

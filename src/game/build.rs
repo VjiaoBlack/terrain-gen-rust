@@ -1660,9 +1660,10 @@ impl super::Game {
             }
         }
 
-        // Check for farms
+        // Check for farms — also capture farm tile coords for fertility-based terrain scar
+        let mut demolished_farm_tile: Option<(usize, usize)> = None;
         if to_demolish.is_none() {
-            for (entity, (pos, _)) in self
+            for (entity, (pos, farm)) in self
                 .world
                 .query::<(hecs::Entity, (&Position, &FarmPlot))>()
                 .iter()
@@ -1673,6 +1674,7 @@ impl super::Game {
                 if bx >= ex && bx < ex + w && by >= ey && by < ey + h {
                     to_demolish = Some(entity);
                     building_size = (w, h);
+                    demolished_farm_tile = Some((farm.tile_x, farm.tile_y));
                     break;
                 }
             }
@@ -1751,8 +1753,18 @@ impl super::Game {
         }
 
         if let Some(entity) = to_demolish {
+            // Check if this was an exhausted farm — leave Sand scar if fertility < 0.2
+            let exhausted_farm =
+                demolished_farm_tile.is_some_and(|(fx, fy)| self.soil_fertility.get(fx, fy) < 0.2);
+
             let _ = self.world.despawn(entity);
-            // Restore terrain under demolished building to grass
+            // Restore terrain under demolished building
+            // Exhausted farms leave Sand (visible scar), others revert to Grass
+            let restore_terrain = if exhausted_farm {
+                Terrain::Sand
+            } else {
+                Terrain::Grass
+            };
             for dy in 0..building_size.1 {
                 for dx in 0..building_size.0 {
                     let tx = bx + dx;
@@ -1763,12 +1775,16 @@ impl super::Game {
                         if let Some(t) = self.map.get(tux, tuy)
                             && matches!(t, Terrain::BuildingFloor | Terrain::BuildingWall)
                         {
-                            self.map.set(tux, tuy, Terrain::Grass);
+                            self.map.set(tux, tuy, restore_terrain);
                         }
                     }
                 }
             }
-            self.notify("Building demolished.".to_string());
+            if exhausted_farm {
+                self.notify("Exhausted farm demolished — soil scarred.".to_string());
+            } else {
+                self.notify("Building demolished.".to_string());
+            }
         }
     }
 

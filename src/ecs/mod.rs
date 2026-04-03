@@ -6096,4 +6096,199 @@ mod tests {
             fert_dry.get(10, 10)
         );
     }
+
+    #[test]
+    fn farm_auto_fallow_at_low_fertility() {
+        // Farm should enter fallow when tile fertility drops below 0.3
+        use crate::terrain_pipeline::SoilType;
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.25); // below 0.3 threshold
+
+        // Run one tick with worker present
+        for farm in world.query_mut::<&mut FarmPlot>() {
+            farm.worker_present = true;
+            farm.growth = 0.5; // mid-growth
+        }
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+
+        let farm = *world.query::<&FarmPlot>().iter().next().unwrap();
+        assert!(farm.fallow, "farm should enter fallow when fertility < 0.3");
+        assert!(
+            !farm.harvest_ready,
+            "fallow farm should not be harvest ready"
+        );
+        assert!(
+            farm.growth < f64::EPSILON,
+            "fallow farm growth should reset to 0"
+        );
+    }
+
+    #[test]
+    fn farm_fallow_exits_at_high_fertility() {
+        // Farm should exit fallow when fertility recovers above 0.6 (hysteresis)
+        use crate::terrain_pipeline::SoilType;
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+
+        // Start with low fertility to trigger fallow
+        fert.set(10, 10, 0.25);
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+        assert!(
+            world.query::<&FarmPlot>().iter().next().unwrap().fallow,
+            "should be fallow"
+        );
+
+        // Raise fertility to 0.5 — still below 0.6, should stay fallow (hysteresis)
+        fert.set(10, 10, 0.5);
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+        assert!(
+            world.query::<&FarmPlot>().iter().next().unwrap().fallow,
+            "should stay fallow at 0.5 (hysteresis)"
+        );
+
+        // Raise fertility above 0.6 — should exit fallow
+        fert.set(10, 10, 0.65);
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+        assert!(
+            !world.query::<&FarmPlot>().iter().next().unwrap().fallow,
+            "should exit fallow when fertility > 0.6"
+        );
+    }
+
+    #[test]
+    fn farm_fallow_no_growth() {
+        // Fallow farms should not grow even with worker present
+        use crate::terrain_pipeline::SoilType;
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.2); // below threshold — will trigger fallow
+
+        // Force fallow
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+        assert!(world.query::<&FarmPlot>().iter().next().unwrap().fallow);
+
+        // Try to grow with worker present for 100 ticks
+        for _ in 0..100 {
+            for farm in world.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+        }
+
+        let farm = *world.query::<&FarmPlot>().iter().next().unwrap();
+        assert!(
+            farm.growth < f64::EPSILON,
+            "fallow farm should not grow: got {}",
+            farm.growth
+        );
+        assert_eq!(farm.pending_food, 0, "fallow farm should produce no food");
+    }
+
+    #[test]
+    fn fallow_farm_recovers_fertility() {
+        // Fallow farm tiles should participate in soil recovery
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        // Set the farm to fallow
+        for farm in world.query_mut::<&mut FarmPlot>() {
+            farm.fallow = true;
+        }
+
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.3);
+        let veg = VegetationMap::new(64, 64);
+        let mm = wet_moisture_map();
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        let before = fert.get(10, 10);
+        system_soil_recovery(&world, &mut fert, &soil, &veg, &mm, Season::Summer, &map);
+        let after = fert.get(10, 10);
+
+        assert!(
+            after > before,
+            "fallow farm tile should recover fertility: before={}, after={}",
+            before,
+            after
+        );
+    }
+
+    #[test]
+    fn farm_visual_fallow_grey_when_exhausted() {
+        // Fallow farm with very low fertility should show grey-brown sprite
+        use crate::terrain_pipeline::SoilType;
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.15); // below 0.3 -> fallow, below 0.2 -> grey-brown
+
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+
+        let is_fallow = world.query::<&FarmPlot>().iter().next().unwrap().fallow;
+        assert!(is_fallow, "should be fallow");
+        let sprite = *world.query::<&Sprite>().iter().next().unwrap();
+        assert_eq!(sprite.ch, '·', "fallow farm should show dot glyph");
+        // Grey-brown: Color(140, 130, 120)
+        assert_eq!(
+            sprite.fg,
+            Color(140, 130, 120),
+            "exhausted fallow farm should be grey-brown"
+        );
+    }
+
+    #[test]
+    fn farm_visual_desaturates_with_low_fertility() {
+        // Growing farm on low-fertility soil should have desaturated sprite color
+        use crate::terrain_pipeline::SoilType;
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
+        let soil = vec![SoilType::Loam; 64 * 64];
+
+        // High fertility farm
+        let mut fert_high = SoilFertilityMap::new(64, 64); // 1.0 everywhere
+        for farm in world.query_mut::<&mut FarmPlot>() {
+            farm.growth = 0.5; // growing stage
+            farm.worker_present = false;
+        }
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert_high, &soil);
+        let high_green = world.query::<&Sprite>().iter().next().unwrap().fg.1;
+
+        // Low fertility farm
+        let mut fert_low = SoilFertilityMap::new(64, 64);
+        fert_low.set(10, 10, 0.4); // above fallow threshold but low
+        for farm in world.query_mut::<&mut FarmPlot>() {
+            farm.growth = 0.5;
+            farm.worker_present = false;
+        }
+        system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert_low, &soil);
+        let low_green = world.query::<&Sprite>().iter().next().unwrap().fg.1;
+
+        assert!(
+            high_green > low_green,
+            "high fertility should have more green: high={}, low={}",
+            high_green,
+            low_green
+        );
+    }
 }

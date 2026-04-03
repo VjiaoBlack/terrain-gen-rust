@@ -1150,11 +1150,17 @@ impl super::Game {
                     lines.push(format!("assigned: {}", site.assigned));
                 }
                 if let Ok(farm) = self.world.get::<&FarmPlot>(e) {
-                    lines.push(format!(
-                        "Farm: {:.0}% grown{}",
-                        farm.growth * 100.0,
-                        if farm.harvest_ready { " [READY]" } else { "" }
-                    ));
+                    let fert = self.soil_fertility.get(farm.tile_x, farm.tile_y);
+                    if farm.fallow {
+                        lines.push(format!("Farm: FALLOW (fertility {:.0}%)", fert * 100.0));
+                    } else {
+                        lines.push(format!(
+                            "Farm: {:.0}% grown{}",
+                            farm.growth * 100.0,
+                            if farm.harvest_ready { " [READY]" } else { "" }
+                        ));
+                        lines.push(format!("  fertility: {:.0}%", fert * 100.0));
+                    }
                 }
                 if self.world.get::<&Stockpile>(e).is_ok() {
                     lines.push(format!(

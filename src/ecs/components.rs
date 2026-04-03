@@ -994,6 +994,10 @@ pub struct FarmPlot {
     pub tile_x: usize, // map x coordinate for moisture lookup
     #[serde(default)]
     pub tile_y: usize, // map y coordinate for moisture lookup
+    /// When true, the farm lies fallow (resting) and does not grow or accept workers.
+    /// Auto-enters fallow when tile fertility < 0.3, exits when fertility > 0.6.
+    #[serde(default)]
+    pub fallow: bool,
 }
 
 /// Marker component for berry bushes (food source for prey).
