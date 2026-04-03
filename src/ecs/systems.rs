@@ -6,7 +6,7 @@ use super::components::*;
 use super::spatial::{SpatialEntry, SpatialHashGrid, category};
 use super::spawn::*;
 use crate::renderer::{Color, Renderer};
-use crate::simulation::{MoistureMap, Season};
+use crate::simulation::{MoistureMap, Season, SoilFertilityMap};
 use crate::tilemap::{Terrain, TileMap};
 
 /// Eight cardinal + diagonal directions for terrain sampling.
@@ -1029,8 +1029,15 @@ fn moisture_ramp(moisture: f64) -> f64 {
 }
 
 /// Grow farm plots based on season and auto-harvest when ready.
-/// Moisture from the simulation scales growth: river-adjacent farms grow faster.
-pub fn system_farms(world: &mut World, season: Season, skill_mult: f64, moisture: &MoistureMap) {
+/// Moisture and soil fertility from the simulation scale growth:
+/// river-adjacent farms on fertile soil grow fastest.
+pub fn system_farms(
+    world: &mut World,
+    season: Season,
+    skill_mult: f64,
+    moisture: &MoistureMap,
+    fertility: &SoilFertilityMap,
+) {
     let base_rate = match season {
         Season::Spring => 0.002,
         Season::Summer => 0.003,
@@ -1050,7 +1057,8 @@ pub fn system_farms(world: &mut World, season: Season, skill_mult: f64, moisture
         } else if farm.worker_present {
             let moisture_val = moisture.get(farm.tile_x, farm.tile_y);
             let moisture_factor = moisture_ramp(moisture_val);
-            let growth_rate = base_rate * skill_mult * moisture_factor;
+            let fertility_factor = fertility.get(farm.tile_x, farm.tile_y).clamp(0.1, 1.0);
+            let growth_rate = base_rate * skill_mult * moisture_factor * fertility_factor;
             farm.growth += growth_rate;
             if farm.growth >= 1.0 {
                 farm.growth = 1.0;

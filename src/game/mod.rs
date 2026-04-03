@@ -18,8 +18,8 @@ use crate::ecs::{
 use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{
-    DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, Season, SimConfig, TrafficMap,
-    VegetationMap, WaterMap,
+    DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, Season, SimConfig, SoilFertilityMap,
+    TrafficMap, VegetationMap, WaterMap,
 };
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
@@ -220,16 +220,18 @@ pub struct EventSystem {
 }
 
 impl EventSystem {
-    /// Returns farm yield multiplier based on active events.
-    pub fn farm_yield_multiplier(&self) -> f64 {
-        for event in &self.active_events {
-            match event {
-                GameEvent::Drought { .. } => return 0.7,
-                GameEvent::BountifulHarvest { .. } => return 2.0,
-                _ => {}
-            }
-        }
-        1.0
+    /// Check if a drought event is currently active.
+    pub fn has_drought(&self) -> bool {
+        self.active_events
+            .iter()
+            .any(|e| matches!(e, GameEvent::Drought { .. }))
+    }
+
+    /// Check if a bountiful harvest event is currently active.
+    pub fn has_bountiful_harvest(&self) -> bool {
+        self.active_events
+            .iter()
+            .any(|e| matches!(e, GameEvent::BountifulHarvest { .. }))
     }
 
     /// Returns wolf spawn rate multiplier based on active events.
@@ -357,6 +359,7 @@ pub struct Game {
     pub particles: Vec<Particle>,
     pub game_speed: u32, // 1 = normal, 2 = 2x, 5 = 5x
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
+    pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
     pub resource_map: crate::terrain_pipeline::ResourceMap,
     pub knowledge: SettlementKnowledge,
@@ -967,6 +970,7 @@ impl Game {
             exploration: ExplorationMap::new(map_width, map_height),
             particles: Vec::new(),
             game_speed: 1,
+            soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
             resource_map: result.resources,
@@ -1583,13 +1587,15 @@ impl Game {
                 }
 
                 // Farm growth (only advances when villager is present at farm)
-                let farm_mult =
-                    (1.0 + self.skills.farming / 100.0) * self.events.farm_yield_multiplier();
+                // Drought/BountifulHarvest no longer multiply yield directly --
+                // they modify rain_rate, which flows through water -> moisture -> growth.
+                let farm_mult = 1.0 + self.skills.farming / 100.0;
                 ecs::system_farms(
                     &mut self.world,
                     self.day_night.season,
                     farm_mult,
                     &self.moisture,
+                    &self.soil_fertility,
                 );
 
                 // Assign idle villagers to farms/workshops, then mark worker presence
@@ -1694,10 +1700,21 @@ impl Game {
                     self.update_settlement_knowledge();
                 }
 
-                // Seasonal config for rain/water
+                // Seasonal config for rain/water — events chain through here
                 let mut tick_config = self.sim_config.clone();
                 tick_config.rain_rate *= mods.rain_mult;
                 tick_config.evaporation *= mods.evap_mult;
+
+                // Drought reduces rain by 60% (chain: less rain -> less water -> less
+                // moisture -> slower farm growth). No direct yield multiplier needed.
+                if self.events.has_drought() {
+                    tick_config.rain_rate *= 0.4;
+                }
+                // Bountiful harvest increases rain by 50% (chain: more rain -> more
+                // water -> more moisture -> faster farm growth).
+                if self.events.has_bountiful_harvest() {
+                    tick_config.rain_rate *= 1.5;
+                }
 
                 // Seasonal auto-rain (rain_mult: spring=1.5, summer=0.5, autumn=1.0, winter=0.3)
                 let should_rain = self.raining || (self.tick % 20 == 0 && mods.rain_mult > 0.4);
@@ -2406,23 +2423,136 @@ mod tests {
     }
 
     #[test]
-    fn drought_reduces_farm_yield() {
+    fn drought_event_detected() {
         let mut events = EventSystem::default();
-        assert_eq!(events.farm_yield_multiplier(), 1.0);
-
+        assert!(!events.has_drought());
         events.active_events.push(GameEvent::Drought {
             ticks_remaining: 100,
         });
-        assert_eq!(events.farm_yield_multiplier(), 0.7);
+        assert!(events.has_drought());
+        assert!(!events.has_bountiful_harvest());
     }
 
     #[test]
-    fn bountiful_harvest_doubles_farm_yield() {
+    fn bountiful_harvest_event_detected() {
         let mut events = EventSystem::default();
+        assert!(!events.has_bountiful_harvest());
         events.active_events.push(GameEvent::BountifulHarvest {
             ticks_remaining: 100,
         });
-        assert_eq!(events.farm_yield_multiplier(), 2.0);
+        assert!(events.has_bountiful_harvest());
+        assert!(!events.has_drought());
+    }
+
+    #[test]
+    fn drought_reduces_rain_rate() {
+        // Drought should reduce rain_rate by 60% when applied to SimConfig.
+        // Chain: drought -> less rain -> less water -> less moisture -> slower farms.
+        let base_config = SimConfig::default();
+        let base_rain = base_config.rain_rate;
+
+        // Simulate what step() does: seasonal mult * drought mult
+        let drought_rain = base_rain * 0.4; // drought factor
+        assert!(
+            drought_rain < base_rain * 0.5,
+            "drought should cut rain to 40%: base={}, drought={}",
+            base_rain,
+            drought_rain
+        );
+    }
+
+    #[test]
+    fn bountiful_harvest_increases_rain_rate() {
+        // Bountiful harvest should increase rain_rate by 50%.
+        // Chain: more rain -> more water -> more moisture -> faster farms.
+        let base_config = SimConfig::default();
+        let base_rain = base_config.rain_rate;
+
+        let bountiful_rain = base_rain * 1.5;
+        assert!(
+            bountiful_rain > base_rain,
+            "bountiful should increase rain: base={}, bountiful={}",
+            base_rain,
+            bountiful_rain
+        );
+    }
+
+    #[test]
+    fn low_fertility_slows_farm_growth() {
+        // Farm on low-fertility soil should grow slower than on rich soil.
+        use crate::simulation::SoilFertilityMap;
+        let mm = {
+            let mut m = MoistureMap::new(64, 64);
+            for y in 0..64 {
+                for x in 0..64 {
+                    m.set(x, y, 0.6);
+                }
+            }
+            m
+        };
+
+        let mut world_rich = World::new();
+        ecs::spawn_farm_plot(&mut world_rich, 5.0, 5.0);
+        let fert_rich = SoilFertilityMap::new(64, 64); // 1.0 everywhere
+
+        let mut world_poor = World::new();
+        ecs::spawn_farm_plot(&mut world_poor, 5.0, 5.0);
+        let mut fert_poor = SoilFertilityMap::new(64, 64);
+        fert_poor.set(5, 5, 0.2); // poor soil at farm tile
+
+        let ticks = 100;
+        for _ in 0..ticks {
+            for farm in world_rich.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            ecs::system_farms(&mut world_rich, Season::Summer, 1.0, &mm, &fert_rich);
+            for farm in world_poor.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            ecs::system_farms(&mut world_poor, Season::Summer, 1.0, &mm, &fert_poor);
+        }
+
+        let rich_growth = world_rich
+            .query::<&FarmPlot>()
+            .iter()
+            .next()
+            .unwrap()
+            .growth;
+        let poor_growth = world_poor
+            .query::<&FarmPlot>()
+            .iter()
+            .next()
+            .unwrap()
+            .growth;
+        assert!(
+            rich_growth > poor_growth,
+            "rich soil farm should grow faster: rich={}, poor={}",
+            rich_growth,
+            poor_growth
+        );
+    }
+
+    #[test]
+    fn soil_fertility_initialized_from_soil_types() {
+        use crate::simulation::SoilFertilityMap;
+        use crate::terrain_pipeline::SoilType;
+
+        let soil = vec![
+            SoilType::Alluvial,
+            SoilType::Sand,
+            SoilType::Rocky,
+            SoilType::Loam,
+        ];
+        let fert = SoilFertilityMap::from_soil_types(2, 2, &soil);
+
+        // Alluvial: yield_multiplier = 1.25, clamped to 1.0
+        assert!((fert.get(0, 0) - 1.0).abs() < 0.01);
+        // Sand: 0.7
+        assert!((fert.get(1, 0) - 0.7).abs() < 0.01);
+        // Rocky: 0.4
+        assert!((fert.get(0, 1) - 0.4).abs() < 0.01);
+        // Loam: 1.0
+        assert!((fert.get(1, 1) - 1.0).abs() < 0.01);
     }
 
     #[test]

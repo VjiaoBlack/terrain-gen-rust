@@ -133,8 +133,8 @@ impl Game {
                     });
                     self.events
                         .event_log
-                        .push("Drought! Farm yields reduced.".to_string());
-                    self.notify("Drought! Farm yields reduced.".to_string());
+                        .push("Drought! Water levels dropping.".to_string());
+                    self.notify("Drought! Water levels dropping.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("drought");
                 }
@@ -146,8 +146,8 @@ impl Game {
                     });
                     self.events
                         .event_log
-                        .push("Bountiful harvest! Farm yields doubled.".to_string());
-                    self.notify("Bountiful harvest! Farm yields doubled.".to_string());
+                        .push("Bountiful rains! Moisture levels rising.".to_string());
+                    self.notify("Bountiful rains! Moisture levels rising.".to_string());
                     #[cfg(feature = "lua")]
                     self.fire_event_hook("harvest");
                 }

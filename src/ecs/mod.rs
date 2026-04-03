@@ -17,7 +17,7 @@ mod tests {
     use crate::ecs::spatial::SpatialHashGrid;
     use crate::headless_renderer::HeadlessRenderer;
     use crate::renderer::Color;
-    use crate::simulation::{MoistureMap, Season};
+    use crate::simulation::{MoistureMap, Season, SoilFertilityMap};
     use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
@@ -43,6 +43,12 @@ mod tests {
             }
         }
         mm
+    }
+
+    /// Create a SoilFertilityMap with uniform high fertility (1.0).
+    /// This preserves existing test behavior where fertility is unscaled.
+    fn rich_fertility_map() -> SoilFertilityMap {
+        SoilFertilityMap::new(64, 64) // defaults to 1.0 everywhere
     }
 
     #[test]
@@ -1427,7 +1433,7 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0, &mm);
+            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
         }
         let pending = world
             .query::<&FarmPlot>()
@@ -1449,7 +1455,7 @@ mod tests {
         let mm = wet_moisture_map();
 
         for _ in 0..500 {
-            system_farms(&mut world, Season::Summer, 1.0, &mm);
+            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -1470,7 +1476,7 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Winter, 1.0, &mm);
+            system_farms(&mut world, Season::Winter, 1.0, &mm, &rich_fertility_map());
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -1498,7 +1504,7 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0, &mm);
+            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -1514,7 +1520,7 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0, &mm);
+            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -1547,11 +1553,23 @@ mod tests {
             for farm in world_dry.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world_dry, Season::Summer, 1.0, &mm_dry);
+            system_farms(
+                &mut world_dry,
+                Season::Summer,
+                1.0,
+                &mm_dry,
+                &rich_fertility_map(),
+            );
             for farm in world_wet.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world_wet, Season::Summer, 1.0, &mm_wet);
+            system_farms(
+                &mut world_wet,
+                Season::Summer,
+                1.0,
+                &mm_wet,
+                &rich_fertility_map(),
+            );
         }
 
         let dry_growth = world_dry.query::<&FarmPlot>().iter().next().unwrap().growth;

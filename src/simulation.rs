@@ -236,6 +236,58 @@ impl WaterMap {
     }
 }
 
+/// Per-tile soil fertility grid. Initialized from SoilType at world-gen.
+/// Farms read this value as a growth-rate multiplier.
+/// Future: degrades from repeated harvesting, recovers when fallow.
+#[derive(Serialize, Deserialize)]
+pub struct SoilFertilityMap {
+    pub width: usize,
+    pub height: usize,
+    fertility: Vec<f64>, // 0.0 (barren) to 1.0 (rich)
+}
+
+impl SoilFertilityMap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            fertility: vec![1.0; width * height],
+        }
+    }
+
+    /// Initialize fertility from a SoilType grid. Each SoilType maps to a
+    /// base fertility via its yield_multiplier (clamped to 0.0..=1.0).
+    pub fn from_soil_types(
+        width: usize,
+        height: usize,
+        soil: &[crate::terrain_pipeline::SoilType],
+    ) -> Self {
+        let fertility = soil
+            .iter()
+            .map(|s| s.yield_multiplier().clamp(0.0, 1.0))
+            .collect();
+        Self {
+            width,
+            height,
+            fertility,
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.fertility[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    pub fn set(&mut self, x: usize, y: usize, val: f64) {
+        if x < self.width && y < self.height {
+            self.fertility[y * self.width + x] = val.clamp(0.0, 1.0);
+        }
+    }
+}
+
 /// Moisture grid: driven by water presence, propagates downwind, drives vegetation.
 #[derive(Serialize, Deserialize)]
 pub struct MoistureMap {
