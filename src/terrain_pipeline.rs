@@ -80,6 +80,31 @@ impl SoilType {
             SoilType::Peat => 0.5,
         }
     }
+
+    /// How much fertility is lost per harvest. Richer soils resist depletion;
+    /// poor soils exhaust quickly.
+    pub fn harvest_depletion_rate(&self) -> f64 {
+        match self {
+            SoilType::Alluvial => 0.02, // 50 harvests to exhaust
+            SoilType::Loam => 0.03,     // 33 harvests
+            SoilType::Clay => 0.04,     // 25 harvests
+            SoilType::Sand => 0.05,     // 20 harvests
+            SoilType::Rocky => 0.08,    // 12 harvests
+            SoilType::Peat => 0.04,     // 25 harvests (similar to clay)
+        }
+    }
+
+    /// Base fertility ceiling for this soil type (used to cap recovery).
+    pub fn base_fertility(&self) -> f64 {
+        match self {
+            SoilType::Alluvial => 1.0,
+            SoilType::Loam => 0.85,
+            SoilType::Peat => 0.75,
+            SoilType::Clay => 0.70,
+            SoilType::Sand => 0.40,
+            SoilType::Rocky => 0.15,
+        }
+    }
 }
 
 impl Default for SoilType {

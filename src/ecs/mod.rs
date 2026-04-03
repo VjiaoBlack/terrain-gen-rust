@@ -17,7 +17,7 @@ mod tests {
     use crate::ecs::spatial::SpatialHashGrid;
     use crate::headless_renderer::HeadlessRenderer;
     use crate::renderer::Color;
-    use crate::simulation::{MoistureMap, Season, SoilFertilityMap};
+    use crate::simulation::{MoistureMap, Season, SoilFertilityMap, VegetationMap};
     use crate::tilemap::{Terrain, TileMap};
     use hecs::World;
 
@@ -49,6 +49,11 @@ mod tests {
     /// This preserves existing test behavior where fertility is unscaled.
     fn rich_fertility_map() -> SoilFertilityMap {
         SoilFertilityMap::new(64, 64) // defaults to 1.0 everywhere
+    }
+
+    /// Default soil array (all Loam) for tests that don't care about soil type.
+    fn default_soil() -> Vec<crate::terrain_pipeline::SoilType> {
+        vec![crate::terrain_pipeline::SoilType::Loam; 64 * 64]
     }
 
     #[test]
@@ -1433,7 +1438,14 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
+            system_farms(
+                &mut world,
+                Season::Summer,
+                1.0,
+                &mm,
+                &mut rich_fertility_map(),
+                &default_soil(),
+            );
         }
         let pending = world
             .query::<&FarmPlot>()
@@ -1455,7 +1467,14 @@ mod tests {
         let mm = wet_moisture_map();
 
         for _ in 0..500 {
-            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
+            system_farms(
+                &mut world,
+                Season::Summer,
+                1.0,
+                &mm,
+                &mut rich_fertility_map(),
+                &default_soil(),
+            );
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -1476,7 +1495,14 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Winter, 1.0, &mm, &rich_fertility_map());
+            system_farms(
+                &mut world,
+                Season::Winter,
+                1.0,
+                &mm,
+                &mut rich_fertility_map(),
+                &default_soil(),
+            );
         }
 
         let growth = world.query::<&FarmPlot>().iter().next().unwrap().growth;
@@ -1504,7 +1530,14 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
+            system_farms(
+                &mut world,
+                Season::Summer,
+                1.0,
+                &mm,
+                &mut rich_fertility_map(),
+                &default_soil(),
+            );
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -1520,7 +1553,14 @@ mod tests {
             for farm in world.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            system_farms(&mut world, Season::Summer, 1.0, &mm, &rich_fertility_map());
+            system_farms(
+                &mut world,
+                Season::Summer,
+                1.0,
+                &mm,
+                &mut rich_fertility_map(),
+                &default_soil(),
+            );
         }
         {
             let mut q = world.query::<(&FarmPlot, &Sprite)>();
@@ -1558,7 +1598,8 @@ mod tests {
                 Season::Summer,
                 1.0,
                 &mm_dry,
-                &rich_fertility_map(),
+                &mut rich_fertility_map(),
+                &default_soil(),
             );
             for farm in world_wet.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
@@ -1568,7 +1609,8 @@ mod tests {
                 Season::Summer,
                 1.0,
                 &mm_wet,
-                &rich_fertility_map(),
+                &mut rich_fertility_map(),
+                &default_soil(),
             );
         }
 
@@ -5776,6 +5818,282 @@ mod tests {
         assert!(
             mem.entries[0].firsthand,
             "upsert entries should be firsthand"
+        );
+    }
+
+    // ─── Soil degradation system tests ─────────────────────────────────────
+
+    #[test]
+    fn harvest_degrades_world_fertility() {
+        // Place farm, complete harvest cycle, read soil_fertility at tile.
+        // Fertility should decrease by the soil-specific degradation rate.
+        use crate::terrain_pipeline::SoilType;
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0);
+        let mm = wet_moisture_map();
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = rich_fertility_map(); // 1.0 everywhere
+
+        let initial = fert.get(10, 10);
+
+        // Run until at least one harvest occurs (farm produces pending_food)
+        for _ in 0..500 {
+            for farm in world.query_mut::<&mut FarmPlot>() {
+                farm.worker_present = true;
+            }
+            system_farms(&mut world, Season::Summer, 1.0, &mm, &mut fert, &soil);
+        }
+
+        let after = fert.get(10, 10);
+        assert!(
+            after < initial,
+            "fertility should decrease after harvest: before={}, after={}",
+            initial,
+            after
+        );
+        // Loam depletion rate is 0.03 per harvest
+        let expected_drop = SoilType::Loam.harvest_depletion_rate();
+        let total_drop = initial - after;
+        assert!(
+            (total_drop % expected_drop).abs() < 0.001 || total_drop > expected_drop * 0.9,
+            "drop should be a multiple of depletion rate {}: got {}",
+            expected_drop,
+            total_drop
+        );
+    }
+
+    #[test]
+    fn harvest_depletion_rate_varies_by_soil_type() {
+        use crate::terrain_pipeline::SoilType;
+        // Alluvial depletes slower than Rocky
+        assert!(
+            SoilType::Alluvial.harvest_depletion_rate() < SoilType::Rocky.harvest_depletion_rate(),
+            "alluvial should deplete slower than rocky"
+        );
+        assert!(
+            SoilType::Loam.harvest_depletion_rate() < SoilType::Sand.harvest_depletion_rate(),
+            "loam should deplete slower than sand"
+        );
+    }
+
+    #[test]
+    fn soil_recovery_increases_fertility() {
+        // Tile without farm should recover fertility over time.
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let world = World::new(); // no farms
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.3); // degraded
+        let mut veg = VegetationMap::new(64, 64);
+        // Set vegetation > 0.3 for 2x bonus
+        for y in 0..64 {
+            for x in 0..64 {
+                if let Some(v) = veg.get_mut(x, y) {
+                    *v = 0.5;
+                }
+            }
+        }
+        let mm = wet_moisture_map();
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        let before = fert.get(10, 10);
+        // Run recovery (equivalent of 50 ticks, called once)
+        system_soil_recovery(&world, &mut fert, &soil, &veg, &mm, Season::Summer, &map);
+        let after = fert.get(10, 10);
+
+        assert!(
+            after > before,
+            "fertility should increase after recovery: before={}, after={}",
+            before,
+            after
+        );
+    }
+
+    #[test]
+    fn soil_recovery_zero_in_winter() {
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let world = World::new();
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.3);
+        let veg = VegetationMap::new(64, 64);
+        let mm = wet_moisture_map();
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        let before = fert.get(10, 10);
+        system_soil_recovery(&world, &mut fert, &soil, &veg, &mm, Season::Winter, &map);
+        let after = fert.get(10, 10);
+
+        assert!(
+            (after - before).abs() < f64::EPSILON,
+            "no recovery in winter: before={}, after={}",
+            before,
+            after
+        );
+    }
+
+    #[test]
+    fn soil_recovery_skips_farm_tiles() {
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let mut world = World::new();
+        spawn_farm_plot(&mut world, 10.0, 10.0); // farm at (10, 10)
+        let soil = vec![SoilType::Loam; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.3); // farm tile degraded
+        fert.set(20, 20, 0.3); // non-farm tile degraded
+        let veg = VegetationMap::new(64, 64);
+        let mm = wet_moisture_map();
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        system_soil_recovery(&world, &mut fert, &soil, &veg, &mm, Season::Summer, &map);
+
+        assert!(
+            (fert.get(10, 10) - 0.3).abs() < f64::EPSILON,
+            "farm tile should not recover: got {}",
+            fert.get(10, 10)
+        );
+        assert!(
+            fert.get(20, 20) > 0.3,
+            "non-farm tile should recover: got {}",
+            fert.get(20, 20)
+        );
+    }
+
+    #[test]
+    fn soil_recovery_capped_at_soil_type_ceiling() {
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let world = World::new();
+        // Sandy soil: base_fertility = 0.40
+        let soil = vec![SoilType::Sand; 64 * 64];
+        let mut fert = SoilFertilityMap::new(64, 64);
+        fert.set(10, 10, 0.39); // just below ceiling
+        let mut veg = VegetationMap::new(64, 64);
+        if let Some(v) = veg.get_mut(10, 10) {
+            *v = 0.5;
+        }
+        let mm = wet_moisture_map();
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        // Run many recovery cycles
+        for _ in 0..100 {
+            system_soil_recovery(&world, &mut fert, &soil, &veg, &mm, Season::Summer, &map);
+        }
+
+        let ceiling = SoilType::Sand.base_fertility();
+        assert!(
+            fert.get(10, 10) <= ceiling + f64::EPSILON,
+            "fertility should not exceed SoilType ceiling {}: got {}",
+            ceiling,
+            fert.get(10, 10)
+        );
+    }
+
+    #[test]
+    fn soil_recovery_faster_with_vegetation() {
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let world = World::new();
+        let soil = vec![SoilType::Loam; 64 * 64];
+
+        // With vegetation
+        let mut fert_veg = SoilFertilityMap::new(64, 64);
+        fert_veg.set(10, 10, 0.3);
+        let mut veg_high = VegetationMap::new(64, 64);
+        if let Some(v) = veg_high.get_mut(10, 10) {
+            *v = 0.5;
+        }
+
+        // Without vegetation
+        let mut fert_bare = SoilFertilityMap::new(64, 64);
+        fert_bare.set(10, 10, 0.3);
+        let veg_low = VegetationMap::new(64, 64); // all 0.0
+
+        let mm = wet_moisture_map();
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        system_soil_recovery(
+            &world,
+            &mut fert_veg,
+            &soil,
+            &veg_high,
+            &mm,
+            Season::Summer,
+            &map,
+        );
+        system_soil_recovery(
+            &world,
+            &mut fert_bare,
+            &soil,
+            &veg_low,
+            &mm,
+            Season::Summer,
+            &map,
+        );
+
+        assert!(
+            fert_veg.get(10, 10) > fert_bare.get(10, 10),
+            "vegetated tile should recover faster: veg={}, bare={}",
+            fert_veg.get(10, 10),
+            fert_bare.get(10, 10)
+        );
+    }
+
+    #[test]
+    fn soil_recovery_faster_with_moisture() {
+        use crate::terrain_pipeline::SoilType;
+        use crate::tilemap::{Terrain, TileMap};
+
+        let world = World::new();
+        let soil = vec![SoilType::Loam; 64 * 64];
+
+        // With moisture
+        let mut fert_wet = SoilFertilityMap::new(64, 64);
+        fert_wet.set(10, 10, 0.3);
+        let mut mm_wet = MoistureMap::new(64, 64);
+        mm_wet.set(10, 10, 0.6);
+
+        // Without moisture
+        let mut fert_dry = SoilFertilityMap::new(64, 64);
+        fert_dry.set(10, 10, 0.3);
+        let mm_dry = MoistureMap::new(64, 64); // all 0.0
+
+        let veg = VegetationMap::new(64, 64);
+        let map = TileMap::new(64, 64, Terrain::Grass);
+
+        system_soil_recovery(
+            &world,
+            &mut fert_wet,
+            &soil,
+            &veg,
+            &mm_wet,
+            Season::Summer,
+            &map,
+        );
+        system_soil_recovery(
+            &world,
+            &mut fert_dry,
+            &soil,
+            &veg,
+            &mm_dry,
+            Season::Summer,
+            &map,
+        );
+
+        assert!(
+            fert_wet.get(10, 10) > fert_dry.get(10, 10),
+            "moist tile should recover faster: wet={}, dry={}",
+            fert_wet.get(10, 10),
+            fert_dry.get(10, 10)
         );
     }
 }

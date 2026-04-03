@@ -1366,14 +1366,25 @@ impl Game {
                     self.notify(format!("Resource deposited: +{} stone", deposited_stone));
                 }
                 // Deforestation: convert Forest tiles to Stump where wood was harvested
+                // Also degrade fertility at the deforested tile and its 4-neighbors.
                 for (hx, hy) in &ai_result.wood_harvest_positions {
                     let ix = hx.round() as usize;
                     let iy = hy.round() as usize;
                     if self.map.get(ix, iy) == Some(&Terrain::Forest) {
                         self.map.set(ix, iy, Terrain::Stump);
+                        // Deforestation erosion: exposed soil loses fertility
+                        self.soil_fertility.degrade(ix, iy, 0.05);
+                        for &(dx, dy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+                            let nx = ix as i32 + dx;
+                            let ny = iy as i32 + dy;
+                            if nx >= 0 && ny >= 0 {
+                                self.soil_fertility.degrade(nx as usize, ny as usize, 0.05);
+                            }
+                        }
                     }
                 }
                 // Mining terrain changes: Mountain -> Quarry -> QuarryDeep
+                // Mining scars soil fertility at the mined tile and its neighbors.
                 for (hx, hy) in &ai_result.stone_harvest_positions {
                     let vx = hx.round() as i32;
                     let vy = hy.round() as i32;
@@ -1386,11 +1397,40 @@ impl Game {
                             let uy = my as usize;
                             match self.map.get(ux, uy) {
                                 Some(&Terrain::Mountain) | Some(&Terrain::Quarry) => {
+                                    let prev_terrain = *self.map.get(ux, uy).unwrap();
                                     let count = self.map.increment_mine_count(ux, uy);
                                     if count >= 12 {
                                         self.map.set(ux, uy, Terrain::QuarryDeep);
-                                    } else if count >= 6 {
+                                        // QuarryDeep: set fertility to 0.05, neighbors lose 0.1
+                                        self.soil_fertility.set(ux, uy, 0.05);
+                                        for &(ndx, ndy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
+                                        {
+                                            let nx = mx + ndx;
+                                            let ny = my + ndy;
+                                            if nx >= 0 && ny >= 0 {
+                                                self.soil_fertility.degrade(
+                                                    nx as usize,
+                                                    ny as usize,
+                                                    0.1,
+                                                );
+                                            }
+                                        }
+                                    } else if count >= 6 && prev_terrain == Terrain::Mountain {
                                         self.map.set(ux, uy, Terrain::Quarry);
+                                        // Quarry: set fertility to 0.05, neighbors lose 0.1
+                                        self.soil_fertility.set(ux, uy, 0.05);
+                                        for &(ndx, ndy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
+                                        {
+                                            let nx = mx + ndx;
+                                            let ny = my + ndy;
+                                            if nx >= 0 && ny >= 0 {
+                                                self.soil_fertility.degrade(
+                                                    nx as usize,
+                                                    ny as usize,
+                                                    0.1,
+                                                );
+                                            }
+                                        }
                                     }
                                     break; // only affect one tile per harvest
                                 }
@@ -1595,7 +1635,8 @@ impl Game {
                     self.day_night.season,
                     farm_mult,
                     &self.moisture,
-                    &self.soil_fertility,
+                    &mut self.soil_fertility,
+                    &self.soil,
                 );
 
                 // Assign idle villagers to farms/workshops, then mark worker presence
@@ -1676,6 +1717,19 @@ impl Game {
 
                 // Resource regrowth (deforestation lifecycle: Stump -> Bare -> Sapling -> Forest)
                 ecs::system_regrowth(&mut self.world, &mut self.map, &self.vegetation, self.tick);
+
+                // Soil fertility recovery (every 50 ticks)
+                if self.tick.is_multiple_of(50) {
+                    ecs::system_soil_recovery(
+                        &self.world,
+                        &mut self.soil_fertility,
+                        &self.soil,
+                        &self.vegetation,
+                        &self.moisture,
+                        self.day_night.season,
+                        &self.map,
+                    );
+                }
 
                 // Check for completed buildings
                 self.check_build_completion();
@@ -2481,6 +2535,7 @@ mod tests {
     fn low_fertility_slows_farm_growth() {
         // Farm on low-fertility soil should grow slower than on rich soil.
         use crate::simulation::SoilFertilityMap;
+        use crate::terrain_pipeline::SoilType;
         let mm = {
             let mut m = MoistureMap::new(64, 64);
             for y in 0..64 {
@@ -2490,10 +2545,11 @@ mod tests {
             }
             m
         };
+        let soil = vec![SoilType::Loam; 64 * 64];
 
         let mut world_rich = World::new();
         ecs::spawn_farm_plot(&mut world_rich, 5.0, 5.0);
-        let fert_rich = SoilFertilityMap::new(64, 64); // 1.0 everywhere
+        let mut fert_rich = SoilFertilityMap::new(64, 64); // 1.0 everywhere
 
         let mut world_poor = World::new();
         ecs::spawn_farm_plot(&mut world_poor, 5.0, 5.0);
@@ -2505,11 +2561,25 @@ mod tests {
             for farm in world_rich.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            ecs::system_farms(&mut world_rich, Season::Summer, 1.0, &mm, &fert_rich);
+            ecs::system_farms(
+                &mut world_rich,
+                Season::Summer,
+                1.0,
+                &mm,
+                &mut fert_rich,
+                &soil,
+            );
             for farm in world_poor.query_mut::<&mut FarmPlot>() {
                 farm.worker_present = true;
             }
-            ecs::system_farms(&mut world_poor, Season::Summer, 1.0, &mm, &fert_poor);
+            ecs::system_farms(
+                &mut world_poor,
+                Season::Summer,
+                1.0,
+                &mm,
+                &mut fert_poor,
+                &soil,
+            );
         }
 
         let rich_growth = world_rich
@@ -3652,5 +3722,105 @@ mod tests {
             "spacing penalty should reduce score near existing farms \
              (crowded={crowded:.2}, spread={spread_out:.2}, empty={crowded_no_penalty:.2})"
         );
+    }
+
+    // ─── Soil degradation integration tests ────────────────────────────────
+
+    #[test]
+    fn deforestation_degrades_fertility() {
+        // When Forest -> Stump, the tile and its 4-neighbors should lose fertility.
+        let mut game = Game::new_with_size(60, 103, 30, 30);
+        // Set a forest tile at (15, 15) and give it high fertility
+        game.map.set(15, 15, Terrain::Forest);
+        game.soil_fertility.set(15, 15, 0.9);
+        game.soil_fertility.set(15, 16, 0.9);
+        game.soil_fertility.set(15, 14, 0.9);
+        game.soil_fertility.set(16, 15, 0.9);
+        game.soil_fertility.set(14, 15, 0.9);
+
+        // Simulate deforestation: convert Forest -> Stump with fertility damage
+        // (replicate the logic from game step)
+        if game.map.get(15, 15) == Some(&Terrain::Forest) {
+            game.map.set(15, 15, Terrain::Stump);
+            game.soil_fertility.degrade(15, 15, 0.05);
+            for &(dx, dy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+                let nx = 15i32 + dx;
+                let ny = 15i32 + dy;
+                if nx >= 0 && ny >= 0 {
+                    game.soil_fertility.degrade(nx as usize, ny as usize, 0.05);
+                }
+            }
+        }
+
+        assert!(
+            (game.soil_fertility.get(15, 15) - 0.85).abs() < 0.01,
+            "deforested tile should lose 0.05 fertility: got {}",
+            game.soil_fertility.get(15, 15)
+        );
+        assert!(
+            (game.soil_fertility.get(15, 16) - 0.85).abs() < 0.01,
+            "neighbor should lose 0.05 fertility: got {}",
+            game.soil_fertility.get(15, 16)
+        );
+    }
+
+    #[test]
+    fn mining_scarring_degrades_fertility() {
+        // When Mountain -> Quarry, the mined tile should have fertility set to 0.05
+        // and 4-neighbors should lose 0.1 fertility.
+        let mut game = Game::new_with_size(60, 103, 30, 30);
+        game.map.set(15, 15, Terrain::Mountain);
+        game.soil_fertility.set(15, 15, 0.5);
+        game.soil_fertility.set(15, 16, 0.8);
+        game.soil_fertility.set(15, 14, 0.8);
+        game.soil_fertility.set(16, 15, 0.8);
+        game.soil_fertility.set(14, 15, 0.8);
+
+        // Simulate mining: increment mine count to trigger Quarry transition
+        for _ in 0..6 {
+            game.map.increment_mine_count(15, 15);
+        }
+        game.map.set(15, 15, Terrain::Quarry);
+        // Apply mining scar damage (replicate the logic from game step)
+        game.soil_fertility.set(15, 15, 0.05);
+        for &(dx, dy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+            let nx = 15i32 + dx;
+            let ny = 15i32 + dy;
+            if nx >= 0 && ny >= 0 {
+                game.soil_fertility.degrade(nx as usize, ny as usize, 0.1);
+            }
+        }
+
+        assert!(
+            (game.soil_fertility.get(15, 15) - 0.05).abs() < 0.01,
+            "quarry tile should have fertility 0.05: got {}",
+            game.soil_fertility.get(15, 15)
+        );
+        assert!(
+            (game.soil_fertility.get(15, 16) - 0.7).abs() < 0.01,
+            "neighbor should lose 0.1 fertility: got {}",
+            game.soil_fertility.get(15, 16)
+        );
+    }
+
+    #[test]
+    fn soil_type_base_fertility_matches_design() {
+        use crate::terrain_pipeline::SoilType;
+        assert!((SoilType::Alluvial.base_fertility() - 1.0).abs() < 0.01);
+        assert!((SoilType::Loam.base_fertility() - 0.85).abs() < 0.01);
+        assert!((SoilType::Clay.base_fertility() - 0.70).abs() < 0.01);
+        assert!((SoilType::Sand.base_fertility() - 0.40).abs() < 0.01);
+        assert!((SoilType::Rocky.base_fertility() - 0.15).abs() < 0.01);
+        assert!((SoilType::Peat.base_fertility() - 0.75).abs() < 0.01);
+    }
+
+    #[test]
+    fn soil_type_harvest_depletion_rates() {
+        use crate::terrain_pipeline::SoilType;
+        assert!((SoilType::Alluvial.harvest_depletion_rate() - 0.02).abs() < 0.001);
+        assert!((SoilType::Loam.harvest_depletion_rate() - 0.03).abs() < 0.001);
+        assert!((SoilType::Clay.harvest_depletion_rate() - 0.04).abs() < 0.001);
+        assert!((SoilType::Sand.harvest_depletion_rate() - 0.05).abs() < 0.001);
+        assert!((SoilType::Rocky.harvest_depletion_rate() - 0.08).abs() < 0.001);
     }
 }

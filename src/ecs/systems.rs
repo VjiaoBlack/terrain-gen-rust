@@ -6,7 +6,7 @@ use super::components::*;
 use super::spatial::{SpatialEntry, SpatialHashGrid, category};
 use super::spawn::*;
 use crate::renderer::{Color, Renderer};
-use crate::simulation::{MoistureMap, Season, SoilFertilityMap};
+use crate::simulation::{MoistureMap, Season, SoilFertilityMap, VegetationMap};
 use crate::tilemap::{Terrain, TileMap};
 
 /// Eight cardinal + diagonal directions for terrain sampling.
@@ -1031,12 +1031,14 @@ fn moisture_ramp(moisture: f64) -> f64 {
 /// Grow farm plots based on season and auto-harvest when ready.
 /// Moisture and soil fertility from the simulation scale growth:
 /// river-adjacent farms on fertile soil grow fastest.
+/// On harvest, degrades soil fertility at the farm tile based on SoilType.
 pub fn system_farms(
     world: &mut World,
     season: Season,
     skill_mult: f64,
     moisture: &MoistureMap,
-    fertility: &SoilFertilityMap,
+    fertility: &mut SoilFertilityMap,
+    soil: &[crate::terrain_pipeline::SoilType],
 ) {
     let base_rate = match season {
         Season::Spring => 0.002,
@@ -1046,6 +1048,8 @@ pub fn system_farms(
     };
 
     // Pass 1: advance growth only if a worker is present
+    // Collect harvest positions for fertility degradation after the query.
+    let mut harvest_tiles: Vec<(usize, usize)> = Vec::new();
     for farm in world.query_mut::<&mut FarmPlot>() {
         if farm.harvest_ready {
             // Harvest: produce pending food for villager pickup
@@ -1053,6 +1057,7 @@ pub fn system_farms(
                 farm.growth = 0.0;
                 farm.harvest_ready = false;
                 farm.pending_food += 3;
+                harvest_tiles.push((farm.tile_x, farm.tile_y));
             }
         } else if farm.worker_present {
             let moisture_val = moisture.get(farm.tile_x, farm.tile_y);
@@ -1067,6 +1072,16 @@ pub fn system_farms(
         }
         // Reset worker flag each tick — villager AI sets it each tick they're working
         farm.worker_present = false;
+    }
+
+    // Degrade soil fertility at harvest tiles
+    let map_len = fertility.width * fertility.height;
+    for (tx, ty) in harvest_tiles {
+        let idx = ty * fertility.width + tx;
+        if idx < soil.len() && idx < map_len {
+            let rate = soil[idx].harvest_depletion_rate();
+            fertility.degrade(tx, ty, rate);
+        }
     }
 
     // Pass 2: update sprite visuals based on growth stage
@@ -1833,6 +1848,82 @@ pub fn system_info_sharing(world: &mut World, grid: &SpatialHashGrid, current_ti
                     try_share_pair(world, a.entity, b.entity, current_tick);
                 }
             }
+        }
+    }
+}
+
+/// Passive soil fertility recovery for tiles without active farms.
+/// Called every 50 ticks from Game::step().
+/// Recovery is faster with vegetation, moisture, and during spring/summer.
+/// Recovery is capped at the SoilType baseline (can't exceed initial value).
+pub fn system_soil_recovery(
+    world: &World,
+    fertility: &mut SoilFertilityMap,
+    soil: &[crate::terrain_pipeline::SoilType],
+    vegetation: &VegetationMap,
+    moisture: &MoistureMap,
+    season: Season,
+    map: &TileMap,
+) {
+    // No recovery in winter
+    if matches!(season, Season::Winter) {
+        return;
+    }
+
+    let w = fertility.width;
+    let h = fertility.height;
+
+    // Collect farm tile positions so we skip them during recovery
+    let mut farm_tiles = std::collections::HashSet::new();
+    for farm in world.query::<&FarmPlot>().iter() {
+        farm_tiles.insert((farm.tile_x, farm.tile_y));
+    }
+
+    // Base recovery rate: +0.0001 per tick, but we run every 50 ticks so apply 50x
+    let tick_multiplier = 50.0;
+
+    for y in 0..h {
+        for x in 0..w {
+            // Skip tiles with active farms
+            if farm_tiles.contains(&(x, y)) {
+                continue;
+            }
+
+            // Skip non-recoverable terrain (water, walls, mountains)
+            match map.get(x, y) {
+                Some(t) if !t.is_walkable() => continue,
+                Some(&Terrain::Mountain) => continue,
+                None => continue,
+                _ => {}
+            }
+
+            let idx = y * w + x;
+            if idx >= soil.len() {
+                continue;
+            }
+
+            let current = fertility.get(x, y);
+            let ceiling = soil[idx].base_fertility();
+
+            // Already at or above ceiling -- no recovery needed
+            if current >= ceiling {
+                continue;
+            }
+
+            // Base recovery rate
+            let base = 0.0001;
+
+            // Vegetation bonus: if vegetation > 0.3, recovery 2x
+            let veg_val = vegetation.get(x, y);
+            let veg_mult = if veg_val > 0.3 { 2.0 } else { 1.0 };
+
+            // Water proximity: if moisture > 0.4, recovery 1.5x
+            let moisture_val = moisture.get(x, y);
+            let water_mult = if moisture_val > 0.4 { 1.5 } else { 1.0 };
+
+            let recovery = base * veg_mult * water_mult * tick_multiplier;
+            let new_val = (current + recovery).min(ceiling);
+            fertility.set(x, y, new_val);
         }
     }
 }
