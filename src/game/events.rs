@@ -1,6 +1,9 @@
 use super::{Game, GameEvent, Milestone};
-use crate::ecs::{self, Creature, HutBuilding, ProcessingBuilding, Recipe, Species};
+use crate::ecs::{
+    self, Creature, FarmPlot, GarrisonBuilding, HutBuilding, ProcessingBuilding, Recipe, Species,
+};
 use crate::simulation::Season;
+use crate::tilemap::Terrain;
 use rand::RngExt;
 
 impl Game {
@@ -281,7 +284,11 @@ impl Game {
     }
 
     /// Check and award milestones based on current game state.
+    /// Milestones are purely narrative -- they do not affect threat_level or gameplay.
     pub(super) fn check_milestones(&mut self) {
+        let check = |m: Milestone, milestones: &[Milestone]| !milestones.contains(&m);
+
+        // --- Gather commonly needed state ---
         let year = self.day_night.year;
         let villager_count = self
             .world
@@ -289,39 +296,197 @@ impl Game {
             .iter()
             .filter(|c| c.species == Species::Villager)
             .count() as u32;
-        let has_garrison = self
+
+        // === Explore Phase ===
+
+        // FirstWoodGathered: stockpile has any wood
+        if self.resources.wood > 0
+            && check(Milestone::FirstWoodGathered, &self.difficulty.milestones)
+        {
+            self.difficulty
+                .milestones
+                .push(Milestone::FirstWoodGathered);
+            self.notify_milestone("First timber hauled back to camp!");
+        }
+
+        // FirstStoneFound: settlement knows about at least one stone deposit
+        if !self.knowledge.known_stone.is_empty()
+            && check(Milestone::FirstStoneFound, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstStoneFound);
+            self.notify_milestone("Stone deposit discovered!");
+        }
+
+        // FirstFarm: a completed FarmPlot exists
+        if self.world.query::<&FarmPlot>().iter().count() > 0
+            && check(Milestone::FirstFarm, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstFarm);
+            self.notify_milestone("First farm planted -- food from the land!");
+        }
+
+        // FirstHut: a completed HutBuilding exists
+        if self.world.query::<&HutBuilding>().iter().count() > 0
+            && check(Milestone::FirstHut, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstHut);
+            self.notify_milestone("First hut built -- settlers have shelter!");
+        }
+
+        // FirstWinterSurvived: year >= 1 (survived through first winter)
+        if year >= 1
+            && villager_count >= 1
+            && check(Milestone::FirstWinterSurvived, &self.difficulty.milestones)
+        {
+            self.difficulty
+                .milestones
+                .push(Milestone::FirstWinterSurvived);
+            self.notify_milestone("First winter survived!");
+        }
+
+        // === Expand Phase ===
+
+        // PopulationTen
+        if villager_count >= 10 && check(Milestone::PopulationTen, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::PopulationTen);
+            self.notify_milestone("Population reached 10 -- a real village now!");
+        }
+
+        // FirstWorkshop: a ProcessingBuilding with WoodToPlanks recipe
+        if self
             .world
-            .query::<&crate::ecs::GarrisonBuilding>()
+            .query::<&ProcessingBuilding>()
             .iter()
-            .count()
-            > 0;
-
-        let check = |m: Milestone, milestones: &[Milestone]| !milestones.contains(&m);
-
-        if year >= 1 && check(Milestone::FirstWinter, &self.difficulty.milestones) {
-            self.difficulty.milestones.push(Milestone::FirstWinter);
-            self.notify("Milestone: Survived first winter!".to_string());
-            self.difficulty.threat_level += 0.5;
+            .any(|pb| pb.recipe == Recipe::WoodToPlanks)
+            && check(Milestone::FirstWorkshop, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstWorkshop);
+            self.notify_milestone("Workshop built -- planks now available!");
         }
-        if villager_count >= 10 && check(Milestone::TenVillagers, &self.difficulty.milestones) {
-            self.difficulty.milestones.push(Milestone::TenVillagers);
-            self.notify("Milestone: 10 villagers!".to_string());
-            self.difficulty.threat_level += 0.5;
+
+        // FirstSmith: a ProcessingBuilding with StoneToMasonry recipe
+        if self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::StoneToMasonry)
+            && check(Milestone::FirstSmith, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstSmith);
+            self.notify_milestone("Smithy built -- stone becomes masonry!");
         }
-        if has_garrison && check(Milestone::FirstGarrison, &self.difficulty.milestones) {
+
+        // FirstRoad: check every 100 ticks for any Road tile near settlement
+        if self.tick.is_multiple_of(100) && check(Milestone::FirstRoad, &self.difficulty.milestones)
+        {
+            let (cx, cy) = self.settlement_center();
+            let radius = 20i32;
+            let mut found_road = false;
+            for dy in -radius..=radius {
+                for dx in -radius..=radius {
+                    let x = cx as i32 + dx;
+                    let y = cy as i32 + dy;
+                    if x >= 0 && y >= 0 {
+                        if let Some(&Terrain::Road) = self.map.get(x as usize, y as usize) {
+                            found_road = true;
+                            break;
+                        }
+                    }
+                }
+                if found_road {
+                    break;
+                }
+            }
+            if found_road {
+                self.difficulty.milestones.push(Milestone::FirstRoad);
+                self.notify_milestone("A footpath has worn into the earth!");
+            }
+        }
+
+        // FiveBuildings: count completed buildings (excluding Stockpile and Road types)
+        // We count FarmPlot + HutBuilding + ProcessingBuilding + GarrisonBuilding entities
+        if check(Milestone::FiveBuildings, &self.difficulty.milestones) {
+            let farm_count = self.world.query::<&FarmPlot>().iter().count();
+            let hut_count = self.world.query::<&HutBuilding>().iter().count();
+            let processing_count = self.world.query::<&ProcessingBuilding>().iter().count();
+            let garrison_count = self.world.query::<&GarrisonBuilding>().iter().count();
+            let total = farm_count + hut_count + processing_count + garrison_count;
+            if total >= 5 {
+                self.difficulty.milestones.push(Milestone::FiveBuildings);
+                self.notify_milestone("Five structures standing -- the village takes shape!");
+            }
+        }
+
+        // === Exploit Phase ===
+
+        // PopulationTwentyFive
+        if villager_count >= 25
+            && check(Milestone::PopulationTwentyFive, &self.difficulty.milestones)
+        {
+            self.difficulty
+                .milestones
+                .push(Milestone::PopulationTwentyFive);
+            self.notify_milestone("Population reached 25!");
+        }
+
+        // FirstGranary: a ProcessingBuilding with FoodToGrain recipe
+        if self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::FoodToGrain)
+            && check(Milestone::FirstGranary, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstGranary);
+            self.notify_milestone("Granary built -- grain stores for winter!");
+        }
+
+        // FirstBakery: a ProcessingBuilding with GrainToBread recipe
+        if self
+            .world
+            .query::<&ProcessingBuilding>()
+            .iter()
+            .any(|pb| pb.recipe == Recipe::GrainToBread)
+            && check(Milestone::FirstBakery, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::FirstBakery);
+            self.notify_milestone("Bakery built -- bread on the table!");
+        }
+
+        // FirstPlank: stockpile has any planks
+        if self.resources.planks > 0 && check(Milestone::FirstPlank, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::FirstPlank);
+            self.notify_milestone("First plank produced -- refined goods!");
+        }
+
+        // HundredFood: stockpile food >= 100
+        if self.resources.food >= 100 && check(Milestone::HundredFood, &self.difficulty.milestones)
+        {
+            self.difficulty.milestones.push(Milestone::HundredFood);
+            self.notify_milestone("Food stores reached 100 -- plenty for now!");
+        }
+
+        // === Endure Phase ===
+
+        // FirstGarrison: a completed GarrisonBuilding exists
+        if self.world.query::<&GarrisonBuilding>().iter().count() > 0
+            && check(Milestone::FirstGarrison, &self.difficulty.milestones)
+        {
             self.difficulty.milestones.push(Milestone::FirstGarrison);
-            self.notify("Milestone: First garrison built!".to_string());
-            self.difficulty.threat_level += 0.5;
+            self.notify_milestone("Garrison built -- the village can defend itself!");
         }
-        if year >= 5 && check(Milestone::FiveYears, &self.difficulty.milestones) {
-            self.difficulty.milestones.push(Milestone::FiveYears);
-            self.notify("Milestone: 5 years survived!".to_string());
-            self.difficulty.threat_level += 1.0;
+
+        // RaidSurvived: set by raid resolution logic via raid_survived_clean flag
+        if self.raid_survived_clean && check(Milestone::RaidSurvived, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::RaidSurvived);
+            self.notify_milestone("Raid repelled -- not a single soul lost!");
+            self.raid_survived_clean = false;
         }
-        if villager_count >= 20 && check(Milestone::TwentyVillagers, &self.difficulty.milestones) {
-            self.difficulty.milestones.push(Milestone::TwentyVillagers);
-            self.notify("Milestone: 20 villagers!".to_string());
-            self.difficulty.threat_level += 1.0;
+
+        // PopulationFifty
+        if villager_count >= 50 && check(Milestone::PopulationFifty, &self.difficulty.milestones) {
+            self.difficulty.milestones.push(Milestone::PopulationFifty);
+            self.notify_milestone("Population reached 50 -- a thriving settlement!");
         }
     }
 }

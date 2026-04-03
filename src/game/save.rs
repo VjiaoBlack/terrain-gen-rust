@@ -80,6 +80,8 @@ impl Game {
             river_mask: vec![false; map_w * map_h],
             knowledge: super::SettlementKnowledge::default(),
             difficulty: super::DifficultyState::default(),
+            milestone_banner: None,
+            raid_survived_clean: false,
             #[cfg(feature = "lua")]
             script_engine: None,
         })

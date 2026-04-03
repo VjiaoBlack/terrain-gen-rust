@@ -161,13 +161,41 @@ pub enum GameEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Milestone {
-    FirstWinter,
-    TenVillagers,
+    // Explore phase
+    FirstWoodGathered,
+    FirstStoneFound,
+    FirstFarm,
+    FirstHut,
+    #[serde(alias = "FirstWinter")]
+    FirstWinterSurvived,
+    // Expand phase
+    #[serde(alias = "TenVillagers")]
+    PopulationTen,
+    FirstWorkshop,
+    FirstSmith,
+    FirstRoad,
+    FiveBuildings,
+    // Exploit phase
+    #[serde(alias = "TwentyVillagers")]
+    PopulationTwentyFive,
+    FirstGranary,
+    FirstBakery,
+    FirstPlank,
+    HundredFood,
+    // Endure phase
+    #[serde(alias = "FirstGarrison")]
     FirstGarrison,
-    FiveYears,
-    TwentyVillagers,
+    RaidSurvived,
+    PopulationFifty,
+}
+
+/// Banner displayed when a milestone is achieved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilestoneBanner {
+    pub message: String,
+    pub ticks_remaining: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -330,6 +358,9 @@ pub struct Game {
     pub river_mask: Vec<bool>,
     pub knowledge: SettlementKnowledge,
     pub difficulty: DifficultyState,
+    pub milestone_banner: Option<MilestoneBanner>,
+    /// Transient flag: set when a raid/wolf surge is repelled with zero deaths.
+    pub raid_survived_clean: bool,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -797,6 +828,8 @@ impl Game {
             river_mask: result.river_mask,
             knowledge: SettlementKnowledge::default(),
             difficulty: DifficultyState::default(),
+            milestone_banner: None,
+            raid_survived_clean: false,
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -816,6 +849,17 @@ impl Game {
         if self.notifications.len() > 5 {
             self.notifications.remove(0);
         }
+    }
+
+    /// Fire a milestone notification: set banner, push to event log with [*] prefix,
+    /// and add to regular notifications.
+    pub fn notify_milestone(&mut self, msg: &str) {
+        self.milestone_banner = Some(MilestoneBanner {
+            message: msg.to_string(),
+            ticks_remaining: 120,
+        });
+        self.events.event_log.push(format!("[*] {}", msg));
+        self.notify(format!("[*] {}", msg));
     }
 
     /// Load all .lua scripts from a directory into the script engine.
@@ -1045,6 +1089,14 @@ impl Game {
                 // Clean up old notifications
                 self.notifications.retain(|(t, _)| self.tick - t < 200);
 
+                // Tick down milestone banner
+                if let Some(ref mut banner) = self.milestone_banner {
+                    banner.ticks_remaining = banner.ticks_remaining.saturating_sub(1);
+                    if banner.ticks_remaining == 0 {
+                        self.milestone_banner = None;
+                    }
+                }
+
                 // Update event system
                 self.update_events();
                 self.check_milestones();
@@ -1161,6 +1213,38 @@ impl Game {
                     if self.map.get(ix, iy) == Some(&Terrain::Forest) {
                         self.map.set(ix, iy, Terrain::Stump);
                     }
+                }
+                // Mining terrain changes: Mountain -> Quarry -> QuarryDeep
+                for (hx, hy) in &ai_result.stone_harvest_positions {
+                    let vx = hx.round() as i32;
+                    let vy = hy.round() as i32;
+                    // Find the Mountain/Quarry tile adjacent to the villager's position
+                    for &(dx, dy) in &[(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+                        let mx = vx + dx;
+                        let my = vy + dy;
+                        if mx >= 0 && my >= 0 {
+                            let ux = mx as usize;
+                            let uy = my as usize;
+                            match self.map.get(ux, uy) {
+                                Some(&Terrain::Mountain) | Some(&Terrain::Quarry) => {
+                                    let count = self.map.increment_mine_count(ux, uy);
+                                    if count >= 12 {
+                                        self.map.set(ux, uy, Terrain::QuarryDeep);
+                                    } else if count >= 6 {
+                                        self.map.set(ux, uy, Terrain::Quarry);
+                                    }
+                                    break; // only affect one tile per harvest
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                // Stone deposit depletion: set ScarredGround where deposits were fully mined
+                for (sx, sy) in &ai_result.depleted_stone_positions {
+                    let ix = sx.round() as usize;
+                    let iy = sy.round() as usize;
+                    self.map.set(ix, iy, Terrain::ScarredGround);
                 }
                 if ai_result.grain_consumed > 0 {
                     self.resources.grain = self
@@ -2760,8 +2844,154 @@ mod tests {
         let mut game = Game::new(60, 42);
         game.day_night.year = 1;
         game.check_milestones();
-        assert!(game.difficulty.milestones.contains(&Milestone::FirstWinter));
-        assert!(game.difficulty.threat_level > 0.0);
+        assert!(
+            game.difficulty
+                .milestones
+                .contains(&Milestone::FirstWinterSurvived)
+        );
+        // Milestones no longer affect threat_level (decoupled)
+    }
+
+    #[test]
+    fn milestone_fires_only_once() {
+        let mut game = Game::new(60, 42);
+        game.resources.wood = 10;
+        game.check_milestones();
+        game.check_milestones();
+        let count = game
+            .difficulty
+            .milestones
+            .iter()
+            .filter(|m| **m == Milestone::FirstWoodGathered)
+            .count();
+        assert_eq!(count, 1, "FirstWoodGathered should fire exactly once");
+    }
+
+    #[test]
+    fn milestone_population_ten() {
+        let mut game = Game::new(60, 42);
+        // Fewer than 10 villagers — should not fire
+        game.check_milestones();
+        assert!(
+            !game
+                .difficulty
+                .milestones
+                .contains(&Milestone::PopulationTen)
+        );
+        // Spawn villagers to reach 10
+        let (cx, cy) = game.settlement_center();
+        for _ in 0..10 {
+            crate::ecs::spawn_villager(&mut game.world, cx as f64, cy as f64);
+        }
+        game.check_milestones();
+        assert!(
+            game.difficulty
+                .milestones
+                .contains(&Milestone::PopulationTen)
+        );
+    }
+
+    #[test]
+    fn milestone_does_not_change_threat_level() {
+        let mut game = Game::new(60, 42);
+        let before = game.difficulty.threat_level;
+        game.day_night.year = 1;
+        game.resources.wood = 100;
+        game.resources.food = 200;
+        game.check_milestones();
+        assert_eq!(
+            game.difficulty.threat_level, before,
+            "Milestones should not change threat_level"
+        );
+    }
+
+    #[test]
+    fn milestone_banner_ticks_down() {
+        let mut game = Game::new(60, 42);
+        game.notify_milestone("Test milestone!");
+        assert!(game.milestone_banner.is_some());
+        assert_eq!(game.milestone_banner.as_ref().unwrap().ticks_remaining, 120);
+        // Simulate ticking down
+        for _ in 0..120 {
+            if let Some(ref mut banner) = game.milestone_banner {
+                banner.ticks_remaining = banner.ticks_remaining.saturating_sub(1);
+                if banner.ticks_remaining == 0 {
+                    game.milestone_banner = None;
+                }
+            }
+        }
+        assert!(game.milestone_banner.is_none());
+    }
+
+    #[test]
+    fn milestone_event_log_prefix() {
+        let mut game = Game::new(60, 42);
+        game.notify_milestone("Test milestone!");
+        assert!(
+            game.events
+                .event_log
+                .iter()
+                .any(|msg| msg.starts_with("[*]"))
+        );
+    }
+
+    #[test]
+    fn milestone_first_garrison() {
+        let mut game = Game::new(60, 42);
+        game.check_milestones();
+        assert!(
+            !game
+                .difficulty
+                .milestones
+                .contains(&Milestone::FirstGarrison)
+        );
+        // Spawn a garrison building
+        let (cx, cy) = game.settlement_center();
+        game.world.spawn((
+            crate::ecs::Position {
+                x: cx as f64,
+                y: cy as f64,
+            },
+            crate::ecs::GarrisonBuilding { defense_bonus: 1.0 },
+        ));
+        game.check_milestones();
+        assert!(
+            game.difficulty
+                .milestones
+                .contains(&Milestone::FirstGarrison)
+        );
+    }
+
+    #[test]
+    fn milestone_hundred_food() {
+        let mut game = Game::new(60, 42);
+        game.resources.food = 50;
+        game.check_milestones();
+        assert!(!game.difficulty.milestones.contains(&Milestone::HundredFood));
+        game.resources.food = 100;
+        game.check_milestones();
+        assert!(game.difficulty.milestones.contains(&Milestone::HundredFood));
+    }
+
+    #[test]
+    fn milestone_raid_survived() {
+        let mut game = Game::new(60, 42);
+        game.check_milestones();
+        assert!(
+            !game
+                .difficulty
+                .milestones
+                .contains(&Milestone::RaidSurvived)
+        );
+        game.raid_survived_clean = true;
+        game.check_milestones();
+        assert!(
+            game.difficulty
+                .milestones
+                .contains(&Milestone::RaidSurvived)
+        );
+        // Flag should be cleared after milestone fires
+        assert!(!game.raid_survived_clean);
     }
 
     #[test]
