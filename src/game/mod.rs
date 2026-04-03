@@ -1826,19 +1826,29 @@ impl Game {
             }
         }
 
-        // Building counts
+        // Building counts — count completed building marker components
         let mut building_counts: BTreeMap<String, u32> = BTreeMap::new();
-        for building in self.world.query::<&BuildSite>().iter() {
-            // BuildSite = pending construction, counted separately
-            let _ = building;
+        let hut_count = self.world.query::<&HutBuilding>().iter().count() as u32;
+        let garrison_count = self.world.query::<&GarrisonBuilding>().iter().count() as u32;
+        let farm_count = self.world.query::<&FarmPlot>().iter().count() as u32;
+        let stockpile_count = self.world.query::<&Stockpile>().iter().count() as u32;
+        let workshop_count = self.world.query::<&ProcessingBuilding>().iter().count() as u32;
+        if hut_count > 0 {
+            building_counts.insert("Hut".to_string(), hut_count);
+        }
+        if garrison_count > 0 {
+            building_counts.insert("Garrison".to_string(), garrison_count);
+        }
+        if farm_count > 0 {
+            building_counts.insert("Farm".to_string(), farm_count);
+        }
+        if stockpile_count > 0 {
+            building_counts.insert("Stockpile".to_string(), stockpile_count);
+        }
+        if workshop_count > 0 {
+            building_counts.insert("Workshop".to_string(), workshop_count);
         }
         let build_site_count = self.world.query::<&BuildSite>().iter().count() as u32;
-
-        // Count completed buildings by type
-        for bt in self.world.query::<&BuildingType>().iter() {
-            let name = format!("{:?}", bt);
-            *building_counts.entry(name).or_insert(0) += 1;
-        }
 
         // Events
         let event_names: Vec<String> = self
