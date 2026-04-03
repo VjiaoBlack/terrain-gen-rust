@@ -481,6 +481,12 @@ pub struct Game {
     /// Previous camera position — used to detect scrolls and mark_all().
     prev_camera_x: i32,
     prev_camera_y: i32,
+    /// Flow field registry: shared precomputed direction fields for high-traffic
+    /// destinations. See docs/design/pillar5_scale/flow_fields.md.
+    pub flow_fields: crate::pathfinding::FlowFieldRegistry,
+    /// Tick at which terrain was last modified (building, road, tree cut).
+    /// Flow fields computed before this tick are stale.
+    pub terrain_dirty_tick: u64,
     /// Hierarchical pathfinding navigation graph. Precomputed at world-gen,
     /// updated incrementally when terrain changes. See docs/design/pillar5_scale/hierarchical_pathfinding.md.
     pub nav_graph: NavGraph,
@@ -1205,6 +1211,8 @@ impl Game {
             dirty: dirty::DirtyMap::new(map_width, map_height),
             prev_camera_x: i32::MIN, // force mark_all on first frame
             prev_camera_y: i32::MIN,
+            flow_fields: crate::pathfinding::FlowFieldRegistry::new(),
+            terrain_dirty_tick: 0,
             nav_graph: NavGraph::default(), // rebuilt below
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
@@ -1904,6 +1912,7 @@ impl Game {
                     &self.home_scent,
                     &self.nav_graph,
                     &self.group_manager,
+                    &self.flow_fields,
                 );
                 let mut deposited_food = 0u32;
                 let mut deposited_wood = 0u32;
@@ -2056,6 +2065,11 @@ impl Game {
                 self.skills.mining += ai_result.mining_ticks as f64 * skill_gain;
                 self.skills.farming += ai_result.farming_ticks as f64 * skill_gain;
                 self.skills.building += ai_result.building_ticks as f64 * skill_gain;
+
+                // Apply flow field demand requests from AI
+                for (dx, dy) in ai_result.flow_field_requests {
+                    self.flow_fields.request(dx, dy);
+                }
 
                 // Skill decay (slow loss when inactive)
                 let decay = 0.9999;
@@ -2482,9 +2496,33 @@ impl Game {
                     self.chokepoints_dirty = false;
                 }
 
+                // If terrain changed this tick (nav graph has dirty regions), mark
+                // flow fields for invalidation so they recompute on next maintain.
+                if !self.nav_graph.dirty_regions.is_empty() {
+                    self.terrain_dirty_tick = self.tick;
+                    self.flow_fields.mark_terrain_dirty(self.tick);
+                }
+
                 // Process dirty navigation regions (hierarchical pathfinding incremental update).
                 // Capped at 8 regions per tick to bound per-frame cost.
                 self.nav_graph.process_dirty(&self.map);
+
+                // Stockpile always-on flow field: ensure stockpile destinations
+                // always have demand so their flow fields persist.
+                for sp in self
+                    .spatial_grid
+                    .all_of_category(crate::ecs::spatial::category::STOCKPILE)
+                {
+                    let key = (sp.x.round() as usize, sp.y.round() as usize);
+                    // Inject enough demand to keep the field alive
+                    for _ in 0..crate::pathfinding::flow_field::FLOW_FIELD_THRESHOLD {
+                        self.flow_fields.request(key.0, key.1);
+                    }
+                }
+
+                // Maintain flow fields: create/recompute/evict based on demand.
+                // At most 2 computes per tick (~2ms budget).
+                self.flow_fields.maintain(&self.map, self.tick);
 
                 // Recompute threat map every 100 ticks (wolf territory, garrison coverage,
                 // corridor pressure, and exposure gaps for the Threats overlay).
@@ -3333,6 +3371,7 @@ mod tests {
             &ScentMap::default(),
             &crate::pathfinding::NavGraph::default(),
             &crate::ecs::groups::GroupManager::new(),
+            &crate::pathfinding::FlowFieldRegistry::new(),
         );
 
         let state = world.get::<&Behavior>(v).unwrap().state;
@@ -5410,6 +5449,7 @@ mod tests {
             &ScentMap::default(),
             &crate::pathfinding::NavGraph::default(),
             &crate::ecs::groups::GroupManager::new(),
+            &crate::pathfinding::FlowFieldRegistry::new(),
         );
 
         let state = game.world.get::<&crate::ecs::Behavior>(v).unwrap().state;

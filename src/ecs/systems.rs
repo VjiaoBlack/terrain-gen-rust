@@ -114,6 +114,7 @@ pub fn system_ai(
     home_scent: &crate::simulation::ScentMap,
     nav_graph: &crate::pathfinding::NavGraph,
     _group_manager: &crate::ecs::groups::GroupManager,
+    flow_fields: &crate::pathfinding::FlowFieldRegistry,
 ) -> AiResult {
     let mut rng = rand::rng();
     let mut deposited_resources: Vec<ResourceType> = Vec::new();
@@ -124,6 +125,7 @@ pub fn system_ai(
     let mut mining_ticks: u32 = 0;
     let mut woodcutting_ticks: u32 = 0;
     let mut building_ticks: u32 = 0;
+    let mut flow_field_requests: Vec<(usize, usize)> = Vec::new();
 
     // Phase 1: snapshot world state — prey/villager need extra fields (entity, at_home/captured)
     // so we still query those from the World. Everything else uses the spatial grid.
@@ -341,7 +343,34 @@ pub fn system_ai(
                     home_scent,
                     &danger_zones,
                     nav_graph,
+                    flow_fields,
                 );
+
+                // Collect flow field demand: shared destinations get flow fields
+                match &s {
+                    BehaviorState::Hauling {
+                        target_x, target_y, ..
+                    }
+                    | BehaviorState::Building {
+                        target_x, target_y, ..
+                    }
+                    | BehaviorState::Seek {
+                        target_x, target_y, ..
+                    } => {
+                        flow_field_requests
+                            .push((target_x.round() as usize, target_y.round() as usize));
+                    }
+                    BehaviorState::FleeHome { .. } => {
+                        // Flee toward nearest stockpile
+                        if let Some((sp, _)) =
+                            grid.nearest(pos.x, pos.y, 200.0, category::STOCKPILE)
+                        {
+                            flow_field_requests
+                                .push((sp.x.round() as usize, sp.y.round() as usize));
+                        }
+                    }
+                    _ => {}
+                }
 
                 // Write back PathCache
                 if let Ok(mut cache) = world.get::<&mut PathCache>(e) {
@@ -816,6 +845,7 @@ pub fn system_ai(
         wood_harvest_positions: wood_harvest_pos,
         stone_harvest_positions: stone_harvest_pos,
         depleted_stone_positions,
+        flow_field_requests,
     }
 }
 
