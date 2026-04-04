@@ -45,7 +45,6 @@ pub enum RainMode {
     /// Wind-carried moisture from ocean evaporation (realistic).
     WindDriven,
     /// Uniform rain everywhere — bypasses wind moisture transport.
-    /// Useful for testing moisture/vegetation without wind coupling.
     Uniform,
     /// No rain at all — useful for isolating other systems.
     Off,

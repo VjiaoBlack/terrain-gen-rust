@@ -20,9 +20,15 @@ impl super::Game {
 
         let is_advection_tick = self.tick % 3 == 0;
 
+        // Rain mode determines how moisture enters the system.
+        // The rest of the water cycle (pipe_water, sediment, vegetation) runs
+        // regardless of rain mode — only the moisture SOURCE changes.
         match self.sim_config.rain_mode {
             crate::simulation::RainMode::WindDriven => {
-                // Precipitation from atmospheric moisture only on advection ticks
+                // Wind-driven water cycle: evaporation -> wind transport -> precipitation
+                // ALL rain comes from wind-carried moisture (no uniform random rain).
+                // Precipitation only on advection ticks to keep deposition in sync
+                // with wind transport — prevents moisture raining out before it moves.
                 self.moisture.update(
                     &mut self.pipe_water,
                     &mut self.vegetation,
@@ -33,6 +39,7 @@ impl super::Game {
                 );
 
                 if is_advection_tick {
+                    // Manual rain toggle ('r' in old mode): inject atmospheric moisture
                     if should_rain {
                         for v in self.wind.moisture_carried.iter_mut() {
                             *v = (*v + 0.01).min(1.0);
@@ -43,9 +50,13 @@ impl super::Game {
                         &self.pipe_water.ocean_mask,
                         &self.moisture.moisture,
                     );
+                    // Mass-conserving water cycle:
+                    // - Subtract evaporated water from surface (conservation!)
+                    // - Add precipitated water back to surface
                     for y in 0..self.map.height {
                         for x in 0..self.map.width {
                             let i = y * self.map.width + x;
+                            // Remove evaporated water from surface
                             if evaporated[i] > 0.0001 {
                                 let depth = self.pipe_water.get_depth(x, y);
                                 let remove = evaporated[i].min(depth * 0.5);
