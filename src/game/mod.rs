@@ -1285,6 +1285,7 @@ impl Game {
                     let i = y * map_width + x;
                     let depth = (g.terrain_config.water_level - g.heights[i]).max(0.01);
                     g.pipe_water.add_water(x, y, depth);
+                    g.pipe_water.set_ocean_boundary(x, y, depth);
                 }
             }
         }
