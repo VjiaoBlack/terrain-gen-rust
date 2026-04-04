@@ -407,9 +407,11 @@ impl MoistureMap {
                     // Standing water: high moisture, but blend don't slam to 1.0
                     self.moisture[i] = self.moisture[i] * 0.8 + 0.2;
                 } else {
-                    // Very slow decay — moisture represents soil/air moisture,
-                    // not just surface water. 0.999 per tick = half-life ~700 ticks.
-                    self.moisture[i] = self.moisture[i] * 0.999 + w * 5.0;
+                    // No blanket decay — moisture persists until actively removed
+                    // (wind evaporation, plant consumption). Surface water boosts moisture.
+                    if w > 0.0001 {
+                        self.moisture[i] = (self.moisture[i] + w * 0.5).min(1.0);
+                    }
                 }
             }
         }
