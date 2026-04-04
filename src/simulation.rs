@@ -392,26 +392,27 @@ impl MoistureMap {
         debug_assert_eq!(w_field, self.width);
         debug_assert_eq!(h_field, self.height);
 
-        // Step 1: moisture from water — gentle contribution, faster decay
-        // Skip Water terrain tiles (permanent oceans) — only rain water drives moisture
+        // Step 1: moisture from water bodies
+        // Oceans and standing water are moisture SOURCES, not sinks.
         for y in 0..self.height {
             for x in 0..self.width {
                 let i = y * self.width + x;
-                let is_ocean = matches!(map.get(x, y), Some(crate::tilemap::Terrain::Water));
+                let is_ocean = matches!(
+                    map.get(x, y),
+                    Some(crate::tilemap::Terrain::Water) | Some(crate::tilemap::Terrain::Ice)
+                );
                 if is_ocean {
-                    self.moisture[i] = 0.0; // oceans don't generate land moisture
+                    // Ocean tiles have max moisture (they ARE water)
+                    self.moisture[i] = 1.0;
                     continue;
                 }
                 let w = pipe_water.get_depth(x, y);
                 if w > 0.01 {
-                    // Standing water: high moisture, but blend don't slam to 1.0
-                    self.moisture[i] = self.moisture[i] * 0.8 + 0.2;
-                } else {
-                    // No blanket decay — moisture persists until actively removed
-                    // (wind evaporation, plant consumption). Surface water boosts moisture.
-                    if w > 0.0001 {
-                        self.moisture[i] = (self.moisture[i] + w * 0.5).min(1.0);
-                    }
+                    // Standing water: high moisture
+                    self.moisture[i] = (self.moisture[i] + 0.1).min(1.0);
+                } else if w > 0.0001 {
+                    // Trace water: small boost
+                    self.moisture[i] = (self.moisture[i] + w * 0.5).min(1.0);
                 }
             }
         }
@@ -975,17 +976,25 @@ impl DayNightCycle {
                 let i = y_pos * map_w + x_pos;
                 let terrain_h = heights[i];
 
-                // Check shadow: if shadow height at this cell > terrain height, it's shadowed
+                // Check shadow: water uses water surface level, land uses terrain height
                 let si = (y_pos - y0) * sw + (x_pos - x0);
-                let in_shadow = shadow[si] > terrain_h + 0.01;
+                let effective_h = if terrain_h < 0.43 { 0.42 } else { terrain_h };
+                let in_shadow = shadow[si] > effective_h + 0.01;
 
                 if in_shadow {
                     self.light_map[i] = 0.05;
                     continue;
                 }
 
-                // Terrain normal + Blinn-Phong
-                let (nx, ny, nz) = Self::terrain_normal(heights, map_w, map_h, x_pos, y_pos);
+                // Normal: water/ice surfaces are flat (pointing straight up).
+                // Land uses terrain heightmap normals.
+                // Use 0.43 as rough water_level threshold (0.42 + margin)
+                let is_water_surface = terrain_h < 0.43;
+                let (nx, ny, nz) = if is_water_surface {
+                    (0.0, 0.0, 1.0) // flat water surface
+                } else {
+                    Self::terrain_normal(heights, map_w, map_h, x_pos, y_pos)
+                };
 
                 // Diffuse: L·N, scaled by light source strength
                 let l_dot_n =

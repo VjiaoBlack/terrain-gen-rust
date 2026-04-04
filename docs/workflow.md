@@ -47,12 +47,27 @@ Vision (game_design.md)
 - Tests must pass before commit
 - Commit references issue number (e.g. `#42`)
 
-### 6. Verification
-- `cargo test --lib` after every change
-- `--diagnostics` mode for automated playtesting
-- `--showcase` mode for visual inspection
+### 6. Verification (MANDATORY)
+
+Every change must be verified with DATA, not assumptions.
+
+**Before changing code:**
+- Write a diagnostic test that shows the current (broken) state with actual numbers
+- Trace the full data flow of the system being changed
+- Understand WHY the current behavior exists before modifying it
+
+**After changing code:**
+- The diagnostic test must now show the correct state
+- `cargo test --lib` must pass
+- Run `--diagnostics` on 2+ seeds, check that key metrics didn't regress
+- If changing rendering: run `--showcase` and verify visually
 - Query mode (`k` key) for per-tile data inspection
-- Playtest across multiple seeds
+
+**Anti-patterns to avoid:**
+- Changing a constant without first checking what values the system produces
+- Making change A, discovering it breaks B, making change C to fix B, discovering C breaks D... STOP. Revert. Diagnose. Fix the root cause.
+- Adding "magic" fixes (infinite sources, hardcoded overrides) instead of finding the real bug
+- Assuming a change works because it compiles and tests pass — check the actual gameplay
 
 ## Design Doc Updates
 - When implementation reveals the design was wrong: update the doc

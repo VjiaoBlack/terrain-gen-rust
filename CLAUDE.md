@@ -1,5 +1,24 @@
 # terrain-gen-rust
 
+## Development Rules (READ FIRST)
+
+**These are hard requirements, not suggestions.**
+
+### Before ANY code change:
+1. **Understand the full system.** Read the relevant code paths end-to-end. Trace the data flow. Understand WHY the current code is the way it is before modifying it.
+2. **Write a failing test FIRST.** Define what "working" looks like as a test. Watch it fail. Then fix the root cause. If you can't write a test, write a diagnostic that prints actual vs expected values.
+3. **One change at a time.** Make one focused change, verify it works (test + diagnostic), commit. Don't bundle 5 fixes in one commit.
+
+### After EVERY code change:
+4. **Verify with data, not assumptions.** Run `cargo test --lib`. Run `--diagnostics` mode. Check actual numbers. Don't assume a change works because it compiles.
+5. **Check for regressions.** Does the change break something else? Run a quick playtest across 2-3 seeds.
+
+### Never do this:
+- Don't make a change, then immediately make another change to fix the first change, then another to fix that. **Stop. Diagnose. Understand. Then fix once.**
+- Don't add "infinite sources" or "magic spawning" to paper over a bug. Find the root cause.
+- Don't change constants (thresholds, rates, levels) without checking what values the system actually produces. Add a diagnostic test first.
+- Don't propose a fix that contradicts the design docs. Check `docs/game_design.md` and `docs/design/` first.
+
 ## Build & Test
 
 ```bash
