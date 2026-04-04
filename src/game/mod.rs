@@ -5750,22 +5750,23 @@ mod tests {
         }
 
         // Workshop particles: warm grey (r=140, g=130, b=110)
+        // Filter by expected fg color to avoid picking up stray villager-activity particles
         let workshop: Vec<_> = game
             .particles
             .iter()
-            .filter(|p| (p.x - cx).abs() < 1.0)
+            .filter(|p| (p.x - cx).abs() < 1.0 && p.fg == Color(140, 130, 110))
             .collect();
         // Smithy particles: orange (r=255, g=140, b=40)
         let smithy: Vec<_> = game
             .particles
             .iter()
-            .filter(|p| (p.x - (cx + 10.0)).abs() < 1.0)
+            .filter(|p| (p.x - (cx + 10.0)).abs() < 1.0 && p.fg == Color(255, 140, 40))
             .collect();
         // Bakery particles: white steam (r=200, g=200, b=210)
         let bakery: Vec<_> = game
             .particles
             .iter()
-            .filter(|p| (p.x - (cx + 20.0)).abs() < 1.0)
+            .filter(|p| (p.x - (cx + 20.0)).abs() < 1.0 && p.fg == Color(200, 200, 210))
             .collect();
 
         assert!(!workshop.is_empty(), "workshop should produce particles");

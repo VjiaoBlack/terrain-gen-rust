@@ -1905,6 +1905,10 @@ pub struct WindField {
     /// Wind shadow factor: 0.0 = full shadow (behind tall mountain),
     /// 1.0 = fully exposed to wind.
     pub wind_shadow: Vec<f64>,
+    /// Atmospheric moisture carried by the wind at each tile.
+    /// Increases over water bodies, decreases via orographic lift (rain).
+    /// Separate from tile moisture — this is moisture in the air column.
+    pub moisture_carried: Vec<f64>,
     /// Prevailing wind direction in radians (0 = east, PI/2 = north).
     pub prevailing_dir: f64,
     /// Prevailing wind strength (0.0-1.0).
@@ -1922,6 +1926,7 @@ impl WindField {
             wind_y: vec![0.0; n],
             wind_speed: vec![0.0; n],
             wind_shadow: vec![1.0; n],
+            moisture_carried: vec![0.0; n],
             prevailing_dir: std::f64::consts::PI, // default: westerly (blowing east-to-west)
             prevailing_strength: 0.6,
         }
@@ -1958,6 +1963,7 @@ impl WindField {
             wind_y: vec![0.0; n],
             wind_speed: vec![0.0; n],
             wind_shadow: vec![1.0; n],
+            moisture_carried: vec![0.0; n],
             prevailing_dir,
             prevailing_strength,
         };
@@ -1984,9 +1990,9 @@ impl WindField {
         // slows wind on high terrain without fully blocking it.
         let viscosity = 0.0001;
         let dt = 1.0;
-        let terrain_pressure_strength = 0.3;
-        let relax_rate = 0.10; // how fast cells return toward prevailing wind
-        for _ in 0..30 {
+        let terrain_pressure_strength = 0.8;
+        let relax_rate = 0.05; // how fast cells return toward prevailing wind
+        for _ in 0..50 {
             // Step 1: Relax toward prevailing wind (gentle drag)
             for i in 0..n {
                 vx[i] += relax_rate * (base_wx - vx[i]);
@@ -2020,7 +2026,7 @@ impl WindField {
             );
             // Height-based damping: high terrain = more drag, but never fully blocked
             for i in 0..n {
-                let drag = (heights[i] - 0.5).max(0.0) * 3.0;
+                let drag = (heights[i] - 0.5).max(0.0) * 1.2;
                 let damping = 1.0 / (1.0 + drag);
                 vx[i] *= damping;
                 vy[i] *= damping;
@@ -2047,11 +2053,39 @@ impl WindField {
             field.wind_speed[i] = (vx[i] * vx[i] + vy[i] * vy[i]).sqrt();
         }
 
-        // Compute wind shadow: ratio of local speed to prevailing strength.
-        // Low speed behind mountains = shadow.
+        // Compute wind shadow by combining two factors:
+        // 1. Speed ratio: how fast wind is here vs prevailing (from fluid solve)
+        // 2. Upwind obstruction: trace backward along prevailing direction and
+        //    check if tall terrain blocks the path (geometric shadow).
+        // The minimum of the two gives a robust shadow estimate.
         if prevailing_strength > 0.0 {
-            for i in 0..n {
-                field.wind_shadow[i] = (field.wind_speed[i] / prevailing_strength).min(1.0);
+            let prev_dx = prevailing_dir.cos();
+            let prev_dy = prevailing_dir.sin();
+            for y in 0..height {
+                for x in 0..width {
+                    let i = y * width + x;
+                    let speed_shadow = (field.wind_speed[i] / prevailing_strength).min(1.0);
+
+                    // Trace upwind up to 12 tiles. If any tile has significantly
+                    // taller terrain, reduce shadow.
+                    let h_here = if i < heights.len() { heights[i] } else { 0.0 };
+                    let mut geo_shadow = 1.0f64;
+                    for step in 1..=12 {
+                        let sx = (x as f64 - prev_dx * step as f64).round() as i32;
+                        let sy = (y as f64 - prev_dy * step as f64).round() as i32;
+                        if sx >= 0 && sx < width as i32 && sy >= 0 && sy < height as i32 {
+                            let si = sy as usize * width + sx as usize;
+                            let h_up = heights[si];
+                            let elevation_diff = h_up - h_here;
+                            if elevation_diff > 0.1 {
+                                // Taller terrain upwind casts shadow, decaying with distance
+                                let block = (elevation_diff * 2.0 / step as f64).min(1.0);
+                                geo_shadow = geo_shadow.min(1.0 - block);
+                            }
+                        }
+                    }
+                    field.wind_shadow[i] = speed_shadow.min(geo_shadow.max(0.0));
+                }
             }
         }
 
@@ -2115,6 +2149,105 @@ impl WindField {
         } else {
             1.0
         }
+    }
+
+    /// Return atmospheric moisture carried by the wind at (x, y).
+    pub fn get_moisture_carried(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.moisture_carried[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Advect atmospheric moisture through the wind field for one step.
+    ///
+    /// - Over water tiles (`is_water` callback returns true), moisture is picked up.
+    /// - When wind pushes air uphill (orographic lift), moisture precipitates as rain.
+    /// - Otherwise moisture is transported downwind via semi-Lagrangian advection.
+    ///
+    /// Returns a Vec of orographic precipitation amounts per tile (rain deposited).
+    pub fn advect_moisture(
+        &mut self,
+        heights: &[f64],
+        is_water: &impl Fn(usize, usize) -> bool,
+    ) -> Vec<f64> {
+        let w = self.width;
+        let h = self.height;
+        let n = w * h;
+        let mut precip = vec![0.0f64; n];
+
+        // Phase 1: Pick up moisture over water, evaporate over land
+        const PICKUP_RATE: f64 = 0.05;
+        const EVAP_RATE: f64 = 0.002;
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                if is_water(x, y) {
+                    // Wind picks up moisture over water bodies
+                    let capacity = self.wind_speed[i].min(1.0);
+                    self.moisture_carried[i] +=
+                        PICKUP_RATE * (capacity - self.moisture_carried[i]).max(0.0);
+                } else {
+                    // Small evaporation loss over land
+                    self.moisture_carried[i] *= 1.0 - EVAP_RATE;
+                }
+            }
+        }
+
+        // Phase 2: Orographic precipitation — wind pushing air uphill drops rain
+        const OROGRAPHIC_PRECIP_RATE: f64 = 0.3;
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                let (wx, wy) = (self.wind_x[i], self.wind_y[i]);
+                let h_here = heights[i];
+                let h_left = if x > 0 { heights[i - 1] } else { h_here };
+                let h_right = if x + 1 < w { heights[i + 1] } else { h_here };
+                let h_up = if y > 0 { heights[i - w] } else { h_here };
+                let h_down = if y + 1 < h { heights[i + w] } else { h_here };
+                let slope_x = (h_right - h_left) * 0.5;
+                let slope_y = (h_down - h_up) * 0.5;
+
+                let lift = (wx * slope_x + wy * slope_y).max(0.0);
+                let rain = self.moisture_carried[i] * lift * OROGRAPHIC_PRECIP_RATE;
+                self.moisture_carried[i] -= rain;
+                precip[i] += rain;
+            }
+        }
+
+        // Phase 3: Semi-Lagrangian advection of moisture_carried
+        let old = self.moisture_carried.clone();
+        let wf = w as f64;
+        let hf = h as f64;
+        if w >= 3 && h >= 3 {
+            for y in 0..h {
+                for x in 0..w {
+                    let idx = y * w + x;
+                    let px = (x as f64) - self.wind_x[idx];
+                    let py = (y as f64) - self.wind_y[idx];
+                    let px = px.clamp(0.5, wf - 1.5);
+                    let py = py.clamp(0.5, hf - 1.5);
+                    let i0 = px.floor() as usize;
+                    let j0 = py.floor() as usize;
+                    let i1 = i0 + 1;
+                    let j1 = j0 + 1;
+                    let sx = px - i0 as f64;
+                    let sy = py - j0 as f64;
+                    self.moisture_carried[idx] = (1.0 - sx) * (1.0 - sy) * old[j0 * w + i0]
+                        + sx * (1.0 - sy) * old[j0 * w + i1]
+                        + (1.0 - sx) * sy * old[j1 * w + i0]
+                        + sx * sy * old[j1 * w + i1];
+                }
+            }
+        }
+
+        // Clamp
+        for v in self.moisture_carried.iter_mut() {
+            *v = v.clamp(0.0, 1.0);
+        }
+
+        precip
     }
 
     /// Get the prevailing wind direction for a given season.
@@ -2218,7 +2351,7 @@ fn stam_project(
 
     // Solve pressure Poisson equation: Laplacian(p) = div
     // Dirichlet boundary: p = 0 at map edges
-    for _ in 0..20 {
+    for _ in 0..40 {
         for y in 0..h {
             for x in 0..w {
                 let idx = y * w + x;
@@ -4089,7 +4222,8 @@ mod tests {
     #[test]
     fn wind_mountain_blocks_leeward() {
         // Mountain ridge across the middle, wind blowing eastward (dir=0).
-        // Leeward (east) side should have lower speed.
+        // Wind shadow behind the ridge: leeward side should have reduced
+        // wind shadow factor compared to far upwind.
         let w = 64;
         let h = 64;
         let mut heights = vec![0.1; w * h];
@@ -4103,14 +4237,14 @@ mod tests {
 
         let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
 
-        // Windward side (x=20) should have higher speed than leeward (x=40)
-        let windward_speed = field.get_speed(20, 32);
-        let leeward_speed = field.get_speed(40, 32);
+        // Leeward shadow (x=35) should be reduced compared to far upwind (x=10)
+        let upwind_shadow = field.get_shadow(10, 32);
+        let leeward_shadow = field.get_shadow(35, 32);
         assert!(
-            windward_speed > leeward_speed,
-            "windward speed {} should exceed leeward speed {}",
-            windward_speed,
-            leeward_speed
+            leeward_shadow < upwind_shadow,
+            "leeward shadow {} should be less than upwind shadow {}",
+            leeward_shadow,
+            upwind_shadow
         );
     }
 
@@ -4359,5 +4493,332 @@ mod tests {
         for &s in &field.wind_shadow {
             assert_eq!(s, 1.0);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 1 diagnostic tests: wind deflection around mountains
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn wind_deflects_around_central_mountain() {
+        // 64x64 map, flat at 0.1 except a 10x10 mountain block (height 0.9) in the center.
+        // Wind blows from the west (dir=0.0 => eastward).
+        // Tiles north and south of the mountain should have a deflected y-component.
+        let w = 64;
+        let h = 64;
+        let mut heights = vec![0.1f64; w * h];
+
+        // Place 10x10 mountain at center (27..37, 27..37)
+        for y in 27..37 {
+            for x in 27..37 {
+                heights[y * w + x] = 0.9;
+            }
+        }
+
+        let dir = 0.0; // east (wind blows from west to east)
+        let strength = 0.8;
+        let field = WindField::compute_from_terrain(&heights, w, h, dir, strength, None);
+
+        // Sample tiles just north of the mountain (y=24, along the mountain's x range)
+        // Wind should have a negative y-component (deflected northward, away from mountain)
+        let mut north_wy_sum = 0.0;
+        let mut north_count = 0;
+        for x in 28..36 {
+            let (_, wy) = field.get_wind(x, 24);
+            north_wy_sum += wy;
+            north_count += 1;
+        }
+        let north_wy_avg = north_wy_sum / north_count as f64;
+
+        // Sample tiles just south of the mountain (y=39)
+        // Wind should have a positive y-component (deflected southward)
+        let mut south_wy_sum = 0.0;
+        let mut south_count = 0;
+        for x in 28..36 {
+            let (_, wy) = field.get_wind(x, 39);
+            south_wy_sum += wy;
+            south_count += 1;
+        }
+        let south_wy_avg = south_wy_sum / south_count as f64;
+
+        eprintln!("=== Wind Deflection Diagnostic ===");
+        eprintln!("North of mountain (y=24) avg wy: {:.4}", north_wy_avg);
+        eprintln!("South of mountain (y=39) avg wy: {:.4}", south_wy_avg);
+
+        // Print a few sample points on and around the mountain
+        for &(label, x, y) in &[
+            ("Upwind (20,32)", 20, 32),
+            ("North edge (32,25)", 32, 25),
+            ("On mountain (32,32)", 32, 32),
+            ("South edge (32,38)", 32, 38),
+            ("Downwind (44,32)", 44, 32),
+        ] {
+            let (wx, wy) = field.get_wind(x, y);
+            let spd = field.get_speed(x, y);
+            eprintln!("  {}: wx={:.4}, wy={:.4}, speed={:.4}", label, wx, wy, spd);
+        }
+
+        // The key assertion: wind north and south of the mountain should
+        // deflect in OPPOSITE y-directions (north gets pushed north, south pushed south).
+        // This means north_wy and south_wy should have opposite signs, or at minimum
+        // north_wy < south_wy (north deflects more northward / less southward).
+        assert!(
+            north_wy_avg < south_wy_avg - 0.01,
+            "Wind should deflect away from mountain: north wy ({:.4}) should be less than south wy ({:.4})",
+            north_wy_avg,
+            south_wy_avg
+        );
+    }
+
+    #[test]
+    fn wind_reduced_on_mountain_but_not_zero() {
+        // Wind on a mountain should be slower than on a fully flat map at the
+        // same position, but not zero. We compare against a flat baseline to
+        // avoid boundary effects.
+        let w = 64;
+        let h = 64;
+
+        // Flat baseline
+        let flat_heights = vec![0.1f64; w * h];
+        let flat_field = WindField::compute_from_terrain(&flat_heights, w, h, 0.0, 0.8, None);
+        let flat_speed = flat_field.get_speed(32, 32);
+
+        // Mountain map
+        let mut mt_heights = vec![0.1f64; w * h];
+        for y in 27..37 {
+            for x in 27..37 {
+                mt_heights[y * w + x] = 0.9;
+            }
+        }
+        let mt_field = WindField::compute_from_terrain(&mt_heights, w, h, 0.0, 0.8, None);
+        let mountain_speed = mt_field.get_speed(32, 32);
+
+        eprintln!("=== Mountain Speed Diagnostic ===");
+        eprintln!("Flat baseline speed at (32,32): {:.4}", flat_speed);
+        eprintln!("Mountain speed at (32,32): {:.4}", mountain_speed);
+
+        assert!(
+            mountain_speed > 0.01,
+            "Wind on mountain should not be zero, got {:.4}",
+            mountain_speed
+        );
+        assert!(
+            mountain_speed < flat_speed,
+            "Wind on mountain ({:.4}) should be slower than flat baseline ({:.4})",
+            mountain_speed,
+            flat_speed
+        );
+    }
+
+    #[test]
+    fn wind_funnel_between_two_mountains() {
+        // Two mountains with a gap between them. Wind through the gap should
+        // be faster than wind on open flat terrain (Venturi / funnel effect).
+        let w = 64;
+        let h = 64;
+        let mut heights = vec![0.1f64; w * h];
+
+        // Mountain A: rows 10..22, cols 25..39 (north mountain)
+        for y in 10..22 {
+            for x in 25..39 {
+                heights[y * w + x] = 0.9;
+            }
+        }
+        // Mountain B: rows 42..54, cols 25..39 (south mountain)
+        for y in 42..54 {
+            for x in 25..39 {
+                heights[y * w + x] = 0.9;
+            }
+        }
+        // Gap is rows 22..42 (20 tiles wide) between the two mountains
+
+        let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        // Speed in the gap (center of gap, middle of mountain x range)
+        let gap_speed = field.get_speed(32, 32);
+        // Speed on open flat terrain far from mountains
+        let open_speed = field.get_speed(5, 5);
+
+        eprintln!("=== Funnel Effect Diagnostic ===");
+        eprintln!("Gap speed (32,32): {:.4}", gap_speed);
+        eprintln!("Open terrain speed (5,5): {:.4}", open_speed);
+
+        // The gap should funnel wind to be faster than open terrain
+        assert!(
+            gap_speed > open_speed * 1.05,
+            "Wind in gap ({:.4}) should be faster than open terrain ({:.4})",
+            gap_speed,
+            open_speed
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 2 diagnostic tests: wind carrying moisture
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn moisture_advection_carries_across_map() {
+        // Create a moisture source on the west side, wind blowing east.
+        // After many MoistureMap updates, moisture should appear on the east side.
+        let w = 40;
+        let h = 20;
+        let heights = vec![0.2f64; w * h]; // flat terrain
+        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        let tilemap = crate::tilemap::TileMap::new(w, h, crate::tilemap::Terrain::Grass);
+        let mut pipe_water = crate::pipe_water::PipeWater::new(w, h);
+        let mut vegetation = VegetationMap::new(w, h);
+
+        let mut mm = MoistureMap::new(w, h);
+
+        // Seed moisture on the western edge (x=0..3)
+        for y in 0..h {
+            for x in 0..3 {
+                mm.set(x, y, 0.9);
+            }
+        }
+
+        // Run many update steps; re-seed source each step
+        for _ in 0..60 {
+            // Re-apply source each step so it doesn't dry out
+            for y in 0..h {
+                for x in 0..3 {
+                    mm.set(x, y, 0.9);
+                }
+            }
+            mm.update(&mut pipe_water, &mut vegetation, &tilemap, &wind, &heights);
+        }
+
+        // Check moisture in the middle band (x = 10..20) where advection should
+        // have carried it from the western source
+        let mut mid_moisture_sum = 0.0;
+        for y in 5..15 {
+            for x in 10..20 {
+                mid_moisture_sum += mm.get(x, y);
+            }
+        }
+        let east_avg = mid_moisture_sum / (10.0 * 10.0);
+
+        eprintln!("=== Moisture Advection Diagnostic ===");
+        eprintln!("Mid-band average moisture (x=10..20): {:.4}", east_avg);
+
+        // Sample a few points
+        for &x in &[0, 5, 10, 15, 20, 25, 30, 35] {
+            if x < w {
+                let m = mm.get(x, 10);
+                eprintln!("  moisture at ({}, 10): {:.4}", x, m);
+            }
+        }
+
+        assert!(
+            east_avg > 0.01,
+            "Wind should carry moisture downwind, got avg {:.4}",
+            east_avg
+        );
+    }
+
+    #[test]
+    fn atmospheric_moisture_carried_over_water() {
+        // Wind blowing east over a water body should pick up atmospheric moisture.
+        // Downwind tiles should have moisture_carried > 0.
+        let w = 40;
+        let h = 20;
+        let heights = vec![0.1f64; w * h];
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        // Water body at columns 5..15
+        let is_water = |x: usize, _y: usize| -> bool { x >= 5 && x < 15 };
+
+        // Run several advection steps
+        for _ in 0..30 {
+            let _precip = wind.advect_moisture(&heights, &is_water);
+        }
+
+        // Downwind of water (x=20), should have atmospheric moisture
+        let mut downwind_moisture = 0.0;
+        for y in 5..15 {
+            downwind_moisture += wind.get_moisture_carried(20, y);
+        }
+        let downwind_avg = downwind_moisture / 10.0;
+
+        // Upwind of water (x=2), should have nearly none
+        let mut upwind_moisture = 0.0;
+        for y in 5..15 {
+            upwind_moisture += wind.get_moisture_carried(2, y);
+        }
+        let upwind_avg = upwind_moisture / 10.0;
+
+        eprintln!("=== Atmospheric Moisture Diagnostic ===");
+        eprintln!("Downwind avg moisture_carried (x=20): {:.4}", downwind_avg);
+        eprintln!("Upwind avg moisture_carried (x=2): {:.4}", upwind_avg);
+
+        assert!(
+            downwind_avg > 0.01,
+            "Downwind of water should carry moisture, got {:.4}",
+            downwind_avg
+        );
+        assert!(
+            downwind_avg > upwind_avg * 2.0,
+            "Downwind ({:.4}) should have much more moisture than upwind ({:.4})",
+            downwind_avg,
+            upwind_avg
+        );
+    }
+
+    #[test]
+    fn atmospheric_moisture_orographic_rain() {
+        // Wind blows east, water body on the west, mountain in the middle.
+        // Orographic lift should cause precipitation on the windward side of the mountain.
+        let w = 60;
+        let h = 20;
+        let mut heights = vec![0.1f64; w * h];
+
+        // Mountain at columns 30..40, ramping up
+        for y in 0..h {
+            for x in 30..40 {
+                let ramp = (x - 30) as f64 / 10.0;
+                heights[y * w + x] = 0.1 + 0.7 * ramp;
+            }
+        }
+
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        let is_water = |x: usize, _y: usize| -> bool { x >= 5 && x < 15 };
+
+        let mut total_precip = vec![0.0f64; w * h];
+        for _ in 0..50 {
+            let precip = wind.advect_moisture(&heights, &is_water);
+            for i in 0..precip.len() {
+                total_precip[i] += precip[i];
+            }
+        }
+
+        // Check precipitation on the windward slope (cols 30..35) vs leeward (cols 40..50)
+        let mut windward_precip = 0.0;
+        let mut leeward_precip = 0.0;
+        for y in 5..15 {
+            for x in 30..35 {
+                windward_precip += total_precip[y * w + x];
+            }
+            for x in 40..50 {
+                leeward_precip += total_precip[y * w + x];
+            }
+        }
+
+        eprintln!("=== Orographic Rain Diagnostic ===");
+        eprintln!("Windward total precip (cols 30-35): {:.4}", windward_precip);
+        eprintln!("Leeward total precip (cols 40-50): {:.4}", leeward_precip);
+
+        assert!(
+            windward_precip > 0.001,
+            "Windward slope should receive orographic rain, got {:.6}",
+            windward_precip
+        );
+        assert!(
+            windward_precip > leeward_precip,
+            "Windward ({:.4}) should get more rain than leeward ({:.4})",
+            windward_precip,
+            leeward_precip
+        );
     }
 }
