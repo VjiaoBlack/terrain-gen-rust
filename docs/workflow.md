@@ -78,5 +78,27 @@ Every change must be verified with DATA, not assumptions.
 - **Research agent** (Sonnet): web search + synthesis → docs/research/
 - **Design agent** (Opus): reads codebase + design doc → writes feature spec
 - **Implementation agent** (Opus): reads design doc + code → implements + tests
-- **Review agent** (Opus): reads all docs → finds conflicts, gaps, integration issues
+- **Review agent** (Opus): reads diff + project context → checks for bugs, design violations, regressions
 - **Master orchestrator** (this conversation): plans, delegates, verifies, merges
+
+## Code Review Protocol
+
+Every significant diff gets reviewed before merge:
+
+1. Implementation agent finishes → commits to worktree branch
+2. **Review agent** spawns with:
+   - The diff (`git diff main..branch`)
+   - CLAUDE.md (development rules)
+   - docs/ARCHITECTURE.md (data flow, known issues)
+   - docs/game_design.md (design pillars)
+   - Relevant design docs for the feature
+3. Review agent checks:
+   - Does the diff match what was requested?
+   - Any logic errors or off-by-one bugs?
+   - Does it violate any design principles or anti-goals?
+   - Does it introduce new "magic" fixes instead of solving root causes?
+   - Are there untested code paths?
+   - Does the data flow make sense end-to-end?
+   - Any performance concerns?
+4. Review agent reports: APPROVE / NEEDS CHANGES (with specific issues)
+5. Master merges only after APPROVE
