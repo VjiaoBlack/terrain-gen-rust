@@ -1,71 +1,65 @@
 use super::*;
-use crate::ecs::{self, Creature, Species};
+use crate::ecs::{self, Creature, HutBuilding, Species};
 use crate::headless_renderer::HeadlessRenderer;
 use crate::tilemap::{Terrain, TileMap};
 use hecs::World;
 
 #[test]
 fn population_growth_spawns_villager() {
-    let map = TileMap::new(20, 20, Terrain::Grass);
-    let mut world = World::new();
+    let mut game = Game::new(60, 42);
+    let mut renderer = HeadlessRenderer::new(120, 40);
 
-    // Spawn 2 villagers (minimum for reproduction)
-    ecs::spawn_villager(&mut world, 10.0, 10.0);
-    ecs::spawn_villager(&mut world, 11.0, 10.0);
-
-    let initial_count = world
+    let initial_count = game
+        .world
         .query::<&Creature>()
         .iter()
         .filter(|c| c.species == Species::Villager)
         .count();
-    assert_eq!(initial_count, 2);
+    assert!(
+        initial_count >= 2,
+        "Game::new should start with at least 2 villagers"
+    );
 
-    let mut resources = Resources {
-        food: 10,
-        ..Default::default()
-    };
+    // Provide ample food for birth
+    game.resources.food = 100;
 
-    let villager_count = world
-        .query::<&Creature>()
-        .iter()
-        .filter(|c| c.species == Species::Villager)
-        .count();
+    // Spawn a hut with surplus capacity to allow births (need housing_surplus > 0)
+    let (scx, scy) = game.settlement_center();
+    game.world.spawn((
+        Position {
+            x: scx as f64,
+            y: scy as f64,
+        },
+        HutBuilding {
+            capacity: 10,
+            occupants: 0,
+        },
+    ));
 
-    if villager_count >= 2 && resources.food >= 5 {
-        resources.food -= 5;
-        let villager_pos: Vec<(f64, f64)> = world
-            .query::<(&Position, &Creature)>()
-            .iter()
-            .filter(|(_, c)| c.species == Species::Villager)
-            .map(|(p, _)| (p.x, p.y))
-            .collect();
-        if let Some(&(vx, vy)) = villager_pos.first() {
-            let mut spawned = false;
-            for r in 0..5i32 {
-                for dy in -r..=r {
-                    for dx in -r..=r {
-                        if spawned {
-                            continue;
-                        }
-                        let nx = vx + dx as f64;
-                        let ny = vy + dy as f64;
-                        if map.is_walkable(nx, ny) {
-                            ecs::spawn_villager(&mut world, nx, ny);
-                            spawned = true;
-                        }
-                    }
-                }
-            }
-        }
+    // Reset last_birth_tick so cooldown is already elapsed
+    game.last_birth_tick = 0;
+
+    // Step enough ticks to trigger population growth (cooldown is ~200 ticks at best)
+    for _ in 0..1000 {
+        game.step(GameInput::None, &mut renderer).unwrap();
     }
 
-    let final_count = world
+    let final_count = game
+        .world
         .query::<&Creature>()
         .iter()
         .filter(|c| c.species == Species::Villager)
         .count();
-    assert_eq!(final_count, 3, "should have spawned one new villager");
-    assert_eq!(resources.food, 5, "should have consumed 5 food");
+    assert!(
+        final_count > initial_count,
+        "population should have grown via Game::step(); initial={}, final={}",
+        initial_count,
+        final_count
+    );
+    assert!(
+        game.resources.food < 100,
+        "food should have been consumed for birth"
+    );
 }
 
 #[test]

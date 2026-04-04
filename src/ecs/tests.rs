@@ -872,6 +872,26 @@ fn full_ecosystem_simulation() {
     }
 
     eprintln!("all states seen: {:?}", states_seen);
+
+    // The wolf should have visited multiple behavior states over 1000 ticks
+    let wolf_states: Vec<_> = states_seen
+        .iter()
+        .filter(|s| s.starts_with("wolf:"))
+        .collect();
+    assert!(
+        wolf_states.len() >= 2,
+        "wolf should exhibit at least 2 distinct behavior states over 1000 ticks, got {}: {:?}",
+        wolf_states.len(),
+        wolf_states
+    );
+
+    // At least one entity (wolf or rabbit) should still be alive
+    let wolf_alive = world.get::<&Position>(wolf).is_ok();
+    let rabbit_alive = world.get::<&Position>(rabbit).is_ok();
+    assert!(
+        wolf_alive || rabbit_alive,
+        "at least one entity should survive 1000 ticks of ecosystem simulation"
+    );
 }
 
 #[test]

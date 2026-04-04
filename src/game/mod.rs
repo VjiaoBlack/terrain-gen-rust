@@ -2269,6 +2269,44 @@ impl Game {
             })
             .collect();
 
+        // Terrain summary
+        let map_w = self.map.width;
+        let map_h = self.map.height;
+        let total_tiles = (map_w * map_h) as f64;
+        let mut biome_counts: BTreeMap<String, u32> = BTreeMap::new();
+        let mut height_sum = 0.0_f64;
+        let mut moisture_sum = 0.0_f64;
+        let mut vegetation_sum = 0.0_f64;
+        let mut water_tiles = 0u32;
+        for y in 0..map_h {
+            for x in 0..map_w {
+                if let Some(t) = self.map.get(x, y) {
+                    let name = format!("{:?}", t);
+                    *biome_counts.entry(name).or_insert(0) += 1;
+                    if matches!(t, Terrain::Water) {
+                        water_tiles += 1;
+                    }
+                }
+                let idx = y * map_w + x;
+                if idx < self.heights.len() {
+                    height_sum += self.heights[idx];
+                }
+                moisture_sum += self.moisture.get(x, y);
+                vegetation_sum += self.vegetation.get(x, y);
+            }
+        }
+        let biome_distribution: BTreeMap<String, f64> = biome_counts
+            .iter()
+            .map(|(k, v)| (k.clone(), (*v as f64 / total_tiles * 1000.0).round() / 10.0))
+            .collect();
+        let round1 = |v: f64| (v * 100.0).round() / 100.0;
+        let avg_height = round1(height_sum / total_tiles);
+        let avg_moisture = round1(moisture_sum / total_tiles);
+        let avg_vegetation = round1(vegetation_sum / total_tiles);
+        let water_coverage_pct = (water_tiles as f64 / total_tiles * 1000.0).round() / 10.0;
+        let pipe_water_total = round1(self.pipe_water.total_water());
+        let wind_moisture_total = round1(self.wind.moisture_carried.iter().copied().sum::<f64>());
+
         serde_json::json!({
             "tick": self.tick,
             "population": villager_count,
@@ -2295,6 +2333,15 @@ impl Game {
                 "mine": self.skills.mining,
                 "wood": self.skills.woodcutting,
                 "build": self.skills.building,
+            },
+            "terrain": {
+                "biome_distribution": biome_distribution,
+                "avg_height": avg_height,
+                "avg_moisture": avg_moisture,
+                "avg_vegetation": avg_vegetation,
+                "water_coverage_pct": water_coverage_pct,
+                "pipe_water_total": pipe_water_total,
+                "wind_moisture_total": wind_moisture_total,
             },
         })
     }

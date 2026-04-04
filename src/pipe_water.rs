@@ -77,6 +77,10 @@ pub struct PipeWater {
     pub velocity_y: Vec<f64>,
     /// Suspended sediment concentration per tile (volume units).
     pub suspended: Vec<f64>,
+    /// Whether a tile is an ocean boundary (constant depth).
+    pub ocean_mask: Vec<bool>,
+    /// Fixed depth for ocean boundary tiles.
+    pub ocean_depth: Vec<f64>,
 }
 
 impl PipeWater {
@@ -91,12 +95,24 @@ impl PipeWater {
             velocity_x: vec![0.0; n],
             velocity_y: vec![0.0; n],
             suspended: vec![0.0; n],
+            ocean_mask: vec![false; n],
+            ocean_depth: vec![0.0; n],
         }
     }
 
     #[inline]
     fn idx(&self, x: usize, y: usize) -> usize {
         y * self.width + x
+    }
+
+    /// Mark tile (x, y) as an ocean boundary with a fixed depth.
+    ///
+    /// Ocean boundary tiles have their depth reset to `depth` after every
+    /// simulation step, acting as a constant-head boundary condition.
+    pub fn set_ocean_boundary(&mut self, x: usize, y: usize, depth: f64) {
+        let i = self.idx(x, y);
+        self.ocean_mask[i] = true;
+        self.ocean_depth[i] = depth;
     }
 
     /// Add water at tile (x, y) — simulates rainfall.
@@ -278,6 +294,13 @@ impl PipeWater {
         self.depth = new_depth;
         self.velocity_x = new_vx;
         self.velocity_y = new_vy;
+
+        // Reset ocean tiles to constant depth (boundary condition).
+        for i in 0..self.depth.len() {
+            if self.ocean_mask[i] {
+                self.depth[i] = self.ocean_depth[i];
+            }
+        }
     }
 
     /// Get water depth at tile (x, y).
@@ -1110,6 +1133,25 @@ mod tests {
         assert!(
             sim.total_suspended() < 1e-15,
             "no sediment should be picked up from dry tiles"
+        );
+    }
+
+    #[test]
+    fn ocean_boundary_maintains_depth() {
+        let mut sim = PipeWater::new(10, 10);
+        let heights = vec![0.3; 100]; // flat, below typical water_level
+        sim.add_water(5, 5, 0.2);
+        sim.set_ocean_boundary(5, 5, 0.2);
+
+        // Run 500 steps — ocean depth should remain constant
+        for _ in 0..500 {
+            sim.step(&heights, 0.02);
+        }
+
+        let depth = sim.get_depth(5, 5);
+        assert!(
+            (depth - 0.2).abs() < 0.002,
+            "ocean depth should stay at 0.2, got {depth}"
         );
     }
 }

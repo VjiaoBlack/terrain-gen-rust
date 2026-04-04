@@ -1239,8 +1239,8 @@ mod tests {
             }
         }
         assert!(
-            types.len() >= 4,
-            "should generate at least 4 terrain types, got {}: {:?}",
+            types.len() >= 5,
+            "128x128 map should generate at least 5 terrain types (we have 14 biome types), got {}: {:?}",
             types.len(),
             types
         );
