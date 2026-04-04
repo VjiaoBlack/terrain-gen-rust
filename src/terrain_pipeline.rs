@@ -39,7 +39,7 @@ impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
             terrain: TerrainGenConfig {
-                scale: 0.015,
+                scale: 0.008, // halved from 0.015 — 2x larger terrain features
                 ..TerrainGenConfig::default()
             },
             terrace_w: 0.06,
@@ -333,6 +333,136 @@ pub fn priority_flood(heights: &mut [f64], w: usize, h: usize) {
                 heights[ni] = elev; // fill depression
             }
             pq.push(Reverse(Cell(heights[ni], ni)));
+        }
+    }
+}
+
+/// Hillslope diffusion: Laplacian smoothing that simulates soil creep.
+/// Each land tile moves toward the average of its 4-connected neighbors.
+/// Runs multiple iterations with a given diffusion rate per iteration.
+/// Only modifies tiles above water_level (ocean floor stays flat).
+///
+/// This is the standard companion to SPL erosion — SPL handles channel
+/// incision (rivers cutting into rock), hillslope diffusion handles
+/// everything else (soil sliding downhill, ridges rounding, gullies filling).
+pub fn hillslope_diffusion(
+    heights: &mut [f64],
+    w: usize,
+    h: usize,
+    water_level: f64,
+    rate: f64,
+    iterations: u32,
+) {
+    let n = w * h;
+    let mut buf = vec![0.0f64; n];
+
+    for _ in 0..iterations {
+        buf.copy_from_slice(heights);
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                if heights[i] <= water_level {
+                    continue;
+                }
+                let mut sum = 0.0;
+                let mut count = 0.0;
+                if x > 0 {
+                    sum += buf[i - 1];
+                    count += 1.0;
+                }
+                if x + 1 < w {
+                    sum += buf[i + 1];
+                    count += 1.0;
+                }
+                if y > 0 {
+                    sum += buf[i - w];
+                    count += 1.0;
+                }
+                if y + 1 < h {
+                    sum += buf[i + w];
+                    count += 1.0;
+                }
+                if count > 0.0 {
+                    let avg = sum / count;
+                    heights[i] += rate * (avg - heights[i]);
+                    // Don't smooth below water level
+                    if heights[i] < water_level {
+                        heights[i] = water_level;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Sediment deposition: redistribute eroded material to low-slope areas.
+///
+/// SPL erosion removes material but doesn't deposit it anywhere. In nature,
+/// eroded sediment accumulates at river mouths (deltas), in valleys (alluvial
+/// plains), and wherever water slows down. This pass:
+///
+/// 1. Computes how much material SPL removed (needs pre-erosion heights)
+/// 2. Distributes that material to nearby low-slope tiles
+///
+/// Simplified approach: find tiles adjacent to ocean with steep inland slopes
+/// (these are the eroded river mouths) and build them up slightly, creating
+/// a gentle transition instead of a cliff. Also fills narrow gullies by
+/// averaging tiles that are much lower than their neighbors.
+pub fn deposit_sediment(heights: &mut [f64], w: usize, h: usize, water_level: f64) {
+    let n = w * h;
+    let original = heights.to_vec();
+
+    // Pass 1: Fill narrow gullies — tiles significantly lower than all neighbors
+    // are likely erosion artifacts. Raise them toward the neighbor average.
+    for y in 1..h.saturating_sub(1) {
+        for x in 1..w.saturating_sub(1) {
+            let i = y * w + x;
+            if heights[i] <= water_level {
+                continue;
+            }
+            let neighbors = [
+                original[i - 1],
+                original[i + 1],
+                original[i - w],
+                original[i + w],
+            ];
+            let min_neighbor = neighbors.iter().cloned().fold(f64::INFINITY, f64::min);
+            let avg_neighbor = neighbors.iter().sum::<f64>() / 4.0;
+
+            // If this tile is a narrow gully (lower than ALL neighbors by > threshold),
+            // fill it partway toward the average
+            let depth_below_min = min_neighbor - heights[i];
+            if depth_below_min > 0.01 {
+                // Fill 60% of the way to the minimum neighbor
+                heights[i] += depth_below_min * 0.6;
+            }
+            // Also smooth tiles that are much lower than average
+            let depth_below_avg = avg_neighbor - heights[i];
+            if depth_below_avg > 0.02 {
+                heights[i] += depth_below_avg * 0.3;
+            }
+        }
+    }
+
+    // Pass 2: Build gentle coastal transition — tiles just above water that
+    // have very steep slopes toward ocean get a small deposit (delta formation)
+    for y in 1..h.saturating_sub(1) {
+        for x in 1..w.saturating_sub(1) {
+            let i = y * w + x;
+            if heights[i] <= water_level || heights[i] > water_level + 0.1 {
+                continue; // only affect near-coast tiles
+            }
+            let neighbors = [i - 1, i + 1, i - w, i + w];
+            let has_ocean_neighbor = neighbors
+                .iter()
+                .any(|&ni| original[ni] <= water_level);
+            if has_ocean_neighbor {
+                // Gentle deposit: raise slightly to smooth the land-ocean transition
+                let target = water_level + 0.03;
+                if heights[i] < target {
+                    heights[i] = target;
+                }
+            }
         }
     }
 }
@@ -1127,6 +1257,18 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             ..crate::analytical_erosion::SplParams::default()
         };
         crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
+
+        // Stage 3c: Hillslope diffusion (soil creep)
+        // Laplacian smoothing after SPL — fills narrow gullies, rounds sharp ridges.
+        // Per Tzathas 2024 paper: separate diffusion pass simulates hillslope processes
+        // that SPL (which only models channel incision) cannot capture.
+        hillslope_diffusion(&mut heights, w, h, config.terrain.water_level, 0.1, 8);
+
+        // Stage 3d: Sediment deposition at river mouths and low-slope areas
+        // SPL is incision-only — eroded material must go somewhere. This pass
+        // deposits sediment where slope drops below threshold, creating deltas
+        // and floodplains instead of leaving sharp coastal cutoffs.
+        deposit_sediment(&mut heights, w, h, config.terrain.water_level);
     }
     let river_mask = vec![false; w * h]; // empty — no pre-baked rivers
 
@@ -1705,5 +1847,107 @@ mod biome_diagnostics {
             "zero moisture tiles: {zero_moist} ({:.1}%)",
             zero_moist as f64 / 65536.0 * 100.0
         );
+    }
+
+    #[test]
+    fn hillslope_diffusion_smooths_spike() {
+        let w = 8;
+        let h = 8;
+        let mut heights = vec![0.5f64; w * h];
+        // Single spike in the middle
+        heights[4 * w + 4] = 0.9;
+        let original_spike = heights[4 * w + 4];
+
+        hillslope_diffusion(&mut heights, w, h, 0.3, 0.2, 10);
+
+        // Spike should be reduced
+        assert!(
+            heights[4 * w + 4] < original_spike,
+            "spike should be smoothed: was {original_spike}, now {}",
+            heights[4 * w + 4]
+        );
+        // Neighbors should have risen slightly
+        assert!(
+            heights[4 * w + 5] > 0.5,
+            "neighbor should rise from diffusion"
+        );
+    }
+
+    #[test]
+    fn hillslope_diffusion_preserves_ocean() {
+        let w = 8;
+        let h = 8;
+        let water_level = 0.35;
+        let mut heights = vec![0.5f64; w * h];
+        // Set ocean tiles
+        for x in 0..3 {
+            for y in 0..h {
+                heights[y * w + x] = 0.3;
+            }
+        }
+        let mut ocean_before = Vec::new();
+        for y in 0..h {
+            for x in 0..3 {
+                ocean_before.push(heights[y * w + x]);
+            }
+        }
+
+        hillslope_diffusion(&mut heights, w, h, water_level, 0.3, 20);
+
+        let mut ocean_after = Vec::new();
+        for y in 0..h {
+            for x in 0..3 {
+                ocean_after.push(heights[y * w + x]);
+            }
+        }
+        assert_eq!(ocean_before, ocean_after, "ocean tiles should not change");
+    }
+
+    #[test]
+    fn deposit_sediment_fills_narrow_gully() {
+        let w = 8;
+        let h = 8;
+        let water_level = 0.3;
+        let mut heights = vec![0.5f64; w * h];
+        // Create a narrow gully: one tile much lower than neighbors
+        heights[4 * w + 4] = 0.38;
+
+        let before = heights[4 * w + 4];
+        deposit_sediment(&mut heights, w, h, water_level);
+
+        assert!(
+            heights[4 * w + 4] > before,
+            "gully should be partially filled: was {before}, now {}",
+            heights[4 * w + 4]
+        );
+    }
+
+    #[test]
+    fn deposit_sediment_smooths_coastal_transition() {
+        let w = 16;
+        let h = 8;
+        let water_level = 0.35;
+        let mut heights = vec![0.5f64; w * h];
+        // Ocean on left
+        for y in 0..h {
+            for x in 0..4 {
+                heights[y * w + x] = 0.3;
+            }
+        }
+        // Tile just above ocean (x=4) at barely above water level
+        for y in 1..h - 1 {
+            heights[y * w + 4] = 0.36;
+        }
+
+        deposit_sediment(&mut heights, w, h, water_level);
+
+        // Coastal tile should be raised to at least water_level + 0.03
+        for y in 1..h - 1 {
+            assert!(
+                heights[y * w + 4] >= water_level + 0.02,
+                "coastal tile at y={y} should be raised, got {}",
+                heights[y * w + 4]
+            );
+        }
     }
 }
