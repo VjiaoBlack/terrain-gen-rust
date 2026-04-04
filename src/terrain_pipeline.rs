@@ -1661,3 +1661,42 @@ mod water_diagnostics {
         );
     }
 }
+
+#[cfg(test)]
+mod biome_diagnostics {
+    use super::*;
+
+    #[test]
+    fn biome_distribution() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(256, 256, &config);
+        use std::collections::HashMap;
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for y in 0..256 {
+            for x in 0..256 {
+                if let Some(t) = result.map.get(x, y) {
+                    *counts.entry(format!("{:?}", t)).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut sorted: Vec<_> = counts.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        eprintln!("=== BIOME DISTRIBUTION ===");
+        for (name, count) in &sorted {
+            eprintln!(
+                "  {}: {} ({:.1}%)",
+                name,
+                count,
+                *count as f64 / 65536.0 * 100.0
+            );
+        }
+        // Check moisture distribution too
+        let avg_moist: f64 = result.moisture.iter().sum::<f64>() / result.moisture.len() as f64;
+        let zero_moist = result.moisture.iter().filter(|&&m| m < 0.01).count();
+        eprintln!("avg pipeline moisture: {avg_moist:.3}");
+        eprintln!(
+            "zero moisture tiles: {zero_moist} ({:.1}%)",
+            zero_moist as f64 / 65536.0 * 100.0
+        );
+    }
+}

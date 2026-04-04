@@ -407,8 +407,9 @@ impl MoistureMap {
                     // Standing water: high moisture, but blend don't slam to 1.0
                     self.moisture[i] = self.moisture[i] * 0.8 + 0.2;
                 } else {
-                    // Decay toward zero; small boost from trace water
-                    self.moisture[i] = self.moisture[i] * 0.95 + w * 5.0;
+                    // Very slow decay — moisture represents soil/air moisture,
+                    // not just surface water. 0.999 per tick = half-life ~700 ticks.
+                    self.moisture[i] = self.moisture[i] * 0.999 + w * 5.0;
                 }
             }
         }
