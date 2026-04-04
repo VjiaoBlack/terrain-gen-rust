@@ -22,6 +22,16 @@
 - Don't change constants (thresholds, rates, levels) without checking what values the system actually produces. Add a diagnostic test first.
 - Don't propose a fix that contradicts the design docs. Check `docs/game_design.md` and `docs/design/` first.
 
+## Overnight Autonomous Work Rules
+When working autonomously (user sleeping):
+- **Check the time.** If it's before 7:00 AM, find productive work to continue with.
+- **Research is always safe.** Reading papers, blogs, code — save findings to docs/research/.
+- **Cite sources.** We build on others' work — credit them properly.
+- **Take notes on what works/doesn't** with agent loops. If something is obviously fixable in the harness, fix it.
+- **Commit and push frequently.** Small, verified commits.
+- **Don't make risky code changes without tests.** Follow the development rules above.
+- **If stuck, write docs/plans instead of guessing at code.**
+
 ## Key Docs
 - `docs/ARCHITECTURE.md` — file map, system health, data flow issues, refactor plan
 - `docs/game_design.md` — design pillars (ranked), success criteria, anti-goals
