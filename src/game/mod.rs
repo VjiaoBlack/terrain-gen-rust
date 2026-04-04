@@ -23,7 +23,7 @@ use crate::headless_renderer::HeadlessRenderer;
 use crate::renderer::{Cell, Color, Renderer};
 use crate::simulation::{
     DayNightCycle, ExplorationMap, InfluenceMap, MoistureMap, ScentMap, Season, SimConfig,
-    SoilFertilityMap, ThreatMap, TrafficMap, VegetationMap, WaterMap,
+    SoilFertilityMap, ThreatMap, TrafficMap, VegetationMap, WaterMap, WindField,
 };
 use crate::terrain_gen::{self, TerrainGenConfig};
 use crate::tilemap::{Camera, Terrain, TileMap};
@@ -188,6 +188,7 @@ pub enum OverlayMode {
     Threats,   // Show wolf positions and danger zones
     Traffic,   // Show foot traffic heatmap
     Territory, // Show settlement influence/culture borders
+    Wind,      // Show wind direction and speed
 }
 
 /// Default raid strength for backward-compatible deserialization of old saves.
@@ -544,6 +545,9 @@ pub struct Game {
     pub threat_score: f64,
     /// Tick of the last threat spawn, used to enforce a minimum cooldown between threats.
     pub last_threat_tick: u64,
+    /// Wind vector field: terrain-deflected prevailing wind with curl noise.
+    /// Recomputed on seasonal direction changes.
+    pub wind: WindField,
     /// Active outposts — satellite settlements near distant resources.
     pub outposts: Vec<Outpost>,
     #[cfg(feature = "lua")]
@@ -1293,6 +1297,7 @@ impl Game {
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
+            wind: WindField::new(map_width, map_height), // rebuilt below
             outposts: Vec::new(),
             #[cfg(feature = "lua")]
             script_engine: None,
@@ -1300,6 +1305,16 @@ impl Game {
         // Compute initial chokepoint map from generated terrain
         g.chokepoint_map = chokepoint::ChokepointMap::compute(&g.map, &g.river_mask);
         g.chokepoints_dirty = false;
+        // Compute initial wind field from terrain + chokepoints
+        let wind_dir = WindField::seasonal_direction(g.day_night.season);
+        g.wind = WindField::compute_from_terrain(
+            &g.heights,
+            map_width,
+            map_height,
+            wind_dir,
+            0.6,
+            Some(&g.chokepoint_map.scores),
+        );
         // Build hierarchical pathfinding navigation graph from final terrain
         g.nav_graph = NavGraph::build(&g.map);
         // Pre-reveal settlement start area (around map center)
@@ -1801,7 +1816,8 @@ impl Game {
                     OverlayMode::Resources => OverlayMode::Threats,
                     OverlayMode::Threats => OverlayMode::Traffic,
                     OverlayMode::Traffic => OverlayMode::Territory,
-                    OverlayMode::Territory => OverlayMode::None,
+                    OverlayMode::Territory => OverlayMode::Wind,
+                    OverlayMode::Wind => OverlayMode::None,
                 };
                 self.dirty.mark_all();
             }
@@ -2392,6 +2408,43 @@ impl Game {
                 }
                 self.particles.retain(|p| p.life > 0);
 
+                // Wind particle viewer: when wind overlay is active, spawn sparse
+                // particles that drift with the local wind vector.
+                if self.overlay == OverlayMode::Wind && self.tick % 3 == 0 {
+                    let mut rng = rand::rng();
+                    // Spawn a few particles at random visible positions
+                    let vw = 60i32; // approximate viewport width
+                    let vh = 40i32; // approximate viewport height
+                    for _ in 0..3 {
+                        if self.particles.len() >= MAX_PARTICLES {
+                            break;
+                        }
+                        let px = self.camera.x + (rng.random_range(0..vw as u32) as i32);
+                        let py = self.camera.y + (rng.random_range(0..vh as u32) as i32);
+                        if px >= 0
+                            && py >= 0
+                            && (px as usize) < self.wind.width
+                            && (py as usize) < self.wind.height
+                        {
+                            let (wx, wy) = self.wind.get_wind(px as usize, py as usize);
+                            let speed = self.wind.get_speed(px as usize, py as usize);
+                            if speed > 0.05 {
+                                self.particles.push(Particle {
+                                    x: px as f64,
+                                    y: py as f64,
+                                    ch: '~',
+                                    fg: Color(150, 200, 255),
+                                    life: 20,
+                                    max_life: 20,
+                                    dx: wx * 0.5,
+                                    dy: wy * 0.5,
+                                    emissive: false,
+                                });
+                            }
+                        }
+                    }
+                }
+
                 // Spawn activity particles from active processing buildings
                 {
                     let mut rng = rand::rng();
@@ -2706,6 +2759,17 @@ impl Game {
                         Season::Winter => "Winter descends — conserve resources!",
                     };
                     self.notify_milestone(season_msg);
+
+                    // --- Recompute wind field for new seasonal direction ---
+                    let wind_dir = WindField::seasonal_direction(self.day_night.season);
+                    self.wind = WindField::compute_from_terrain(
+                        &self.heights,
+                        self.map.width,
+                        self.map.height,
+                        wind_dir,
+                        self.wind.prevailing_strength,
+                        Some(&self.chokepoint_map.scores),
+                    );
 
                     // --- Seasonal terrain transitions ---
                     // Revert previous season's overlays before applying new ones.
@@ -3451,6 +3515,9 @@ mod tests {
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::Territory);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::Wind);
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::None);

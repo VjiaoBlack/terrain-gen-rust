@@ -121,6 +121,7 @@ impl Game {
             threat_map: crate::simulation::ThreatMap::new(map_w, map_h),
             threat_score: 0.0,
             last_threat_tick: 0,
+            wind: crate::simulation::WindField::new(map_w, map_h), // rebuilt below
             outposts: Vec::new(),
             #[cfg(feature = "lua")]
             script_engine: None,
@@ -129,6 +130,16 @@ impl Game {
         game.chokepoint_map =
             super::chokepoint::ChokepointMap::compute(&game.map, &game.river_mask);
         game.chokepoints_dirty = false;
+        // Recompute wind field from terrain + chokepoints
+        let wind_dir = crate::simulation::WindField::seasonal_direction(game.day_night.season);
+        game.wind = crate::simulation::WindField::compute_from_terrain(
+            &game.heights,
+            map_w,
+            map_h,
+            wind_dir,
+            0.6,
+            Some(&game.chokepoint_map.scores),
+        );
         game.nav_graph = crate::pathfinding::NavGraph::build(&game.map);
         Ok(game)
     }

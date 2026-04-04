@@ -1799,6 +1799,299 @@ impl ExplorationMap {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Wind field infrastructure (Phase A of atmosphere/hydrology system)
+// ---------------------------------------------------------------------------
+
+/// 2D wind vector field shaped by terrain. Wind flows around mountains,
+/// funnels through passes, creates rain shadows on leeward sides.
+/// Computed once per wind direction change (~seasonal), with curl noise
+/// turbulence added each tick for variation.
+pub struct WindField {
+    pub width: usize,
+    pub height: usize,
+    /// Per-tile x component of wind vector.
+    pub wind_x: Vec<f64>,
+    /// Per-tile y component of wind vector.
+    pub wind_y: Vec<f64>,
+    /// Cached magnitude of (wind_x, wind_y) per tile.
+    pub wind_speed: Vec<f64>,
+    /// Wind shadow factor: 0.0 = full shadow (behind tall mountain),
+    /// 1.0 = fully exposed to wind.
+    pub wind_shadow: Vec<f64>,
+    /// Prevailing wind direction in radians (0 = east, PI/2 = north).
+    pub prevailing_dir: f64,
+    /// Prevailing wind strength (0.0-1.0).
+    pub prevailing_strength: f64,
+}
+
+impl WindField {
+    /// Create a new empty wind field.
+    pub fn new(width: usize, height: usize) -> Self {
+        let n = width * height;
+        Self {
+            width,
+            height,
+            wind_x: vec![0.0; n],
+            wind_y: vec![0.0; n],
+            wind_speed: vec![0.0; n],
+            wind_shadow: vec![1.0; n],
+            prevailing_dir: std::f64::consts::PI, // default: westerly (blowing east-to-west)
+            prevailing_strength: 0.6,
+        }
+    }
+
+    /// Compute the full wind field from terrain heights.
+    ///
+    /// Algorithm:
+    /// 1. Start with prevailing direction as base wind vector
+    /// 2. For each tile, ray-march upwind for 30 tiles, accumulate terrain height
+    /// 3. If terrain rises significantly: wind shadow (reduce speed)
+    /// 4. Compute terrain gradient at tile, deflect wind by gradient
+    /// 5. Narrow gaps (high chokepoint score): boost speed
+    /// 6. Cache wind_speed as magnitude of (wind_x, wind_y)
+    pub fn compute_from_terrain(
+        heights: &[f64],
+        width: usize,
+        height: usize,
+        prevailing_dir: f64,
+        prevailing_strength: f64,
+        chokepoint_scores: Option<&[f64]>,
+    ) -> Self {
+        let n = width * height;
+        let mut field = Self {
+            width,
+            height,
+            wind_x: vec![0.0; n],
+            wind_y: vec![0.0; n],
+            wind_speed: vec![0.0; n],
+            wind_shadow: vec![1.0; n],
+            prevailing_dir,
+            prevailing_strength,
+        };
+
+        if n == 0 {
+            return field;
+        }
+
+        let base_wx = prevailing_dir.cos() * prevailing_strength;
+        let base_wy = prevailing_dir.sin() * prevailing_strength;
+
+        // Upwind direction (opposite of prevailing — we march FROM tile INTO the wind)
+        let upwind_dx = -prevailing_dir.cos();
+        let upwind_dy = -prevailing_dir.sin();
+
+        const RAY_LENGTH: usize = 30;
+        // Height difference threshold for creating wind shadow
+        const SHADOW_HEIGHT_THRESHOLD: f64 = 0.15;
+        // Maximum shadow attenuation
+        const MAX_SHADOW: f64 = 0.9;
+        // How much terrain gradient deflects wind (0-1)
+        const DEFLECTION_STRENGTH: f64 = 0.6;
+        // Chokepoint speed boost factor
+        const CHOKEPOINT_BOOST: f64 = 1.8;
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                let tile_h = heights[idx];
+
+                // --- Step 1: Ray-march upwind to compute wind shadow ---
+                let mut max_blocking_height = 0.0_f64;
+                let mut total_blocking = 0.0_f64;
+                for step in 1..=RAY_LENGTH {
+                    let rx = x as f64 + upwind_dx * step as f64;
+                    let ry = y as f64 + upwind_dy * step as f64;
+                    let ix = rx.round() as i32;
+                    let iy = ry.round() as i32;
+                    if ix < 0 || iy < 0 || ix >= width as i32 || iy >= height as i32 {
+                        break;
+                    }
+                    let ray_h = heights[iy as usize * width + ix as usize];
+                    let height_diff = ray_h - tile_h;
+                    if height_diff > SHADOW_HEIGHT_THRESHOLD {
+                        // Closer blocking terrain has more effect (inverse distance)
+                        let distance_factor = 1.0 / (step as f64);
+                        total_blocking += height_diff * distance_factor;
+                        max_blocking_height = max_blocking_height.max(ray_h);
+                    }
+                }
+
+                // Wind shadow: 1.0 = fully exposed, 0.0 = fully blocked
+                let shadow = if total_blocking > 0.0 {
+                    let attenuation = (total_blocking * 2.0).min(MAX_SHADOW);
+                    1.0 - attenuation
+                } else {
+                    1.0
+                };
+                field.wind_shadow[idx] = shadow;
+
+                // --- Step 2: Compute terrain gradient for deflection ---
+                let (gx, gy) = terrain_gradient(heights, width, height, x, y);
+
+                // Deflect wind perpendicular to gradient (wind flows AROUND obstacles)
+                // The dot product of wind with gradient determines how much the wind
+                // is "hitting" the slope. We deflect perpendicular to the gradient.
+                let grad_mag = (gx * gx + gy * gy).sqrt();
+                let (deflect_x, deflect_y) = if grad_mag > 0.001 {
+                    // Perpendicular to gradient: rotate 90 degrees
+                    // Choose the perpendicular direction that's more aligned with base wind
+                    let perp1_x = -gy / grad_mag;
+                    let perp1_y = gx / grad_mag;
+                    let dot1 = perp1_x * base_wx + perp1_y * base_wy;
+                    if dot1 >= 0.0 {
+                        (perp1_x, perp1_y)
+                    } else {
+                        (-perp1_x, -perp1_y)
+                    }
+                } else {
+                    (0.0, 0.0)
+                };
+
+                // Mix base wind with deflection based on gradient magnitude
+                let deflect_factor = (grad_mag * DEFLECTION_STRENGTH).min(0.8);
+                let wx = base_wx * (1.0 - deflect_factor)
+                    + deflect_x * prevailing_strength * deflect_factor;
+                let wy = base_wy * (1.0 - deflect_factor)
+                    + deflect_y * prevailing_strength * deflect_factor;
+
+                // Apply wind shadow to reduce speed
+                let wx = wx * shadow;
+                let wy = wy * shadow;
+
+                // --- Step 3: Chokepoint speed boost ---
+                let (wx, wy) = if let Some(scores) = chokepoint_scores {
+                    let score = scores[idx];
+                    if score > 0.05 {
+                        // Score ranges 0-1; higher = narrower gap = more boost
+                        let boost = 1.0 + score * CHOKEPOINT_BOOST;
+                        (wx * boost, wy * boost)
+                    } else {
+                        (wx, wy)
+                    }
+                } else {
+                    (wx, wy)
+                };
+
+                field.wind_x[idx] = wx;
+                field.wind_y[idx] = wy;
+                field.wind_speed[idx] = (wx * wx + wy * wy).sqrt();
+            }
+        }
+
+        field
+    }
+
+    /// Add curl noise turbulence to the wind field. This modifies the
+    /// cached field slightly, creating natural variation without changing
+    /// the mean direction significantly.
+    ///
+    /// Uses Perlin noise sampled at each tile position, scaled by time
+    /// so the turbulence evolves slowly.
+    pub fn add_curl_noise(&mut self, time: f64, seed: u32) {
+        use noise::{NoiseFn, Perlin};
+
+        let perlin = Perlin::new(seed);
+        let turbulence_strength = 0.08 * self.prevailing_strength;
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let idx = y * self.width + x;
+                let nx = x as f64 * 0.05;
+                let ny = y as f64 * 0.05;
+                let nt = time * 0.01;
+
+                let turbulence_x = perlin.get([nx, ny, nt]) * turbulence_strength;
+                let turbulence_y = perlin.get([nx + 100.0, ny + 100.0, nt]) * turbulence_strength;
+
+                self.wind_x[idx] += turbulence_x;
+                self.wind_y[idx] += turbulence_y;
+                self.wind_speed[idx] = (self.wind_x[idx] * self.wind_x[idx]
+                    + self.wind_y[idx] * self.wind_y[idx])
+                    .sqrt();
+            }
+        }
+    }
+
+    /// Return wind vector at position (x, y). Returns (0, 0) for out-of-bounds.
+    pub fn get_wind(&self, x: usize, y: usize) -> (f64, f64) {
+        if x < self.width && y < self.height {
+            let idx = y * self.width + x;
+            (self.wind_x[idx], self.wind_y[idx])
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    /// Return wind speed at position (x, y). Returns 0.0 for out-of-bounds.
+    pub fn get_speed(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.wind_speed[y * self.width + x]
+        } else {
+            0.0
+        }
+    }
+
+    /// Return wind shadow factor at position (x, y). Returns 1.0 for out-of-bounds.
+    pub fn get_shadow(&self, x: usize, y: usize) -> f64 {
+        if x < self.width && y < self.height {
+            self.wind_shadow[y * self.width + x]
+        } else {
+            1.0
+        }
+    }
+
+    /// Get the prevailing wind direction for a given season.
+    /// Returns direction in radians: 0 = east, PI/2 = north.
+    pub fn seasonal_direction(season: Season) -> f64 {
+        match season {
+            // Westerly winds in spring/autumn (wind blows FROM west, i.e. toward east)
+            Season::Spring => 0.0, // east (wind blows eastward)
+            Season::Summer => 0.3, // slightly NE (variable summer winds)
+            Season::Autumn => 0.0, // east (westerly)
+            Season::Winter => -std::f64::consts::FRAC_PI_4, // SE (northerly component)
+        }
+    }
+}
+
+/// Compute terrain gradient at (x, y) using central differences.
+/// Returns (dh/dx, dh/dy).
+fn terrain_gradient(
+    heights: &[f64],
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+) -> (f64, f64) {
+    let get = |x: usize, y: usize| -> f64 {
+        if x < width && y < height {
+            heights[y * width + x]
+        } else {
+            heights[y.min(height - 1) * width + x.min(width - 1)]
+        }
+    };
+
+    let h_center = get(x, y);
+
+    let gx = if x == 0 {
+        get(x + 1, y) - h_center
+    } else if x >= width - 1 {
+        h_center - get(x - 1, y)
+    } else {
+        (get(x + 1, y) - get(x - 1, y)) * 0.5
+    };
+
+    let gy = if y == 0 {
+        get(x, y + 1) - h_center
+    } else if y >= height - 1 {
+        h_center - get(x, y - 1)
+    } else {
+        (get(x, y + 1) - get(x, y - 1)) * 0.5
+    };
+
+    (gx, gy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3434,5 +3727,270 @@ mod tests {
         assert_eq!(tm.garrison_at(10, 10), 0.0);
         assert_eq!(tm.corridor_at(10, 10), 0.0);
         assert_eq!(tm.exposure_at(10, 10), 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Wind field tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn wind_flat_terrain_passes_at_prevailing_speed() {
+        // Flat terrain: wind should pass through at roughly prevailing speed everywhere
+        let w = 64;
+        let h = 64;
+        let heights = vec![0.5; w * h];
+        let dir = 0.0; // eastward
+        let strength = 0.8;
+        let field = WindField::compute_from_terrain(&heights, w, h, dir, strength, None);
+
+        // Check center tiles — speed should be close to prevailing strength
+        for y in 10..54 {
+            for x in 10..54 {
+                let speed = field.get_speed(x, y);
+                assert!(
+                    (speed - strength).abs() < 0.05,
+                    "flat terrain at ({},{}) speed {} should be ~{}",
+                    x,
+                    y,
+                    speed,
+                    strength
+                );
+                let shadow = field.get_shadow(x, y);
+                assert!(
+                    (shadow - 1.0).abs() < 0.01,
+                    "flat terrain should have no wind shadow"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wind_mountain_blocks_leeward() {
+        // Mountain ridge across the middle, wind blowing eastward (dir=0).
+        // Leeward (east) side should have lower speed.
+        let w = 64;
+        let h = 64;
+        let mut heights = vec![0.1; w * h];
+
+        // Place mountain ridge at x=30, spanning full y range
+        for y in 0..h {
+            for dx in 0..3 {
+                heights[y * w + (29 + dx)] = 0.9;
+            }
+        }
+
+        let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        // Windward side (x=20) should have higher speed than leeward (x=40)
+        let windward_speed = field.get_speed(20, 32);
+        let leeward_speed = field.get_speed(40, 32);
+        assert!(
+            windward_speed > leeward_speed,
+            "windward speed {} should exceed leeward speed {}",
+            windward_speed,
+            leeward_speed
+        );
+    }
+
+    #[test]
+    fn wind_shadow_zero_behind_tall_mountain() {
+        // A very tall mountain should create near-zero shadow on leeward side
+        let w = 64;
+        let h = 64;
+        let mut heights = vec![0.0; w * h];
+
+        // Tall mountain wall at x=30
+        for y in 10..54 {
+            for dx in 0..5 {
+                heights[y * w + (28 + dx)] = 2.0; // very tall
+            }
+        }
+
+        let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        // Check shadow immediately behind mountain (x=35, center y)
+        let shadow = field.get_shadow(35, 32);
+        assert!(
+            shadow < 0.3,
+            "shadow behind very tall mountain should be low, got {}",
+            shadow
+        );
+    }
+
+    #[test]
+    fn wind_valley_funnels_boost() {
+        // Create a narrow gap in a mountain range — wind should be boosted
+        let w = 64;
+        let h = 64;
+        let mut heights = vec![0.1; w * h];
+
+        // Mountain range with a 3-tile gap at y=32
+        for y in 0..h {
+            if !(31..=33).contains(&y) {
+                // Mountains everywhere except the gap
+                for dx in 0..3 {
+                    heights[y * w + (30 + dx)] = 0.9;
+                }
+            }
+        }
+
+        // Create chokepoint scores: high score at the gap
+        let mut choke_scores = vec![0.0; w * h];
+        for y in 31..=33 {
+            for x in 30..33 {
+                choke_scores[y * w + x] = 0.5; // narrow passage
+            }
+        }
+
+        let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, Some(&choke_scores));
+
+        // Speed at the gap should be higher than on flat terrain without chokepoint
+        let flat_field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+        let gap_speed = field.get_speed(31, 32);
+        let flat_gap_speed = flat_field.get_speed(31, 32);
+        assert!(
+            gap_speed > flat_gap_speed,
+            "gap speed with chokepoint {} should exceed without {}",
+            gap_speed,
+            flat_gap_speed
+        );
+    }
+
+    #[test]
+    fn wind_curl_noise_preserves_mean_direction() {
+        // Curl noise should not change the mean wind direction significantly
+        let w = 32;
+        let h = 32;
+        let heights = vec![0.3; w * h];
+        let mut field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        // Record mean direction before noise
+        let n = (w * h) as f64;
+        let mean_x_before: f64 = field.wind_x.iter().sum::<f64>() / n;
+        let mean_y_before: f64 = field.wind_y.iter().sum::<f64>() / n;
+
+        field.add_curl_noise(100.0, 42);
+
+        let mean_x_after: f64 = field.wind_x.iter().sum::<f64>() / n;
+        let mean_y_after: f64 = field.wind_y.iter().sum::<f64>() / n;
+
+        // Mean direction should be within ~20% of original
+        assert!(
+            (mean_x_after - mean_x_before).abs() < 0.1,
+            "curl noise shifted mean x from {} to {}",
+            mean_x_before,
+            mean_x_after
+        );
+        assert!(
+            (mean_y_after - mean_y_before).abs() < 0.1,
+            "curl noise shifted mean y from {} to {}",
+            mean_y_before,
+            mean_y_after
+        );
+    }
+
+    #[test]
+    fn wind_at_map_edges_no_crash() {
+        let w = 16;
+        let h = 16;
+        let heights = vec![0.5; w * h];
+        let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+
+        // Corners
+        let _ = field.get_wind(0, 0);
+        let _ = field.get_wind(w - 1, 0);
+        let _ = field.get_wind(0, h - 1);
+        let _ = field.get_wind(w - 1, h - 1);
+
+        // Out of bounds
+        assert_eq!(field.get_wind(w + 10, h + 10), (0.0, 0.0));
+        assert_eq!(field.get_speed(w + 10, h + 10), 0.0);
+        assert_eq!(field.get_shadow(w + 10, h + 10), 1.0);
+
+        // Edge tiles should have valid (non-NaN) values
+        for x in 0..w {
+            let s = field.get_speed(x, 0);
+            assert!(!s.is_nan(), "speed at ({},0) is NaN", x);
+            let s = field.get_speed(x, h - 1);
+            assert!(!s.is_nan(), "speed at ({},{}) is NaN", x, h - 1);
+        }
+    }
+
+    #[test]
+    fn wind_seasonal_direction_rotates() {
+        let spring_dir = WindField::seasonal_direction(Season::Spring);
+        let summer_dir = WindField::seasonal_direction(Season::Summer);
+        let winter_dir = WindField::seasonal_direction(Season::Winter);
+
+        // Different seasons should have different wind directions
+        assert!(
+            (spring_dir - summer_dir).abs() > 0.01,
+            "spring and summer should have different wind directions"
+        );
+        assert!(
+            (spring_dir - winter_dir).abs() > 0.01,
+            "spring and winter should have different wind directions"
+        );
+        assert!(
+            (summer_dir - winter_dir).abs() > 0.01,
+            "summer and winter should have different wind directions"
+        );
+    }
+
+    #[test]
+    fn wind_seasonal_recompute_changes_field() {
+        // Recomputing with a different direction should produce a different field
+        let w = 32;
+        let h = 32;
+        let mut heights = vec![0.3; w * h];
+        // Add some terrain variation to make direction matter
+        for y in 10..20 {
+            for x in 10..20 {
+                heights[y * w + x] = 0.8;
+            }
+        }
+
+        let spring_dir = WindField::seasonal_direction(Season::Spring);
+        let winter_dir = WindField::seasonal_direction(Season::Winter);
+
+        let field_spring = WindField::compute_from_terrain(&heights, w, h, spring_dir, 0.7, None);
+        let field_winter = WindField::compute_from_terrain(&heights, w, h, winter_dir, 0.7, None);
+
+        // Fields should differ at some tiles
+        let mut any_diff = false;
+        for i in 0..(w * h) {
+            if (field_spring.wind_x[i] - field_winter.wind_x[i]).abs() > 0.01
+                || (field_spring.wind_y[i] - field_winter.wind_y[i]).abs() > 0.01
+            {
+                any_diff = true;
+                break;
+            }
+        }
+        assert!(
+            any_diff,
+            "seasonal direction change should produce a different wind field"
+        );
+    }
+
+    #[test]
+    fn wind_empty_map_no_panic() {
+        // Zero-size map should not panic
+        let field = WindField::compute_from_terrain(&[], 0, 0, 0.0, 0.5, None);
+        assert_eq!(field.width, 0);
+        assert_eq!(field.height, 0);
+        assert_eq!(field.get_wind(0, 0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn wind_new_default_values() {
+        let field = WindField::new(10, 10);
+        assert_eq!(field.width, 10);
+        assert_eq!(field.height, 10);
+        assert_eq!(field.wind_x.len(), 100);
+        assert_eq!(field.wind_shadow.len(), 100);
+        // Default shadow should be 1.0 (fully exposed)
+        for &s in &field.wind_shadow {
+            assert_eq!(s, 1.0);
+        }
     }
 }

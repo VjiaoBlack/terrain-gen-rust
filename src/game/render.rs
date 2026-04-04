@@ -642,6 +642,7 @@ impl super::Game {
             OverlayMode::Threats => "THREATS",
             OverlayMode::Traffic => "TRAFFIC",
             OverlayMode::Territory => "TERRITORY",
+            OverlayMode::Wind => "WIND",
         };
         draw_line(
             renderer,
@@ -1139,6 +1140,8 @@ impl super::Game {
             self.draw_threat_overlay(renderer);
         } else if self.overlay == OverlayMode::Traffic {
             self.draw_traffic_overlay(renderer);
+        } else if self.overlay == OverlayMode::Wind {
+            self.draw_wind_overlay(renderer);
         }
 
         if self.query_mode {
@@ -1341,6 +1344,8 @@ impl super::Game {
             self.draw_threat_overlay(renderer);
         } else if self.overlay == OverlayMode::Traffic {
             self.draw_traffic_overlay(renderer);
+        } else if self.overlay == OverlayMode::Wind {
+            self.draw_wind_overlay(renderer);
         }
 
         if self.query_mode {
@@ -1501,6 +1506,8 @@ impl super::Game {
             self.draw_threat_overlay(renderer);
         } else if self.overlay == OverlayMode::Traffic {
             self.draw_traffic_overlay(renderer);
+        } else if self.overlay == OverlayMode::Wind {
+            self.draw_wind_overlay(renderer);
         }
 
         if self.query_mode {
@@ -2803,6 +2810,75 @@ impl super::Game {
                         Some(Color(40, 30, 5)),
                     );
                 }
+            }
+        }
+    }
+
+    /// Draw wind overlay: arrows showing direction, color intensity showing speed.
+    fn draw_wind_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 {
+                    continue;
+                }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.wind.width || uy >= self.wind.height {
+                    continue;
+                }
+                if !self.exploration.is_revealed(ux, uy) {
+                    continue;
+                }
+
+                let (vx, vy) = self.wind.get_wind(ux, uy);
+                let speed = self.wind.get_speed(ux, uy);
+                let shadow = self.wind.get_shadow(ux, uy);
+
+                // Direction arrow: 8 directions + calm
+                let ch = if speed < 0.05 {
+                    '·' // calm
+                } else {
+                    let angle = vy.atan2(vx);
+                    // Map angle to 8 compass directions
+                    let octant = ((angle + std::f64::consts::PI) / (std::f64::consts::PI / 4.0))
+                        .round() as i32
+                        % 8;
+                    match octant {
+                        0 => '←', // PI: pointing west (wind blowing west)
+                        1 => '↙',
+                        2 => '↓',
+                        3 => '↘',
+                        4 => '→', // 0: pointing east
+                        5 => '↗',
+                        6 => '↑',
+                        7 => '↖',
+                        _ => '·',
+                    }
+                };
+
+                // Color: cyan for wind, intensity by speed. Shadow reduces brightness.
+                let intensity = (speed / 1.0).min(1.0) * shadow;
+                let r = (30.0 * intensity) as u8;
+                let g = (120.0 + 135.0 * intensity) as u8;
+                let b = (180.0 + 75.0 * intensity) as u8;
+
+                // Background tint: dark for shadow, lighter for exposed
+                let bg_val = (20.0 + 30.0 * shadow) as u8;
+
+                renderer.draw(
+                    sx_raw as u16,
+                    sy,
+                    ch,
+                    Color(r, g, b),
+                    Some(Color(bg_val, bg_val, bg_val + 10)),
+                );
             }
         }
     }
