@@ -13,11 +13,20 @@
 4. **Verify with data, not assumptions.** Run `cargo test --lib`. Run `--diagnostics` mode. Check actual numbers. Don't assume a change works because it compiles.
 5. **Check for regressions.** Does the change break something else? Run a quick playtest across 2-3 seeds.
 
+### Code Review:
+6. **Every significant diff gets reviewed before merge.** A review agent (or the orchestrator) checks: logic errors, design violations, magic fixes, untested paths, data flow correctness. See `docs/workflow.md` for the full review protocol.
+
 ### Never do this:
 - Don't make a change, then immediately make another change to fix the first change, then another to fix that. **Stop. Diagnose. Understand. Then fix once.**
 - Don't add "infinite sources" or "magic spawning" to paper over a bug. Find the root cause.
 - Don't change constants (thresholds, rates, levels) without checking what values the system actually produces. Add a diagnostic test first.
 - Don't propose a fix that contradicts the design docs. Check `docs/game_design.md` and `docs/design/` first.
+
+## Key Docs
+- `docs/ARCHITECTURE.md` — file map, system health, data flow issues, refactor plan
+- `docs/game_design.md` — design pillars (ranked), success criteria, anti-goals
+- `docs/workflow.md` — full development pipeline including code review protocol
+- `INDEX.md` — complete doc inventory with links
 
 ## Build & Test
 
