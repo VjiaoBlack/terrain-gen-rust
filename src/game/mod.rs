@@ -2764,34 +2764,39 @@ impl Game {
                     &self.heights,
                 );
 
-                // Pipe-model water simulation: add rain and step
-                if should_rain {
-                    let rain_amount = tick_config.rain_rate * 0.01;
-                    for y in 0..self.map.height {
-                        for x in 0..self.map.width {
-                            self.pipe_water.add_water(x, y, rain_amount);
+                // Wind-driven water cycle: evaporation → wind transport → precipitation
+                // No uniform random rain — ALL rain comes from wind-carried moisture.
+                // Manual rain toggle ('r') adds moisture to the atmosphere directly.
+                if self.tick % 3 == 0 {
+                    // Manual rain: inject atmospheric moisture everywhere (simulates storm)
+                    if should_rain {
+                        for v in self.wind.moisture_carried.iter_mut() {
+                            *v = (*v + 0.01).min(1.0);
                         }
                     }
-                }
-                self.pipe_water.step(&self.heights, 0.1);
-
-                // Wind carries moisture: pick up over water, drop on windward slopes
-                if self.tick % 3 == 0 {
                     let map_ref = &self.map;
                     let precip = self.wind.advect_moisture(&self.heights, &|x, y| {
                         self.pipe_water.get_depth(x, y) > 0.002
                             || matches!(map_ref.get(x, y), Some(&crate::tilemap::Terrain::Water))
                     });
-                    // Add orographic precipitation to pipe water
+                    // Precipitation from wind moisture → surface water
                     for y in 0..self.map.height {
                         for x in 0..self.map.width {
-                            let p = precip[y * self.map.width + x];
+                            let i = y * self.map.width + x;
+                            let p = precip[i];
                             if p > 0.0001 {
                                 self.pipe_water.add_water(x, y, p * 0.5);
+                            }
+                            // Saturation rain: if atmospheric moisture > 0.8, excess drops
+                            let excess = (self.wind.moisture_carried[i] - 0.8).max(0.0);
+                            if excess > 0.001 {
+                                self.pipe_water.add_water(x, y, excess * 0.1);
+                                self.wind.moisture_carried[i] -= excess * 0.1;
                             }
                         }
                     }
                 }
+                self.pipe_water.step(&self.heights, 0.1);
 
                 // Sediment transport: run every 5 ticks (geological timescale)
                 if self.tick % 5 == 0 {
