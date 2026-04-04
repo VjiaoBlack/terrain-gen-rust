@@ -1107,7 +1107,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // thermal_erosion disabled: was producing unrealistic results
     // thermal_erosion(&mut heights, w, h, config.thermal_threshold, config.thermal_c, config.thermal_iters);
 
-    // Stage 3: Hydrology
+    // Stage 3: Hydrology — compute flow for river mask but DON'T carve terrain
     priority_flood(&mut heights, w, h);
     let flow = compute_flow_direction(&heights, w, h);
     let accum = compute_flow_accumulation(&heights, &flow, w, h);
@@ -1119,8 +1119,9 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         config.river_max_width,
     );
 
-    // Stage 4: River carving
-    carve_rivers(&mut heights, w, h, &river_mask, &river_width, &accum);
+    // Stage 4: River carving DISABLED — was creating cliff-like deep channels
+    // Rivers are shown via river_mask + WaterMap seeding, not terrain carving
+    // carve_rivers(&mut heights, w, h, &river_mask, &river_width, &accum);
 
     // Stage 5: Droplet erosion disabled — was creating weird deep lakes
     // droplet_erosion(&mut heights, w, h, config);
