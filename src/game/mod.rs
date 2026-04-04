@@ -2775,14 +2775,23 @@ impl Game {
                         }
                     }
                     let map_ref = &self.map;
-                    let precip = self.wind.advect_moisture(&self.heights, &|x, y| {
+                    let (precip, evaporated) = self.wind.advect_moisture(&self.heights, &|x, y| {
                         self.pipe_water.get_depth(x, y) > 0.002
                             || matches!(map_ref.get(x, y), Some(&crate::tilemap::Terrain::Water))
                     });
-                    // Precipitation from wind moisture → surface water
+                    // Mass-conserving water cycle:
+                    // - Subtract evaporated water from surface (conservation!)
+                    // - Add precipitated water back to surface
                     for y in 0..self.map.height {
                         for x in 0..self.map.width {
                             let i = y * self.map.width + x;
+                            // Remove evaporated water from surface
+                            if evaporated[i] > 0.0001 {
+                                let depth = self.pipe_water.get_depth(x, y);
+                                let remove = evaporated[i].min(depth * 0.5); // don't drain more than half
+                                self.pipe_water.add_water(x, y, -remove);
+                            }
+                            // Add precipitation
                             let p = precip[i];
                             if p > 0.0001 {
                                 self.pipe_water.add_water(x, y, p * 0.5);

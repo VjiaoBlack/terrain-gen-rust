@@ -2167,30 +2167,33 @@ impl WindField {
     /// - Otherwise moisture is transported downwind via semi-Lagrangian advection.
     ///
     /// Returns a Vec of orographic precipitation amounts per tile (rain deposited).
+    /// Returns (precipitation, evaporated) — both per-tile Vec<f64>.
+    /// Caller must subtract evaporated from surface water to conserve mass.
     pub fn advect_moisture(
         &mut self,
         heights: &[f64],
         is_water: &impl Fn(usize, usize) -> bool,
-    ) -> Vec<f64> {
+    ) -> (Vec<f64>, Vec<f64>) {
         let w = self.width;
         let h = self.height;
         let n = w * h;
         let mut precip = vec![0.0f64; n];
+        let mut evaporated = vec![0.0f64; n];
 
         // Phase 1: Pick up moisture over water, very slow loss over land
-        // so moisture can travel far (100+ tiles)
         const PICKUP_RATE: f64 = 0.08;
-        const EVAP_RATE: f64 = 0.0005; // 0.05% per call — moisture survives ~200 tiles
+        const EVAP_RATE: f64 = 0.0005;
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;
                 if is_water(x, y) {
-                    // Wind picks up moisture over water bodies
+                    // Wind picks up moisture — track how much was taken
                     let capacity = self.wind_speed[i].min(1.0);
-                    self.moisture_carried[i] +=
-                        PICKUP_RATE * (capacity - self.moisture_carried[i]).max(0.0);
+                    let pickup = PICKUP_RATE * (capacity - self.moisture_carried[i]).max(0.0);
+                    self.moisture_carried[i] += pickup;
+                    evaporated[i] = pickup; // caller removes this from surface water
                 } else {
-                    // Small evaporation loss over land
+                    // Small loss over land
                     self.moisture_carried[i] *= 1.0 - EVAP_RATE;
                 }
             }
@@ -2252,7 +2255,7 @@ impl WindField {
             *v = v.clamp(0.0, 1.0);
         }
 
-        precip
+        (precip, evaporated)
     }
 
     /// Get the prevailing wind direction for a given season.
@@ -4736,7 +4739,7 @@ mod tests {
 
         // Run several advection steps
         for _ in 0..30 {
-            let _precip = wind.advect_moisture(&heights, &is_water);
+            let (_precip, _evap) = wind.advect_moisture(&heights, &is_water);
         }
 
         // Downwind of water (x=20), should have atmospheric moisture
@@ -4792,7 +4795,7 @@ mod tests {
 
         let mut total_precip = vec![0.0f64; w * h];
         for _ in 0..50 {
-            let precip = wind.advect_moisture(&heights, &is_water);
+            let (precip, _evap) = wind.advect_moisture(&heights, &is_water);
             for i in 0..precip.len() {
                 total_precip[i] += precip[i];
             }
