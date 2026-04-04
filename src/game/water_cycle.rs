@@ -18,58 +18,80 @@ impl super::Game {
                 .evolve_curl_noise(&self.heights, self.tick as f64, self.terrain_config.seed);
         }
 
-        // Moisture update runs every tick for passive decay, groundwater, and vegetation.
-        // Precipitation from atmospheric moisture only on advection ticks (every 3)
-        // to keep deposition in sync with wind transport.
         let is_advection_tick = self.tick % 3 == 0;
-        self.moisture.update(
-            &mut self.pipe_water,
-            &mut self.vegetation,
-            &self.map,
-            &mut self.wind,
-            &self.heights,
-            is_advection_tick,
-        );
 
-        // Wind-driven water cycle: evaporation -> wind transport -> precipitation
-        // No uniform random rain -- ALL rain comes from wind-carried moisture.
-        // Manual rain toggle ('r') adds moisture to the atmosphere directly.
-        if is_advection_tick {
-            // Manual rain: inject atmospheric moisture everywhere (simulates storm)
-            if should_rain {
-                for v in self.wind.moisture_carried.iter_mut() {
-                    *v = (*v + 0.01).min(1.0);
+        match self.sim_config.rain_mode {
+            crate::simulation::RainMode::WindDriven => {
+                // Precipitation from atmospheric moisture only on advection ticks
+                self.moisture.update(
+                    &mut self.pipe_water,
+                    &mut self.vegetation,
+                    &self.map,
+                    &mut self.wind,
+                    &self.heights,
+                    is_advection_tick,
+                );
+
+                if is_advection_tick {
+                    if should_rain {
+                        for v in self.wind.moisture_carried.iter_mut() {
+                            *v = (*v + 0.01).min(1.0);
+                        }
+                    }
+                    let (precip, evaporated) = self.wind.advect_moisture(
+                        &self.heights,
+                        &self.pipe_water.ocean_mask,
+                        &self.moisture.moisture,
+                    );
+                    for y in 0..self.map.height {
+                        for x in 0..self.map.width {
+                            let i = y * self.map.width + x;
+                            if evaporated[i] > 0.0001 {
+                                let depth = self.pipe_water.get_depth(x, y);
+                                let remove = evaporated[i].min(depth * 0.5);
+                                self.pipe_water.add_water(x, y, -remove);
+                            }
+                            let p = precip[i];
+                            if p > 0.0001 {
+                                self.pipe_water.add_water(x, y, p * 0.5);
+                            }
+                            let excess = (self.wind.moisture_carried[i] - 0.8).max(0.0);
+                            if excess > 0.001 {
+                                self.pipe_water.add_water(x, y, excess * 0.1);
+                                self.wind.moisture_carried[i] -= excess * 0.1;
+                            }
+                        }
+                    }
                 }
             }
-            let (precip, evaporated) = self.wind.advect_moisture(
-                &self.heights,
-                &self.pipe_water.ocean_mask,
-                &self.moisture.moisture,
-            );
-            // Mass-conserving water cycle:
-            // - Subtract evaporated water from surface (conservation!)
-            // - Add precipitated water back to surface
-            for y in 0..self.map.height {
-                for x in 0..self.map.width {
-                    let i = y * self.map.width + x;
-                    // Remove evaporated water from surface
-                    if evaporated[i] > 0.0001 {
-                        let depth = self.pipe_water.get_depth(x, y);
-                        let remove = evaporated[i].min(depth * 0.5); // don't drain more than half
-                        self.pipe_water.add_water(x, y, -remove);
-                    }
-                    // Add precipitation
-                    let p = precip[i];
-                    if p > 0.0001 {
-                        self.pipe_water.add_water(x, y, p * 0.5);
-                    }
-                    // Saturation rain: if atmospheric moisture > 0.8, excess drops
-                    let excess = (self.wind.moisture_carried[i] - 0.8).max(0.0);
-                    if excess > 0.001 {
-                        self.pipe_water.add_water(x, y, excess * 0.1);
-                        self.wind.moisture_carried[i] -= excess * 0.1;
-                    }
+            crate::simulation::RainMode::Uniform => {
+                // Uniform rain: add moisture directly to soil, bypass wind transport.
+                // Good for testing vegetation/groundwater without wind coupling.
+                const UNIFORM_RAIN: f64 = 0.002;
+                for i in 0..self.moisture.moisture.len() {
+                    self.moisture.moisture[i] =
+                        (self.moisture.moisture[i] + UNIFORM_RAIN).min(0.8);
                 }
+                // Still run moisture update for groundwater diffusion + vegetation
+                self.moisture.update(
+                    &mut self.pipe_water,
+                    &mut self.vegetation,
+                    &self.map,
+                    &mut self.wind,
+                    &self.heights,
+                    false, // no wind precipitation
+                );
+            }
+            crate::simulation::RainMode::Off => {
+                // No rain — only passive decay, groundwater, vegetation
+                self.moisture.update(
+                    &mut self.pipe_water,
+                    &mut self.vegetation,
+                    &self.map,
+                    &mut self.wind,
+                    &self.heights,
+                    false,
+                );
             }
         }
         self.pipe_water.step(&self.heights, 0.1);

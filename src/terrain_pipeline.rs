@@ -31,6 +31,8 @@ pub struct PipelineConfig {
     // Biome
     pub shadow_strength: f64,
     pub water_dist_falloff: f64,
+    // Pipeline toggles
+    pub spl_erosion_enabled: bool,
 }
 
 impl Default for PipelineConfig {
@@ -53,6 +55,7 @@ impl Default for PipelineConfig {
             droplet_inertia: 0.05,
             shadow_strength: 0.5,
             water_dist_falloff: 12.0,
+            spl_erosion_enabled: true,
         }
     }
 }
@@ -1117,7 +1120,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
 
     // Stage 3b: Analytical SPL erosion (replaces droplet erosion)
     // SPL is pure incision — no silt deposition in ocean basins.
-    {
+    if config.spl_erosion_enabled {
         let spl_params = crate::analytical_erosion::SplParams {
             water_level: config.terrain.water_level,
             k: 0.0003, // reduced from 0.001 — prevents over-incision near coast
