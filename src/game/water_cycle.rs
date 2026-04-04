@@ -15,19 +15,23 @@ impl super::Game {
                 .evolve_curl_noise(&self.heights, self.tick as f64, self.terrain_config.seed);
         }
 
-        // Moisture update runs every tick -- pipe_water is the sole water source now
+        // Moisture update runs every tick for passive decay, groundwater, and vegetation.
+        // Precipitation from atmospheric moisture only on advection ticks (every 3)
+        // to keep deposition in sync with wind transport.
+        let is_advection_tick = self.tick % 3 == 0;
         self.moisture.update(
             &mut self.pipe_water,
             &mut self.vegetation,
             &self.map,
             &mut self.wind,
             &self.heights,
+            is_advection_tick,
         );
 
         // Wind-driven water cycle: evaporation -> wind transport -> precipitation
         // No uniform random rain -- ALL rain comes from wind-carried moisture.
         // Manual rain toggle ('r') adds moisture to the atmosphere directly.
-        if self.tick % 3 == 0 {
+        if is_advection_tick {
             // Manual rain: inject atmospheric moisture everywhere (simulates storm)
             if should_rain {
                 for v in self.wind.moisture_carried.iter_mut() {

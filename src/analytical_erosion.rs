@@ -119,10 +119,13 @@ pub fn apply_spl_erosion(
             }
 
             // SPL: erosion_rate = K * A^m * S^n
+            // Cap per-tile erosion at 50% of the slope to the lowest neighbor.
+            // This prevents creating inverted slopes (pits) in a single pass.
             if max_slope > 0.0 {
                 let area = drainage[i];
                 let rate = params.k * area.powf(params.m) * max_slope.powf(params.n);
-                erosion[i] = rate * params.time;
+                let max_erosion = max_slope * 0.5; // don't erode more than half the drop
+                erosion[i] = (rate * params.time).min(max_erosion);
             }
         }
     }

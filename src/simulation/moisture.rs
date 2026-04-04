@@ -80,6 +80,12 @@ impl MoistureMap {
     /// Orographic lift causes heavier precipitation on windward slopes.
     /// Saturation overflow goes to pipe_water surface depth.
     /// Also updates vegetation based on moisture bands.
+    /// Update moisture system for one tick.
+    ///
+    /// `advection_tick`: true when wind.advect_moisture() is also being called
+    /// this tick. Precipitation from atmospheric moisture only happens on
+    /// advection ticks to keep deposition and transport in sync — otherwise
+    /// moisture rains out 3x faster than it moves through the wind field.
     pub fn update(
         &mut self,
         pipe_water: &mut crate::pipe_water::PipeWater,
@@ -87,6 +93,7 @@ impl MoistureMap {
         map: &crate::tilemap::TileMap,
         wind: &mut WindField,
         heights: &[f64],
+        advection_tick: bool,
     ) {
         let w_field = wind.width;
         let h_field = wind.height;
@@ -119,42 +126,47 @@ impl MoistureMap {
                 // Passive decay: un-rained tiles slowly dry out
                 self.moisture[i] *= PASSIVE_DECAY;
 
-                // Compute terrain gradient (central differences)
-                let h_here = heights[i];
-                let h_left = if x > 0 { heights[i - 1] } else { h_here };
-                let h_right = if x + 1 < self.width {
-                    heights[i + 1]
-                } else {
-                    h_here
-                };
-                let h_up = if y > 0 {
-                    heights[i - self.width]
-                } else {
-                    h_here
-                };
-                let h_down = if y + 1 < self.height {
-                    heights[i + self.width]
-                } else {
-                    h_here
-                };
-                let slope_x = (h_right - h_left) * 0.5;
-                let slope_y = (h_down - h_up) * 0.5;
+                // Precipitation only on advection ticks — keeps deposition in sync
+                // with transport so moisture can actually travel inland before raining out.
+                if advection_tick {
+                    // Compute terrain gradient (central differences)
+                    let h_here = heights[i];
+                    let h_left = if x > 0 { heights[i - 1] } else { h_here };
+                    let h_right = if x + 1 < self.width {
+                        heights[i + 1]
+                    } else {
+                        h_here
+                    };
+                    let h_up = if y > 0 {
+                        heights[i - self.width]
+                    } else {
+                        h_here
+                    };
+                    let h_down = if y + 1 < self.height {
+                        heights[i + self.width]
+                    } else {
+                        h_here
+                    };
+                    let slope_x = (h_right - h_left) * 0.5;
+                    let slope_y = (h_down - h_up) * 0.5;
 
-                // Wind direction at this tile
-                let (wx, wy) = wind.get_wind(x, y);
+                    // Wind direction at this tile
+                    let (wx, wy) = wind.get_wind(x, y);
 
-                // Orographic lift: dot(wind_direction, terrain_gradient).max(0.0)
-                let orographic_lift = (wx * slope_x + wy * slope_y).max(0.0);
+                    // Orographic lift: dot(wind_direction, terrain_gradient).max(0.0)
+                    let orographic_lift = (wx * slope_x + wy * slope_y).max(0.0);
 
-                // Total precipitation from atmospheric moisture
-                let carried = wind.moisture_carried[i];
-                let total_precip = carried * (BACKGROUND_RATE + orographic_lift * OROGRAPHIC_RATE);
+                    // Total precipitation from atmospheric moisture
+                    let carried = wind.moisture_carried[i];
+                    let total_precip =
+                        carried * (BACKGROUND_RATE + orographic_lift * OROGRAPHIC_RATE);
 
-                // Write precipitation DIRECTLY to soil moisture
-                self.moisture[i] += total_precip;
+                    // Write precipitation DIRECTLY to soil moisture
+                    self.moisture[i] += total_precip;
 
-                // Subtract from atmospheric moisture
-                wind.moisture_carried[i] = (carried - total_precip).max(0.0);
+                    // Subtract from atmospheric moisture
+                    wind.moisture_carried[i] = (carried - total_precip).max(0.0);
+                }
 
                 // Saturation overflow: excess soil moisture goes to surface water
                 if self.moisture[i] > SATURATION_THRESHOLD {
@@ -329,7 +341,7 @@ mod tests {
             if tick % 3 == 0 {
                 wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
             }
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         // Measure windward moisture (x=6..19, excluding ocean)
@@ -400,7 +412,7 @@ mod tests {
             if tick % 3 == 0 {
                 wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
             }
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         // Ocean tiles should have moisture = 1.0
@@ -437,7 +449,7 @@ mod tests {
 
         // Passive decay at 0.995/tick: 0.8 * 0.995^1000 ≈ 0.005
         for _ in 0..1000 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         assert!(
@@ -471,7 +483,7 @@ mod tests {
                     mm.moisture[y * 10 + x] = 0.3;
                 }
             }
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         assert!(
@@ -494,7 +506,7 @@ mod tests {
         // Proportional decay: at moisture=0.0, factor=-0.3, rate=0.001*0.3=0.0003/tick
         // 0.5 / 0.0003 = ~1667 ticks to fully decay
         for _ in 0..2000 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         assert!(
@@ -533,7 +545,7 @@ mod tests {
             if tick % 3 == 0 {
                 wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
             }
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         // Near-coast land (x=5) should have more moisture than far east (x=25)
@@ -588,7 +600,7 @@ mod tests {
             if tick % 3 == 0 {
                 wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
             }
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         // Windward (x=8..13, before ridge) vs leeward (x=20..25, after ridge)
@@ -650,7 +662,7 @@ mod tests {
             for v in wind.moisture_carried.iter_mut() {
                 *v = (*v + 0.1).min(1.0);
             }
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
         let total_after: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
 
@@ -861,7 +873,7 @@ mod tests {
 
         // Run 100 ticks of just moisture update (what step() does)
         for tick in 0..100 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
             // Also step pipe_water like game does
             pw.step(&heights, 0.1);
 
@@ -1008,7 +1020,7 @@ mod tests {
         for tick in 0..100 {
             // Replicate game step() order:
             // 1. moisture.update
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
 
             // 2. Every 3 ticks: wind.advect_moisture (no manual rain)
             if tick % 3 == 0 {
@@ -1153,7 +1165,7 @@ mod tests {
         eprintln!("=== DIAGNOSTIC 3b: Full water cycle WITH manual rain ===");
 
         for tick in 0..100 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
 
             if tick % 3 == 0 {
                 // Manual rain: inject atmospheric moisture (what 'r' toggle does)
@@ -1298,7 +1310,7 @@ mod tests {
 
         // Run 300 ticks with full water cycle
         for tick in 0..300 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
 
             if tick % 3 == 0 {
                 let (precip, evaporated) =
@@ -1442,7 +1454,7 @@ mod tests {
         eprintln!();
 
         // Single update
-        mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+        mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
 
         eprintln!("After 1 update (y=5 cross-section):");
         for x in 0..w {
@@ -1452,7 +1464,7 @@ mod tests {
 
         // 10 more updates
         for _ in 0..9 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
 
         eprintln!("After 10 updates (y=5 cross-section):");
@@ -1463,7 +1475,7 @@ mod tests {
 
         // 50 more
         for _ in 0..50 {
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
         }
         eprintln!("After 60 updates (y=5 cross-section):");
         for x in 0..w {
@@ -1608,7 +1620,7 @@ mod tests {
         for tick in 0..100 {
             // Count pipe_water before moisture update
             let pw_before_mm: f64 = pw.depth.iter().sum();
-            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, true);
             let pw_after_mm: f64 = pw.depth.iter().sum();
             total_mm_orog_rain += pw_after_mm - pw_before_mm;
 
@@ -1714,6 +1726,7 @@ mod tests {
                 &tilemap,
                 &mut wind,
                 &heights,
+                true,
             );
         }
 

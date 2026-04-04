@@ -1120,6 +1120,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     {
         let spl_params = crate::analytical_erosion::SplParams {
             water_level: config.terrain.water_level,
+            k: 0.0003, // reduced from 0.001 — prevents over-incision near coast
             ..crate::analytical_erosion::SplParams::default()
         };
         crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
