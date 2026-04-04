@@ -182,17 +182,16 @@ impl MoistureMap {
                 } else {
                     self.moisture[idx]
                 };
-                // Vegetation grows when avg moisture is adequate (>0.1).
-                // Very high moisture (>0.9) is waterlogged — slows growth but doesn't kill.
-                if can_grow && m > 0.1 {
-                    if m > 0.9 {
-                        // Waterlogged: slow growth (50% rate)
-                        if vegetation.get(x, y) < 0.5 {
-                            vegetation.grow(x, y);
-                        }
-                    } else {
-                        vegetation.grow(x, y);
+                // Proportional vegetation growth (unified_hydrology.md Step 5).
+                // Continuous moisture factor replaces the old binary threshold.
+                if can_grow {
+                    let factor = crate::simulation::vegetation::moisture_growth_factor(m);
+                    if factor > 0.0 {
+                        vegetation.grow_scaled(x, y, factor);
+                    } else if factor < 0.0 {
+                        vegetation.decay_scaled(x, y, -factor);
                     }
+                    // factor == 0.0: stasis, no change
                 } else {
                     vegetation.decay(x, y);
                 }
@@ -445,8 +444,9 @@ mod tests {
         let mut pw = crate::pipe_water::PipeWater::new(10, 10);
         *vm.get_mut(5, 5).unwrap() = 0.5; // some initial vegetation
 
-        // slower decay (0.003/tick), 0.5 / 0.003 = ~167 ticks to fully decay
-        for _ in 0..200 {
+        // Proportional decay: at moisture=0.0, factor=-0.3, rate=0.001*0.3=0.0003/tick
+        // 0.5 / 0.0003 = ~1667 ticks to fully decay
+        for _ in 0..2000 {
             mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
 
