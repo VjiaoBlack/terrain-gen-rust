@@ -2663,8 +2663,8 @@ impl Game {
                     tick_config.rain_rate *= 1.5;
                 }
 
-                // Seasonal auto-rain (rain_mult: spring=1.5, summer=0.5, autumn=1.0, winter=0.3)
-                let should_rain = self.raining || (self.tick % 20 == 0 && mods.rain_mult > 0.4);
+                // Rain only when player toggles it on (no sneaky auto-rain)
+                let should_rain = self.raining;
                 if should_rain {
                     self.water.rain(&tick_config);
                 }
@@ -2676,8 +2676,12 @@ impl Game {
                     (self.camera.y.max(0) as usize).saturating_add(vh as usize),
                 ));
                 if should_rain || self.water.has_water() {
+                    // Disable erosion — it makes lakes super deep and weird.
+                    // Water still flows, just doesn't erode terrain.
+                    let mut no_erosion_config = tick_config.clone();
+                    no_erosion_config.erosion_enabled = false;
                     self.water
-                        .update(&mut self.heights, &tick_config, viewport_bounds);
+                        .update(&mut self.heights, &no_erosion_config, viewport_bounds);
                     self.moisture
                         .update(&self.water, &mut self.vegetation, &self.map);
                 }
