@@ -27,9 +27,9 @@ impl Default for TerrainGenConfig {
             octaves: 4,
             persistence: 0.5,
             lacunarity: 2.0,
-            water_level: 0.35,
-            sand_level: 0.40,
-            grass_level: 0.55,
+            water_level: 0.42,
+            sand_level: 0.47,
+            grass_level: 0.58,
             forest_level: 0.70,
             mountain_level: 0.85,
         }

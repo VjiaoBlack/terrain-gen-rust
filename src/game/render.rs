@@ -2219,7 +2219,7 @@ impl super::Game {
                         self.pipeline_temperature[idx],
                         avg_m, // use average moisture instead of frozen pipeline moisture
                         self.pipeline_slope[idx],
-                        0.35, // water_level default
+                        self.terrain_config.water_level,
                     );
                     if let Some(current) = self.map.get(ux, uy) {
                         if *current != would_be {

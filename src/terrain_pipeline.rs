@@ -546,8 +546,12 @@ pub fn droplet_erosion(heights: &mut [f64], w: usize, h: usize, config: &Pipelin
                     (sediment - cap) * deposit_speed
                 };
                 sediment -= deposit;
-                // Deposit to 4 nearest cells
-                bilinear_add(heights, w, px, py, deposit);
+                // Deposit to 4 nearest cells — but NOT below water level
+                // (prevents silt from filling ocean basins flat)
+                if height_here > config.terrain.water_level {
+                    bilinear_add(heights, w, px, py, deposit);
+                }
+                // If below water level, sediment is "lost to the deep" (dropped)
             } else {
                 // Erode
                 let erode = ((cap - sediment) * erode_speed).min((-delta_h).max(0.0));
@@ -1102,12 +1106,15 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Stage 1: Base height (fBm)
     let (mut map, mut heights) = terrain_gen::generate_terrain(w, h, &config.terrain);
 
-    // Stage 2: Terraces + light thermal erosion (5 iters, higher threshold)
-    apply_terraces(&mut heights, w, h, config);
+    // Stage 2: Terracing DISABLED — creates unnatural step patterns
+    // apply_terraces(&mut heights, w, h, config);
+
+    // Light thermal erosion to smooth spikes (5 iters, conservative)
     thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
 
-    // Stage 3: Droplet erosion BEFORE priority_flood (research fix —
-    // droplets stalled in flat basins when run after priority_flood)
+    // Stage 3: Droplet erosion BEFORE priority_flood
+    // NOTE: droplets deposit silt in ocean basins, raising the floor.
+    // TODO: skip deposition below water_level to preserve ocean depth.
     droplet_erosion(&mut heights, w, h, config);
 
     // Stage 4: Hydrology DISABLED — rivers will form naturally at runtime
