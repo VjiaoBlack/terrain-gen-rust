@@ -987,8 +987,14 @@ mod tests {
         for _ in 0..n {
             game.water.rain(&game.sim_config);
             game.water.update(&mut game.heights, &game.sim_config, None);
-            game.moisture
-                .update(&game.water, &mut game.vegetation, &game.map);
+            game.moisture.update(
+                &game.water,
+                &mut game.vegetation,
+                &game.map,
+                &game.wind,
+                &game.heights,
+                &mut game.pipe_water,
+            );
         }
         let water_us = start.elapsed().as_micros() / n as u128;
 

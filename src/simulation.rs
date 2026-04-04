@@ -375,14 +375,24 @@ impl MoistureMap {
         wy * self.width + wx
     }
 
-    /// Update moisture from water presence and propagate.
+    /// Update moisture from water presence and propagate via wind advection.
+    /// Wind pushes moisture along its direction; orographic lift causes
+    /// precipitation on windward slopes (rain shadow effect).
     /// Also updates vegetation based on moisture bands.
     pub fn update(
         &mut self,
         water: &WaterMap,
         vegetation: &mut VegetationMap,
         map: &crate::tilemap::TileMap,
+        wind: &WindField,
+        heights: &[f64],
+        pipe_water: &mut crate::pipe_water::PipeWater,
     ) {
+        let w_field = wind.width;
+        let h_field = wind.height;
+        debug_assert_eq!(w_field, self.width);
+        debug_assert_eq!(h_field, self.height);
+
         // Step 1: moisture from water — gentle contribution, faster decay
         // Skip Water terrain tiles (permanent oceans) — only rain water drives moisture
         for y in 0..self.height {
@@ -404,28 +414,105 @@ impl MoistureMap {
             }
         }
 
-        // Step 2: propagate moisture forward (downwind = +y direction, like original)
-        // Conservative: what leaves a cell is subtracted from it
-        let mut delta = vec![0.0f64; self.width * self.height];
+        // Step 2: wind-driven moisture advection + orographic precipitation.
+        // Moisture moves in the wind direction. When wind pushes air uphill
+        // (dot product of wind direction and terrain slope > 0), moisture
+        // precipitates as rain — creating windward/leeward rain shadow.
+        const PRECIP_RATE: f64 = 0.4;
+        const TRANSPORT_RATE: f64 = 0.2; // fraction of moisture that moves per tick
+        let n = self.width * self.height;
+        let mut delta = vec![0.0f64; n];
+        let mut orographic_rain = vec![0.0f64; n];
+
         for y in 0..self.height {
             for x in 0..self.width {
                 let i = y * self.width + x;
                 let m = self.moisture[i];
-                let spread = m * 0.2; // total amount leaving this cell
-                // forward: 50% of spread
-                let fi = self.wrapping_idx(x as i32, y as i32 + 1);
-                delta[fi] += spread * 0.5;
-                // diagonals: 25% each
-                let fli = self.wrapping_idx(x as i32 + 1, y as i32 + 1);
-                delta[fli] += spread * 0.25;
-                let fri = self.wrapping_idx(x as i32 - 1, y as i32 + 1);
-                delta[fri] += spread * 0.25;
-                // subtract from source
-                delta[i] -= spread;
+                if m < 1e-6 {
+                    continue;
+                }
+
+                // Wind vector at this tile
+                let (wx, wy) = wind.get_wind(x, y);
+                let speed = wind.get_speed(x, y);
+
+                // Transport amount scales with wind speed
+                let transport = m * TRANSPORT_RATE * speed.min(1.0);
+
+                // Compute terrain slope (central differences)
+                let h_here = heights[i];
+                let h_left = if x > 0 { heights[i - 1] } else { h_here };
+                let h_right = if x + 1 < self.width {
+                    heights[i + 1]
+                } else {
+                    h_here
+                };
+                let h_up = if y > 0 {
+                    heights[i - self.width]
+                } else {
+                    h_here
+                };
+                let h_down = if y + 1 < self.height {
+                    heights[i + self.width]
+                } else {
+                    h_here
+                };
+                let slope_x = (h_right - h_left) * 0.5;
+                let slope_y = (h_down - h_up) * 0.5;
+
+                // Orographic lift: wind pushing air uphill
+                let orographic_lift = (wx * slope_x + wy * slope_y).max(0.0);
+                let precip = transport * orographic_lift * PRECIP_RATE;
+
+                // Remaining moisture after precipitation moves downwind
+                let moved = transport - precip;
+                orographic_rain[i] += precip;
+
+                if moved > 1e-8 {
+                    // Determine target tile from wind direction.
+                    // Quantize wind direction into primary + diagonal neighbors.
+                    let speed_inv = if speed > 1e-6 { 1.0 / speed } else { 0.0 };
+                    let dir_x = wx * speed_inv; // normalized wind direction
+                    let dir_y = wy * speed_inv;
+
+                    // Primary target: round wind direction to nearest tile offset
+                    let tx = (x as f64 + dir_x).round() as i32;
+                    let ty = (y as f64 + dir_y).round() as i32;
+                    let ti = self.wrapping_idx(tx, ty);
+
+                    // Also spread to perpendicular neighbor for smoothness
+                    let perp_x = -dir_y;
+                    let perp_y = dir_x;
+                    let lx = (x as f64 + dir_x * 0.5 + perp_x * 0.5).round() as i32;
+                    let ly = (y as f64 + dir_y * 0.5 + perp_y * 0.5).round() as i32;
+                    let li = self.wrapping_idx(lx, ly);
+                    let rx = (x as f64 + dir_x * 0.5 - perp_x * 0.5).round() as i32;
+                    let ry = (y as f64 + dir_y * 0.5 - perp_y * 0.5).round() as i32;
+                    let ri = self.wrapping_idx(rx, ry);
+
+                    // 60% primary, 20% each perpendicular side
+                    delta[ti] += moved * 0.6;
+                    delta[li] += moved * 0.2;
+                    delta[ri] += moved * 0.2;
+                }
+
+                // Subtract what left this cell (transport = precip + moved)
+                delta[i] -= transport;
             }
         }
-        for i in 0..self.moisture.len() {
+
+        for i in 0..n {
             self.moisture[i] = (self.moisture[i] + delta[i]).clamp(0.0, 1.0);
+        }
+
+        // Feed orographic rain into the pipe water system
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let i = y * self.width + x;
+                if orographic_rain[i] > 1e-6 {
+                    pipe_water.add_water(x, y, orographic_rain[i] * 0.1);
+                }
+            }
         }
 
         // Step 3: box blur
@@ -2218,6 +2305,18 @@ mod tests {
         TileMap::new(w, h, Terrain::Grass)
     }
 
+    /// Default wind field for moisture tests: gentle southward wind (prevailing_dir=PI/2).
+    fn default_wind(w: usize, h: usize) -> WindField {
+        WindField::compute_from_terrain(
+            &flat_heights(w, h, 0.3),
+            w,
+            h,
+            std::f64::consts::FRAC_PI_2,
+            0.6,
+            None,
+        )
+    }
+
     #[test]
     fn rain_adds_water() {
         let mut wm = WaterMap::new(50, 50);
@@ -2339,9 +2438,12 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
+        let wind = default_wind(10, 10);
+        let heights = flat_heights(10, 10, 0.3);
+        let mut pw = crate::pipe_water::PipeWater::new(10, 10);
 
         for _ in 0..20 {
-            mm.update(&wm, &mut vm, &map);
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
         }
 
         assert!(
@@ -2349,7 +2451,13 @@ mod tests {
             "tile with water should have moisture: got {}",
             mm.get(5, 5)
         );
-        assert!(mm.get(5, 6) > 0.0, "moisture should propagate forward");
+        // Wind-driven propagation: moisture moves in wind direction (not just +y)
+        // Check that moisture spread beyond the source tile
+        let total_moisture: f64 = (0..100).map(|i| mm.moisture[i]).sum();
+        assert!(
+            total_moisture > mm.get(5, 5),
+            "moisture should propagate beyond source"
+        );
         assert!(
             mm.get(5, 5) > mm.get(0, 0),
             "water tile should be more moist than dry tile"
@@ -2363,10 +2471,13 @@ mod tests {
         mm.moisture[55] = 0.8; // some initial moisture, no water
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
+        let wind = default_wind(10, 10);
+        let heights = flat_heights(10, 10, 0.3);
+        let mut pw = crate::pipe_water::PipeWater::new(10, 10);
 
         // slower decay (0.95 factor) needs more ticks
         for _ in 0..100 {
-            mm.update(&wm, &mut vm, &map);
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
         }
 
         assert!(
@@ -2382,6 +2493,9 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
+        let wind = default_wind(10, 10);
+        let heights = flat_heights(10, 10, 0.3);
+        let mut pw = crate::pipe_water::PipeWater::new(10, 10);
 
         // Seed a region with moisture in the growth band (0.1-0.5)
         // so box blur keeps it above threshold
@@ -2398,7 +2512,7 @@ mod tests {
                     mm.moisture[y * 10 + x] = 0.3;
                 }
             }
-            mm.update(&wm, &mut vm, &map);
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
         }
 
         assert!(
@@ -2414,17 +2528,130 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
+        let wind = default_wind(10, 10);
+        let heights = flat_heights(10, 10, 0.3);
+        let mut pw = crate::pipe_water::PipeWater::new(10, 10);
         vm.vegetation[55] = 0.5; // some initial vegetation
 
         // slower decay (0.003/tick), 0.5 / 0.003 = ~167 ticks to fully decay
         for _ in 0..200 {
-            mm.update(&wm, &mut vm, &map);
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
         }
 
         assert!(
             vm.get(5, 5) < 0.1,
             "vegetation should decay without moisture: got {}",
             vm.get(5, 5)
+        );
+    }
+
+    #[test]
+    fn wind_driven_moisture_follows_wind_direction() {
+        // Wind blows east (prevailing_dir=0 means east).
+        // Place water source at center. After many ticks, moisture should
+        // be higher east of the source than west.
+        let mut wm = WaterMap::new(20, 20);
+        wm.water[10 * 20 + 10] = 0.5; // water at (10, 10)
+        let mut mm = MoistureMap::new(20, 20);
+        let mut vm = VegetationMap::new(20, 20);
+        let map = grass_map(20, 20);
+        let heights = flat_heights(20, 20, 0.3);
+        let wind = WindField::compute_from_terrain(&heights, 20, 20, 0.0, 0.6, None);
+        let mut pw = crate::pipe_water::PipeWater::new(20, 20);
+
+        for _ in 0..50 {
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+        }
+
+        // Downwind (east of source) should have more moisture than upwind (west)
+        let east_moisture = mm.get(15, 10);
+        let west_moisture = mm.get(5, 10);
+        assert!(
+            east_moisture > west_moisture,
+            "downwind should have more moisture: east={}, west={}",
+            east_moisture,
+            west_moisture
+        );
+    }
+
+    #[test]
+    fn orographic_precipitation_rain_shadow() {
+        // Wind blows east. Create a ridge in the middle (x=10).
+        // Windward side (x<10) should get more moisture deposited;
+        // leeward side (x>10) should be drier (rain shadow).
+        let w = 20;
+        let h = 10;
+        let mut heights = vec![0.3; w * h];
+        // Create a ridge: heights rise toward x=10, then drop
+        for y in 0..h {
+            for x in 0..w {
+                let dist = (x as f64 - 10.0).abs();
+                heights[y * w + x] = 0.3 + (5.0 - dist).max(0.0) * 0.1;
+            }
+        }
+
+        let mut wm = WaterMap::new(w, h);
+        // Water source on the far west
+        for y in 0..h {
+            wm.water[y * w + 0] = 0.3;
+        }
+        let mut mm = MoistureMap::new(w, h);
+        let mut vm = VegetationMap::new(w, h);
+        let map = grass_map(w, h);
+        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+
+        for _ in 0..80 {
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+        }
+
+        // Windward slope (x=7, before ridge peak) vs leeward (x=13, after ridge)
+        let windward_avg: f64 = (0..h).map(|y| mm.get(7, y)).sum::<f64>() / h as f64;
+        let leeward_avg: f64 = (0..h).map(|y| mm.get(15, y)).sum::<f64>() / h as f64;
+        assert!(
+            windward_avg > leeward_avg,
+            "windward should be wetter than leeward (rain shadow): windward={}, leeward={}",
+            windward_avg,
+            leeward_avg
+        );
+    }
+
+    #[test]
+    fn orographic_rain_feeds_pipe_water() {
+        // Wind blows east into a slope. Orographic rain should add water
+        // to the PipeWater system at windward slope tiles.
+        let w = 10;
+        let h = 5;
+        let mut heights = vec![0.3; w * h];
+        // Rising terrain from west to east
+        for y in 0..h {
+            for x in 0..w {
+                heights[y * w + x] = 0.3 + x as f64 * 0.05;
+            }
+        }
+
+        let mut wm = WaterMap::new(w, h);
+        // Water source on the west edge
+        for y in 0..h {
+            wm.water[y * w + 0] = 0.5;
+        }
+        let mut mm = MoistureMap::new(w, h);
+        let mut vm = VegetationMap::new(w, h);
+        let map = grass_map(w, h);
+        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+
+        let total_before: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
+        for _ in 0..40 {
+            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+        }
+        let total_after: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
+
+        assert!(
+            total_after > total_before,
+            "orographic rain should add water to pipe system: before={}, after={}",
+            total_before,
+            total_after
         );
     }
 

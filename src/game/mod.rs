@@ -2750,8 +2750,14 @@ impl Game {
                     no_erosion_config.erosion_enabled = false;
                     self.water
                         .update(&mut self.heights, &no_erosion_config, viewport_bounds);
-                    self.moisture
-                        .update(&self.water, &mut self.vegetation, &self.map);
+                    self.moisture.update(
+                        &self.water,
+                        &mut self.vegetation,
+                        &self.map,
+                        &self.wind,
+                        &self.heights,
+                        &mut self.pipe_water,
+                    );
                 }
 
                 // Pipe-model water simulation: add rain and step
