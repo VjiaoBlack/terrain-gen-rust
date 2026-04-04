@@ -2428,14 +2428,14 @@ impl Game {
                 }
                 self.particles.retain(|p| p.life > 0);
 
-                // Wind particle viewer: when wind overlay is active, spawn sparse
-                // particles that drift with the local wind vector.
-                if self.overlay == OverlayMode::Wind && self.tick % 3 == 0 {
+                // Wind particle viewer: when wind overlay is active, spawn DENSE
+                // particles that drift with the local wind vector — shows flow patterns.
+                if self.overlay == OverlayMode::Wind {
                     let mut rng = rand::rng();
-                    // Spawn a few particles at random visible positions
-                    let vw = 60i32; // approximate viewport width
-                    let vh = 40i32; // approximate viewport height
-                    for _ in 0..3 {
+                    let vw = 80i32;
+                    let vh = 50i32;
+                    // Spawn many particles every tick for visible flow
+                    for _ in 0..15 {
                         if self.particles.len() >= MAX_PARTICLES {
                             break;
                         }
@@ -2448,16 +2448,30 @@ impl Game {
                         {
                             let (wx, wy) = self.wind.get_wind(px as usize, py as usize);
                             let speed = self.wind.get_speed(px as usize, py as usize);
-                            if speed > 0.05 {
+                            if speed > 0.02 {
+                                // Particle char hints at direction
+                                let ch = if wx.abs() > wy.abs() {
+                                    if wx > 0.0 { '>' } else { '<' }
+                                } else if wy.abs() > 0.01 {
+                                    if wy > 0.0 { 'v' } else { '^' }
+                                } else {
+                                    '·'
+                                };
+                                // Color intensity by speed
+                                let intensity = (speed * 2.0).min(1.0);
                                 self.particles.push(Particle {
-                                    x: px as f64,
-                                    y: py as f64,
-                                    ch: '~',
-                                    fg: Color(150, 200, 255),
-                                    life: 20,
-                                    max_life: 20,
-                                    dx: wx * 0.5,
-                                    dy: wy * 0.5,
+                                    x: px as f64 + rng.random_range(-0.3..0.3),
+                                    y: py as f64 + rng.random_range(-0.3..0.3),
+                                    ch,
+                                    fg: Color(
+                                        (100.0 + 100.0 * intensity) as u8,
+                                        (180.0 + 50.0 * intensity) as u8,
+                                        255,
+                                    ),
+                                    life: 40,
+                                    max_life: 40,
+                                    dx: wx * 0.4,
+                                    dy: wy * 0.4,
                                     emissive: false,
                                 });
                             }
