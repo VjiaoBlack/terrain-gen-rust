@@ -73,16 +73,19 @@ impl MoistureMap {
         wy * self.width + wx
     }
 
-    /// Update moisture from water presence and propagate via wind advection.
-    /// Wind pushes moisture along its direction; orographic lift causes
-    /// precipitation on windward slopes (rain shadow effect).
+    /// Update moisture via unified hydrology Step 3: precipitation writes
+    /// directly to soil moisture from wind.moisture_carried.
+    ///
+    /// The single path: wind.moisture_carried -> self.moisture (direct write).
+    /// Orographic lift causes heavier precipitation on windward slopes.
+    /// Saturation overflow goes to pipe_water surface depth.
     /// Also updates vegetation based on moisture bands.
     pub fn update(
         &mut self,
         pipe_water: &mut crate::pipe_water::PipeWater,
         vegetation: &mut VegetationMap,
         map: &crate::tilemap::TileMap,
-        wind: &WindField,
+        wind: &mut WindField,
         heights: &[f64],
     ) {
         let w_field = wind.width;
@@ -90,57 +93,30 @@ impl MoistureMap {
         debug_assert_eq!(w_field, self.width);
         debug_assert_eq!(h_field, self.height);
 
-        // Step 1: moisture from water bodies
-        // Oceans and standing water are moisture SOURCES, not sinks.
+        // Precipitation constants (unified hydrology design doc Step 3)
+        const BACKGROUND_RATE: f64 = 0.002; // light rain everywhere wind has moisture
+        const OROGRAPHIC_RATE: f64 = 0.3; // heavy rain on windward slopes
+        const SATURATION_THRESHOLD: f64 = 0.8;
+        const PASSIVE_DECAY: f64 = 0.995; // un-rained tiles dry out
+
         for y in 0..self.height {
             for x in 0..self.width {
                 let i = y * self.width + x;
+
+                // Ocean tiles are always saturated
                 let is_ocean = matches!(
                     map.get(x, y),
                     Some(crate::tilemap::Terrain::Water) | Some(crate::tilemap::Terrain::Ice)
                 );
                 if is_ocean {
-                    // Ocean tiles have max moisture (they ARE water)
                     self.moisture[i] = 1.0;
                     continue;
                 }
-                let w = pipe_water.get_depth(x, y);
-                if w > 0.01 {
-                    // Standing water: high moisture
-                    self.moisture[i] = (self.moisture[i] + 0.1).min(1.0);
-                } else if w > 0.0001 {
-                    // Trace water: small boost
-                    self.moisture[i] = (self.moisture[i] + w * 0.5).min(1.0);
-                }
-            }
-        }
 
-        // Step 2: wind-driven moisture advection + orographic precipitation.
-        // Moisture moves in the wind direction. When wind pushes air uphill
-        // (dot product of wind direction and terrain slope > 0), moisture
-        // precipitates as rain — creating windward/leeward rain shadow.
-        const PRECIP_RATE: f64 = 0.4;
-        const TRANSPORT_RATE: f64 = 0.2; // fraction of moisture that moves per tick
-        let n = self.width * self.height;
-        let mut delta = vec![0.0f64; n];
-        let mut orographic_rain = vec![0.0f64; n];
+                // Passive decay: un-rained tiles slowly dry out
+                self.moisture[i] *= PASSIVE_DECAY;
 
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let i = y * self.width + x;
-                let m = self.moisture[i];
-                if m < 1e-6 {
-                    continue;
-                }
-
-                // Wind vector at this tile
-                let (wx, wy) = wind.get_wind(x, y);
-                let speed = wind.get_speed(x, y);
-
-                // Transport amount scales with wind speed
-                let transport = m * TRANSPORT_RATE * speed.min(1.0);
-
-                // Compute terrain slope (central differences)
+                // Compute terrain gradient (central differences)
                 let h_here = heights[i];
                 let h_left = if x > 0 { heights[i - 1] } else { h_here };
                 let h_right = if x + 1 < self.width {
@@ -161,65 +137,32 @@ impl MoistureMap {
                 let slope_x = (h_right - h_left) * 0.5;
                 let slope_y = (h_down - h_up) * 0.5;
 
-                // Orographic lift: wind pushing air uphill
+                // Wind direction at this tile
+                let (wx, wy) = wind.get_wind(x, y);
+
+                // Orographic lift: dot(wind_direction, terrain_gradient).max(0.0)
                 let orographic_lift = (wx * slope_x + wy * slope_y).max(0.0);
-                let precip = transport * orographic_lift * PRECIP_RATE;
 
-                // Remaining moisture after precipitation moves downwind
-                let moved = transport - precip;
-                orographic_rain[i] += precip;
+                // Total precipitation from atmospheric moisture
+                let carried = wind.moisture_carried[i];
+                let total_precip = carried * (BACKGROUND_RATE + orographic_lift * OROGRAPHIC_RATE);
 
-                if moved > 1e-8 {
-                    // Determine target tile from wind direction.
-                    // Quantize wind direction into primary + diagonal neighbors.
-                    let speed_inv = if speed > 1e-6 { 1.0 / speed } else { 0.0 };
-                    let dir_x = wx * speed_inv; // normalized wind direction
-                    let dir_y = wy * speed_inv;
+                // Write precipitation DIRECTLY to soil moisture
+                self.moisture[i] += total_precip;
 
-                    // Primary target: round wind direction to nearest tile offset
-                    let tx = (x as f64 + dir_x).round() as i32;
-                    let ty = (y as f64 + dir_y).round() as i32;
-                    let ti = self.wrapping_idx(tx, ty);
+                // Subtract from atmospheric moisture
+                wind.moisture_carried[i] = (carried - total_precip).max(0.0);
 
-                    // Also spread to perpendicular neighbor for smoothness
-                    let perp_x = -dir_y;
-                    let perp_y = dir_x;
-                    let lx = (x as f64 + dir_x * 0.5 + perp_x * 0.5).round() as i32;
-                    let ly = (y as f64 + dir_y * 0.5 + perp_y * 0.5).round() as i32;
-                    let li = self.wrapping_idx(lx, ly);
-                    let rx = (x as f64 + dir_x * 0.5 - perp_x * 0.5).round() as i32;
-                    let ry = (y as f64 + dir_y * 0.5 - perp_y * 0.5).round() as i32;
-                    let ri = self.wrapping_idx(rx, ry);
-
-                    // 60% primary, 20% each perpendicular side
-                    delta[ti] += moved * 0.6;
-                    delta[li] += moved * 0.2;
-                    delta[ri] += moved * 0.2;
-                }
-
-                // Subtract what left this cell (transport = precip + moved)
-                delta[i] -= transport;
-            }
-        }
-
-        for i in 0..n {
-            self.moisture[i] = (self.moisture[i] + delta[i]).clamp(0.0, 1.0);
-        }
-
-        // Feed orographic rain into the pipe water system
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let i = y * self.width + x;
-                if orographic_rain[i] > 1e-6 {
-                    pipe_water.add_water(x, y, orographic_rain[i] * 0.1);
+                // Saturation overflow: excess soil moisture goes to surface water
+                if self.moisture[i] > SATURATION_THRESHOLD {
+                    let overflow = self.moisture[i] - SATURATION_THRESHOLD;
+                    pipe_water.add_water(x, y, overflow * 0.1);
+                    self.moisture[i] = SATURATION_THRESHOLD;
                 }
             }
         }
 
-        // Step 3: box blur
-        self.box_blur();
-
-        // Step 3.5: update long-term moisture average
+        // Update long-term moisture average
         self.update_average();
 
         // Step 4: vegetation responds to AVERAGE moisture (not instantaneous).
@@ -256,23 +199,6 @@ impl MoistureMap {
             }
         }
     }
-
-    fn box_blur(&mut self) {
-        let mut temp = vec![0.0f64; self.width * self.height];
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let mut sum = 0.0;
-                for dy in -1i32..=1 {
-                    for dx in -1i32..=1 {
-                        let ni = self.wrapping_idx(x as i32 + dx, y as i32 + dy);
-                        sum += self.moisture[ni];
-                    }
-                }
-                temp[y * self.width + x] = (sum / 9.0).clamp(0.0, 1.0);
-            }
-        }
-        self.moisture = temp;
-    }
 }
 
 #[cfg(test)]
@@ -301,34 +227,155 @@ mod tests {
     }
 
     #[test]
-    fn moisture_rises_near_water() {
-        let mut mm = MoistureMap::new(10, 10);
-        let mut vm = VegetationMap::new(10, 10);
-        let map = grass_map(10, 10);
-        let wind = default_wind(10, 10);
-        let heights = flat_heights(10, 10, 0.3);
-        let mut pw = crate::pipe_water::PipeWater::new(10, 10);
-        pw.add_water(5, 5, 0.5); // water at (5, 5)
+    fn step3_precipitation_direct_to_soil_moisture() {
+        // 40x40 map, ocean on west (x=0..5), mountain ridge at x=20, wind blowing east.
+        // After 100 ticks of wind advection + precipitation:
+        // - Tiles x=6..19 (windward) should have moisture > 0.2
+        // - Tiles x=25..35 (rain shadow) should have moisture < half of windward avg
+        let w = 40;
+        let h = 40;
 
-        for _ in 0..20 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+        // Heights: flat everywhere with a gentle mountain ridge at x=20.
+        // Keep terrain uniform so wind field stays eastward (prevailing direction).
+        // The mountain is just a gentle bump, not a terrain wall.
+        let mut heights = vec![0.4; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                if x < 5 {
+                    // Ocean floor (below water level)
+                    heights[i] = 0.35;
+                } else {
+                    // Gentle mountain ridge centered at x=20, Gaussian-ish profile
+                    let dist = (x as f64 - 20.0).abs();
+                    let ridge = 0.15 * (-dist * dist / 18.0).exp();
+                    heights[i] = 0.4 + ridge;
+                }
+            }
         }
 
+        // TileMap: ocean tiles on x=0..5
+        let mut map = TileMap::new(w, h, Terrain::Grass);
+        for y in 0..h {
+            for x in 0..5 {
+                map.set(x, y, Terrain::Water);
+            }
+        }
+
+        // Wind blowing east (prevailing_dir=0.0)
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+
+        // PipeWater with ocean mask
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        for y in 0..h {
+            for x in 0..5 {
+                pw.set_ocean_boundary(x, y, 0.07);
+                pw.add_water(x, y, 0.07);
+            }
+        }
+
+        let mut mm = MoistureMap::new(w, h);
+        let mut vm = VegetationMap::new(w, h);
+
+        // Run 1000 ticks: wind advection (every 3 ticks) + moisture update (every tick)
+        // Wind needs time to evaporate from ocean, carry moisture inland, and precipitate.
+        for tick in 0..1000 {
+            if tick % 3 == 0 {
+                wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
+            }
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+        }
+
+        // Measure windward moisture (x=6..19, excluding ocean)
+        let mut windward_sum = 0.0;
+        let mut windward_count = 0;
+        for y in 0..h {
+            for x in 6..20 {
+                windward_sum += mm.get(x, y);
+                windward_count += 1;
+            }
+        }
+        let windward_avg = windward_sum / windward_count as f64;
+
+        // Measure rain shadow moisture (x=25..35)
+        let mut shadow_sum = 0.0;
+        let mut shadow_count = 0;
+        for y in 0..h {
+            for x in 25..36 {
+                shadow_sum += mm.get(x, y);
+                shadow_count += 1;
+            }
+        }
+        let shadow_avg = shadow_sum / shadow_count as f64;
+
+        eprintln!("Windward avg moisture (x=6..19): {:.4}", windward_avg);
+        eprintln!("Rain shadow avg moisture (x=25..35): {:.4}", shadow_avg);
+
         assert!(
-            mm.get(5, 5) > 0.05,
-            "tile with water should have moisture: got {}",
-            mm.get(5, 5)
+            windward_avg > 0.2,
+            "Windward tiles should have moisture > 0.2, got {:.4}",
+            windward_avg
         );
-        // Wind-driven propagation: moisture moves in wind direction (not just +y)
-        // Check that moisture spread beyond the source tile
-        let total_moisture: f64 = (0..100).map(|i| mm.moisture[i]).sum();
         assert!(
-            total_moisture > mm.get(5, 5),
-            "moisture should propagate beyond source"
+            shadow_avg < windward_avg * 0.5,
+            "Rain shadow should have < half windward moisture: shadow={:.4}, windward={:.4}",
+            shadow_avg,
+            windward_avg
         );
+    }
+
+    #[test]
+    fn moisture_rises_near_water() {
+        // In the unified hydrology, moisture comes from wind.moisture_carried
+        // via precipitation. Ocean tiles (Water) are set to 1.0 directly.
+        // Wind carries moisture from ocean and precipitates it on nearby land.
+        let w = 20;
+        let h = 10;
+        let mut mm = MoistureMap::new(w, h);
+        let mut vm = VegetationMap::new(w, h);
+        // Ocean on left (x=0..3), grass elsewhere
+        let mut map = TileMap::new(w, h, Terrain::Grass);
+        for y in 0..h {
+            for x in 0..3 {
+                map.set(x, y, Terrain::Water);
+            }
+        }
+        let heights = flat_heights(w, h, 0.3);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        for y in 0..h {
+            for x in 0..3 {
+                pw.set_ocean_boundary(x, y, 0.05);
+                pw.add_water(x, y, 0.05);
+            }
+        }
+
+        for tick in 0..200 {
+            if tick % 3 == 0 {
+                wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
+            }
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+        }
+
+        // Ocean tiles should have moisture = 1.0
         assert!(
-            mm.get(5, 5) > mm.get(0, 0),
-            "water tile should be more moist than dry tile"
+            mm.get(1, 5) > 0.9,
+            "ocean tile should have high moisture: got {}",
+            mm.get(1, 5)
+        );
+        // Near-coast land should have some moisture from precipitation
+        let coast_moisture = mm.get(4, 5);
+        assert!(
+            coast_moisture > 0.01,
+            "coastal land should have moisture from precipitation: got {}",
+            coast_moisture
+        );
+        // Far inland should have less moisture than coast
+        assert!(
+            mm.get(4, 5) > mm.get(15, 5),
+            "coast should be wetter than far inland: coast={}, far={}",
+            mm.get(4, 5),
+            mm.get(15, 5)
         );
     }
 
@@ -338,13 +385,13 @@ mod tests {
         mm.moisture[55] = 0.8; // some initial moisture, no water
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
-        let wind = default_wind(10, 10);
+        let mut wind = default_wind(10, 10);
         let heights = flat_heights(10, 10, 0.3);
         let mut pw = crate::pipe_water::PipeWater::new(10, 10);
 
-        // slower decay (0.95 factor) needs more ticks
-        for _ in 0..100 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+        // Passive decay at 0.995/tick: 0.8 * 0.995^1000 ≈ 0.005
+        for _ in 0..1000 {
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
 
         assert!(
@@ -359,7 +406,7 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
-        let wind = default_wind(10, 10);
+        let mut wind = default_wind(10, 10);
         let heights = flat_heights(10, 10, 0.3);
         let mut pw = crate::pipe_water::PipeWater::new(10, 10);
 
@@ -378,7 +425,7 @@ mod tests {
                     mm.moisture[y * 10 + x] = 0.3;
                 }
             }
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
 
         assert!(
@@ -393,14 +440,14 @@ mod tests {
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
-        let wind = default_wind(10, 10);
+        let mut wind = default_wind(10, 10);
         let heights = flat_heights(10, 10, 0.3);
         let mut pw = crate::pipe_water::PipeWater::new(10, 10);
         *vm.get_mut(5, 5).unwrap() = 0.5; // some initial vegetation
 
         // slower decay (0.003/tick), 0.5 / 0.003 = ~167 ticks to fully decay
         for _ in 0..200 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
 
         assert!(
@@ -413,67 +460,108 @@ mod tests {
     #[test]
     fn wind_driven_moisture_follows_wind_direction() {
         // Wind blows east (prevailing_dir=0 means east).
-        // Place water source at center. After many ticks, moisture should
-        // be higher east of the source than west.
-        let mut mm = MoistureMap::new(20, 20);
-        let mut vm = VegetationMap::new(20, 20);
-        let map = grass_map(20, 20);
-        let heights = flat_heights(20, 20, 0.3);
-        let wind = WindField::compute_from_terrain(&heights, 20, 20, 0.0, 0.6, None);
-        let mut pw = crate::pipe_water::PipeWater::new(20, 20);
-        pw.add_water(10, 10, 0.5); // water at (10, 10)
-
-        for _ in 0..50 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+        // Ocean on west edge provides moisture source. After wind advection,
+        // moisture should be higher near coast (west) than far inland (east).
+        let w = 30;
+        let h = 10;
+        let mut mm = MoistureMap::new(w, h);
+        let mut vm = VegetationMap::new(w, h);
+        let mut map = TileMap::new(w, h, Terrain::Grass);
+        for y in 0..h {
+            for x in 0..3 {
+                map.set(x, y, Terrain::Water);
+            }
+        }
+        let heights = flat_heights(w, h, 0.3);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        for y in 0..h {
+            for x in 0..3 {
+                pw.set_ocean_boundary(x, y, 0.05);
+                pw.add_water(x, y, 0.05);
+            }
         }
 
-        // Downwind (east of source) should have more moisture than upwind (west)
-        let east_moisture = mm.get(15, 10);
-        let west_moisture = mm.get(5, 10);
+        for tick in 0..500 {
+            if tick % 3 == 0 {
+                wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
+            }
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
+        }
+
+        // Near-coast land (x=5) should have more moisture than far east (x=25)
+        let near_coast: f64 = (0..h).map(|y| mm.get(5, y)).sum::<f64>() / h as f64;
+        let far_east: f64 = (0..h).map(|y| mm.get(25, y)).sum::<f64>() / h as f64;
         assert!(
-            east_moisture > west_moisture,
-            "downwind should have more moisture: east={}, west={}",
-            east_moisture,
-            west_moisture
+            near_coast > far_east,
+            "near-coast should be wetter than far inland: coast={}, far={}",
+            near_coast,
+            far_east
         );
     }
 
     #[test]
     fn orographic_precipitation_rain_shadow() {
-        // Wind blows east. Create a ridge in the middle (x=10).
-        // Windward side (x<10) should get more moisture deposited;
-        // leeward side (x>10) should be drier (rain shadow).
-        let w = 20;
-        let h = 10;
+        // Wind blows east. Ocean on west, ridge at x=15.
+        // Windward side should get more moisture than leeward (rain shadow).
+        let w = 30;
+        let h = 15;
         let mut heights = vec![0.3; w * h];
-        // Create a ridge: heights rise toward x=10, then drop
         for y in 0..h {
             for x in 0..w {
-                let dist = (x as f64 - 10.0).abs();
-                heights[y * w + x] = 0.3 + (5.0 - dist).max(0.0) * 0.1;
+                let i = y * w + x;
+                if x < 3 {
+                    heights[i] = 0.25; // ocean floor
+                } else {
+                    // Gentle ridge at x=15
+                    let dist = (x as f64 - 15.0).abs();
+                    heights[i] = 0.3 + 0.15 * (-dist * dist / 12.0).exp();
+                }
             }
         }
 
         let mut mm = MoistureMap::new(w, h);
         let mut vm = VegetationMap::new(w, h);
-        let map = grass_map(w, h);
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
-        let mut pw = crate::pipe_water::PipeWater::new(w, h);
-        // Water source on the far west
+        let mut map = TileMap::new(w, h, Terrain::Grass);
         for y in 0..h {
-            pw.add_water(0, y, 0.3);
+            for x in 0..3 {
+                map.set(x, y, Terrain::Water);
+            }
+        }
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        for y in 0..h {
+            for x in 0..3 {
+                pw.set_ocean_boundary(x, y, 0.05);
+                pw.add_water(x, y, 0.05);
+            }
         }
 
-        for _ in 0..80 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+        for tick in 0..800 {
+            if tick % 3 == 0 {
+                wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
+            }
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
 
-        // Windward slope (x=7, before ridge peak) vs leeward (x=13, after ridge)
-        let windward_avg: f64 = (0..h).map(|y| mm.get(7, y)).sum::<f64>() / h as f64;
-        let leeward_avg: f64 = (0..h).map(|y| mm.get(15, y)).sum::<f64>() / h as f64;
+        // Windward (x=8..13, before ridge) vs leeward (x=20..25, after ridge)
+        let mut windward_sum = 0.0;
+        for y in 0..h {
+            for x in 8..14 {
+                windward_sum += mm.get(x, y);
+            }
+        }
+        let windward_avg = windward_sum / (h * 6) as f64;
+        let mut leeward_sum = 0.0;
+        for y in 0..h {
+            for x in 20..26 {
+                leeward_sum += mm.get(x, y);
+            }
+        }
+        let leeward_avg = leeward_sum / (h * 6) as f64;
         assert!(
             windward_avg > leeward_avg,
-            "windward should be wetter than leeward (rain shadow): windward={}, leeward={}",
+            "windward should be wetter than leeward (rain shadow): windward={:.4}, leeward={:.4}",
             windward_avg,
             leeward_avg
         );
@@ -481,37 +569,47 @@ mod tests {
 
     #[test]
     fn orographic_rain_feeds_pipe_water() {
-        // Wind blows east into a slope. Orographic rain should add water
-        // to the PipeWater system at windward slope tiles.
+        // When soil moisture exceeds saturation threshold (0.8), overflow
+        // goes to pipe_water. Seed soil moisture near saturation and add
+        // atmospheric moisture with orographic lift (slope) to push over.
         let w = 10;
         let h = 5;
+        // Rising terrain so orographic lift is significant
         let mut heights = vec![0.3; w * h];
-        // Rising terrain from west to east
         for y in 0..h {
             for x in 0..w {
-                heights[y * w + x] = 0.3 + x as f64 * 0.05;
+                heights[y * w + x] = 0.3 + x as f64 * 0.04;
             }
         }
 
         let mut mm = MoistureMap::new(w, h);
         let mut vm = VegetationMap::new(w, h);
         let map = grass_map(w, h);
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
         let mut pw = crate::pipe_water::PipeWater::new(w, h);
-        // Water source on the west edge
-        for y in 0..h {
-            pw.add_water(0, y, 0.5);
+
+        // Pre-saturate soil moisture so any precipitation causes overflow
+        for v in mm.moisture.iter_mut() {
+            *v = 0.79;
+        }
+        // Seed high atmospheric moisture
+        for v in wind.moisture_carried.iter_mut() {
+            *v = 0.9;
         }
 
         let total_before: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
-        for _ in 0..40 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+        for _ in 0..10 {
+            // Keep atmospheric moisture high
+            for v in wind.moisture_carried.iter_mut() {
+                *v = (*v + 0.1).min(1.0);
+            }
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
         let total_after: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
 
         assert!(
             total_after > total_before,
-            "orographic rain should add water to pipe system: before={}, after={}",
+            "saturation overflow should add water to pipe system: before={}, after={}",
             total_before,
             total_after
         );
@@ -620,7 +718,7 @@ mod tests {
             .fold(f64::NEG_INFINITY, f64::max);
         let m_above_half = mm.moisture.iter().filter(|&&v| v > 0.5).count();
 
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
         let avg_speed: f64 = wind.wind_speed.iter().sum::<f64>() / wind.wind_speed.len() as f64;
         let mc_nonzero = wind.moisture_carried.iter().filter(|&&v| v > 1e-8).count();
 
@@ -696,7 +794,7 @@ mod tests {
         mm.avg_moisture = mm.moisture.clone();
 
         let mut vm = VegetationMap::new(w, h);
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
 
         // Snapshot before
         let moisture_before: Vec<f64> = mm.moisture.clone();
@@ -716,7 +814,7 @@ mod tests {
 
         // Run 100 ticks of just moisture update (what step() does)
         for tick in 0..100 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
             // Also step pipe_water like game does
             pw.step(&heights, 0.1);
 
@@ -863,7 +961,7 @@ mod tests {
         for tick in 0..100 {
             // Replicate game step() order:
             // 1. moisture.update
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
 
             // 2. Every 3 ticks: wind.advect_moisture (no manual rain)
             if tick % 3 == 0 {
@@ -1008,7 +1106,7 @@ mod tests {
         eprintln!("=== DIAGNOSTIC 3b: Full water cycle WITH manual rain ===");
 
         for tick in 0..100 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
 
             if tick % 3 == 0 {
                 // Manual rain: inject atmospheric moisture (what 'r' toggle does)
@@ -1153,7 +1251,7 @@ mod tests {
 
         // Run 300 ticks with full water cycle
         for tick in 0..300 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
 
             if tick % 3 == 0 {
                 let (precip, evaporated) =
@@ -1279,7 +1377,7 @@ mod tests {
         let heights = flat_heights(w, h, 0.3);
         let mut pw = crate::pipe_water::PipeWater::new(w, h);
         let mut vm = VegetationMap::new(w, h);
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
 
         let mut mm = MoistureMap::new(w, h);
         // Ocean tiles at 1.0
@@ -1297,7 +1395,7 @@ mod tests {
         eprintln!();
 
         // Single update
-        mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+        mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
 
         eprintln!("After 1 update (y=5 cross-section):");
         for x in 0..w {
@@ -1307,7 +1405,7 @@ mod tests {
 
         // 10 more updates
         for _ in 0..9 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
 
         eprintln!("After 10 updates (y=5 cross-section):");
@@ -1318,7 +1416,7 @@ mod tests {
 
         // 50 more
         for _ in 0..50 {
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
         }
         eprintln!("After 60 updates (y=5 cross-section):");
         for x in 0..w {
@@ -1347,7 +1445,7 @@ mod tests {
         let h = 40;
         let heights = ocean_left_heights(w, h);
         // Wind blowing east (prevailing_dir=0.0)
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
 
         eprintln!("=== DIAGNOSTIC 6: Wind field properties ===");
         let avg_speed = wind.wind_speed.iter().sum::<f64>() / (w * h) as f64;
@@ -1463,7 +1561,7 @@ mod tests {
         for tick in 0..100 {
             // Count pipe_water before moisture update
             let pw_before_mm: f64 = pw.depth.iter().sum();
-            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights);
             let pw_after_mm: f64 = pw.depth.iter().sum();
             total_mm_orog_rain += pw_after_mm - pw_before_mm;
 
@@ -1535,39 +1633,45 @@ mod tests {
 
     #[test]
     fn moisture_advection_carries_across_map() {
-        // Create a moisture source on the west side, wind blowing east.
-        // After many MoistureMap updates, moisture should appear on the east side.
+        // Ocean on west side, wind blowing east. After wind advection +
+        // precipitation, moisture should appear across the map.
         let w = 40;
         let h = 20;
         let heights = vec![0.2f64; w * h]; // flat terrain
-        let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
 
-        let tilemap = crate::tilemap::TileMap::new(w, h, crate::tilemap::Terrain::Grass);
-        let mut pipe_water = crate::pipe_water::PipeWater::new(w, h);
-        let mut vegetation = VegetationMap::new(w, h);
-
-        let mut mm = MoistureMap::new(w, h);
-
-        // Seed moisture on the western edge (x=0..3)
+        let mut tilemap = crate::tilemap::TileMap::new(w, h, crate::tilemap::Terrain::Grass);
         for y in 0..h {
             for x in 0..3 {
-                mm.set(x, y, 0.9);
+                tilemap.set(x, y, crate::tilemap::Terrain::Water);
             }
         }
-
-        // Run many update steps; re-seed source each step
-        for _ in 0..60 {
-            // Re-apply source each step so it doesn't dry out
-            for y in 0..h {
-                for x in 0..3 {
-                    mm.set(x, y, 0.9);
-                }
+        let mut pipe_water = crate::pipe_water::PipeWater::new(w, h);
+        for y in 0..h {
+            for x in 0..3 {
+                pipe_water.set_ocean_boundary(x, y, 0.05);
+                pipe_water.add_water(x, y, 0.05);
             }
-            mm.update(&mut pipe_water, &mut vegetation, &tilemap, &wind, &heights);
+        }
+        let mut vegetation = VegetationMap::new(w, h);
+        let mut mm = MoistureMap::new(w, h);
+
+        // Run wind advection + moisture update
+        for tick in 0..600 {
+            if tick % 3 == 0 {
+                wind.advect_moisture(&heights, &pipe_water.ocean_mask, &mm.moisture);
+            }
+            mm.update(
+                &mut pipe_water,
+                &mut vegetation,
+                &tilemap,
+                &mut wind,
+                &heights,
+            );
         }
 
-        // Check moisture in the middle band (x = 10..20) where advection should
-        // have carried it from the western source
+        // Check moisture in the middle band (x = 10..20) where wind-carried
+        // precipitation should have deposited moisture
         let mut mid_moisture_sum = 0.0;
         for y in 5..15 {
             for x in 10..20 {
@@ -1575,17 +1679,6 @@ mod tests {
             }
         }
         let east_avg = mid_moisture_sum / (10.0 * 10.0);
-
-        eprintln!("=== Moisture Advection Diagnostic ===");
-        eprintln!("Mid-band average moisture (x=10..20): {:.4}", east_avg);
-
-        // Sample a few points
-        for &x in &[0, 5, 10, 15, 20, 25, 30, 35] {
-            if x < w {
-                let m = mm.get(x, 10);
-                eprintln!("  moisture at ({}, 10): {:.4}", x, m);
-            }
-        }
 
         assert!(
             east_avg > 0.01,

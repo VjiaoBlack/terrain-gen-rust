@@ -990,7 +990,7 @@ mod tests {
                 &mut game.pipe_water,
                 &mut game.vegetation,
                 &game.map,
-                &game.wind,
+                &mut game.wind,
                 &game.heights,
             );
         }

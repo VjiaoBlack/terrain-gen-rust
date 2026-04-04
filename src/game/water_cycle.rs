@@ -12,7 +12,7 @@ impl super::Game {
             &mut self.pipe_water,
             &mut self.vegetation,
             &self.map,
-            &self.wind,
+            &mut self.wind,
             &self.heights,
         );
 
