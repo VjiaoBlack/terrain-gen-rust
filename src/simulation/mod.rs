@@ -39,6 +39,23 @@ impl Default for WindModel {
     }
 }
 
+/// Rain mode: how precipitation is generated.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum RainMode {
+    /// Wind-carried moisture from ocean evaporation (realistic).
+    WindDriven,
+    /// Uniform rain everywhere — bypasses wind moisture transport.
+    Uniform,
+    /// No rain at all — useful for isolating other systems.
+    Off,
+}
+
+impl Default for RainMode {
+    fn default() -> Self {
+        RainMode::WindDriven
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub rain_rate: f64,     // fraction of tiles that get rain per tick
@@ -50,6 +67,8 @@ pub struct SimConfig {
     pub avg_factor: f64,       // smoothing: 0.95 = slow, 0.5 = fast
     #[serde(default)]
     pub wind_model: WindModel,
+    #[serde(default)]
+    pub rain_mode: RainMode,
 }
 
 impl Default for SimConfig {
@@ -63,6 +82,7 @@ impl Default for SimConfig {
             erosion_strength: 1.0,
             avg_factor: 0.8, // faster averaging for responsive water visuals
             wind_model: WindModel::default(),
+            rain_mode: RainMode::default(),
         }
     }
 }

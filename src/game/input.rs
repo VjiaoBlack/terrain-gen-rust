@@ -56,11 +56,30 @@ impl super::Game {
             GameInput::ScrollLeft => self.camera.x -= self.scroll_speed,
             GameInput::ScrollRight => self.camera.x += self.scroll_speed,
             GameInput::ToggleRain => {
-                self.raining = !self.raining;
+                // Cycle rain mode: WindDriven -> Uniform -> Off -> WindDriven
+                use crate::simulation::RainMode;
+                self.sim_config.rain_mode = match self.sim_config.rain_mode {
+                    RainMode::WindDriven => {
+                        self.notify("Rain: UNIFORM (testing mode)".to_string());
+                        RainMode::Uniform
+                    }
+                    RainMode::Uniform => {
+                        self.notify("Rain: OFF".to_string());
+                        RainMode::Off
+                    }
+                    RainMode::Off => {
+                        self.notify("Rain: WIND-DRIVEN (normal)".to_string());
+                        RainMode::WindDriven
+                    }
+                };
                 self.dirty.mark_all();
             }
             GameInput::ToggleErosion => {
-                self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled
+                self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled;
+                self.notify(format!(
+                    "Runtime erosion: {}",
+                    if self.sim_config.erosion_enabled { "ON" } else { "OFF" }
+                ));
             }
             GameInput::ToggleDayNight => {
                 self.day_night.enabled = !self.day_night.enabled;
