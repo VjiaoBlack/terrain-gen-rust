@@ -1938,8 +1938,10 @@ impl WindField {
     /// 4. Advect — semi-Lagrangian self-advection with bilinear interpolation
     /// 5. Project again — re-enforce divergence-free constraint
     ///
-    /// Terrain tiles above 0.65 height act as solid obstacles (zero velocity).
-    /// Chokepoints naturally emerge from the fluid dynamics around obstacles.
+    /// Terrain height acts as a pressure source — high terrain pushes wind
+    /// sideways and over rather than blocking it completely.  Height-based
+    /// damping slows wind over mountains without zeroing it.
+    /// Chokepoints naturally emerge from the fluid dynamics around terrain.
     /// The solver runs 30 iterations to reach approximate steady state.
     pub fn compute_from_terrain(
         heights: &[f64],
@@ -1965,55 +1967,64 @@ impl WindField {
             return field;
         }
 
-        // Obstacle mask: mountain/snow tiles are solid walls
-        let obstacle: Vec<bool> = heights.iter().map(|&h| h > 0.65).collect();
-
         let base_wx = prevailing_dir.cos() * prevailing_strength;
         let base_wy = prevailing_dir.sin() * prevailing_strength;
 
-        // Initialize velocity field with prevailing wind (non-obstacle cells)
+        // Initialize velocity field with prevailing wind everywhere
         let mut vx = vec![0.0f64; n];
         let mut vy = vec![0.0f64; n];
         for i in 0..n {
-            if !obstacle[i] {
-                vx[i] = base_wx;
-                vy[i] = base_wy;
-            }
+            vx[i] = base_wx;
+            vy[i] = base_wy;
         }
 
         // Run Stam solver iterations to reach steady state.
         // Each iteration: relax toward prevailing -> diffuse -> project -> advect -> project.
-        // The relaxation term pulls non-obstacle cells toward the prevailing wind
-        // rather than accumulating force, keeping magnitudes stable.
+        // Terrain height gradient injects pressure in the projection step,
+        // deflecting wind around and over mountains.  Height-based damping
+        // slows wind on high terrain without fully blocking it.
         let viscosity = 0.0001;
         let dt = 1.0;
-        let relax_rate = 0.15; // how fast cells return toward prevailing wind
+        let terrain_pressure_strength = 0.3;
+        let relax_rate = 0.10; // how fast cells return toward prevailing wind
         for _ in 0..30 {
             // Step 1: Relax toward prevailing wind (gentle drag)
             for i in 0..n {
-                if !obstacle[i] {
-                    vx[i] += relax_rate * (base_wx - vx[i]);
-                    vy[i] += relax_rate * (base_wy - vy[i]);
-                }
+                vx[i] += relax_rate * (base_wx - vx[i]);
+                vy[i] += relax_rate * (base_wy - vy[i]);
             }
             // Step 2: Diffuse
-            stam_diffuse(&mut vx, width, height, viscosity, &obstacle);
-            stam_diffuse(&mut vy, width, height, viscosity, &obstacle);
-            // Step 3: Project (make divergence-free)
-            stam_project(&mut vx, &mut vy, width, height, &obstacle);
+            stam_diffuse(&mut vx, width, height, viscosity);
+            stam_diffuse(&mut vy, width, height, viscosity);
+            // Step 3: Project (make divergence-free, terrain height as pressure source)
+            stam_project(
+                &mut vx,
+                &mut vy,
+                width,
+                height,
+                heights,
+                terrain_pressure_strength,
+            );
             // Step 4: Advect (semi-Lagrangian self-advection)
             let old_vx = vx.clone();
             let old_vy = vy.clone();
-            stam_advect(&mut vx, &old_vx, &old_vy, width, height, dt, &obstacle);
-            stam_advect(&mut vy, &old_vx, &old_vy, width, height, dt, &obstacle);
+            stam_advect(&mut vx, &old_vx, &old_vy, width, height, dt);
+            stam_advect(&mut vy, &old_vx, &old_vy, width, height, dt);
             // Step 5: Project again
-            stam_project(&mut vx, &mut vy, width, height, &obstacle);
-            // Enforce obstacle boundaries
+            stam_project(
+                &mut vx,
+                &mut vy,
+                width,
+                height,
+                heights,
+                terrain_pressure_strength,
+            );
+            // Height-based damping: high terrain = more drag, but never fully blocked
             for i in 0..n {
-                if obstacle[i] {
-                    vx[i] = 0.0;
-                    vy[i] = 0.0;
-                }
+                let drag = (heights[i] - 0.5).max(0.0) * 3.0;
+                let damping = 1.0 / (1.0 + drag);
+                vx[i] *= damping;
+                vy[i] *= damping;
             }
         }
 
@@ -2127,7 +2138,7 @@ impl WindField {
 
 /// Gauss-Seidel diffusion: implicitly diffuse `field` with given viscosity.
 /// Solves (I - viscosity * Laplacian) * new = old via 20 Gauss-Seidel iterations.
-fn stam_diffuse(field: &mut [f64], w: usize, h: usize, viscosity: f64, obstacle: &[bool]) {
+fn stam_diffuse(field: &mut [f64], w: usize, h: usize, viscosity: f64) {
     let old = field.to_vec();
     let a = viscosity; // dt=1 absorbed
     let denom = 1.0 + 4.0 * a;
@@ -2135,10 +2146,6 @@ fn stam_diffuse(field: &mut [f64], w: usize, h: usize, viscosity: f64, obstacle:
         for y in 0..h {
             for x in 0..w {
                 let idx = y * w + x;
-                if obstacle[idx] {
-                    field[idx] = 0.0;
-                    continue;
-                }
                 let left = if x > 0 { field[idx - 1] } else { field[idx] };
                 let right = if x + 1 < w {
                     field[idx + 1]
@@ -2160,72 +2167,72 @@ fn stam_diffuse(field: &mut [f64], w: usize, h: usize, viscosity: f64, obstacle:
 /// Pressure projection: make the velocity field divergence-free.
 /// Solves the pressure Poisson equation via 20 Gauss-Seidel iterations,
 /// then subtracts the pressure gradient from velocity.
-fn stam_project(vx: &mut [f64], vy: &mut [f64], w: usize, h: usize, obstacle: &[bool]) {
+/// Terrain height gradients are injected as a pressure source so that
+/// high terrain pushes wind away rather than acting as a solid wall.
+fn stam_project(
+    vx: &mut [f64],
+    vy: &mut [f64],
+    w: usize,
+    h: usize,
+    heights: &[f64],
+    terrain_pressure_strength: f64,
+) {
     let n = w * h;
     let mut div = vec![0.0f64; n];
     let mut p = vec![0.0f64; n];
 
-    // Compute divergence (Neumann boundaries: replicate edge velocities)
+    // Compute divergence with terrain height gradient as pressure source
     for y in 0..h {
         for x in 0..w {
             let idx = y * w + x;
-            if obstacle[idx] {
-                continue;
-            }
             let vx_right = if x + 1 < w { vx[idx + 1] } else { vx[idx] };
             let vx_left = if x > 0 { vx[idx - 1] } else { vx[idx] };
             let vy_up = if y + 1 < h { vy[idx + w] } else { vy[idx] };
             let vy_down = if y > 0 { vy[idx - w] } else { vy[idx] };
-            div[idx] = -0.5 * (vx_right - vx_left + vy_up - vy_down);
+
+            // Terrain height gradient creates pressure — high terrain pushes wind away
+            let h_right = if x + 1 < w {
+                heights[idx + 1]
+            } else {
+                heights[idx]
+            };
+            let h_left = if x > 0 {
+                heights[idx - 1]
+            } else {
+                heights[idx]
+            };
+            let h_up = if y + 1 < h {
+                heights[idx + w]
+            } else {
+                heights[idx]
+            };
+            let h_down = if y > 0 {
+                heights[idx - w]
+            } else {
+                heights[idx]
+            };
+            let terrain_div = terrain_pressure_strength * (h_right - h_left + h_up - h_down);
+
+            div[idx] = -0.5 * (vx_right - vx_left + vy_up - vy_down) + terrain_div;
         }
     }
 
     // Solve pressure Poisson equation: Laplacian(p) = div
-    // Neumann boundary: pressure gradient = 0 at edges (copy neighbor)
+    // Dirichlet boundary: p = 0 at map edges
     for _ in 0..20 {
         for y in 0..h {
             for x in 0..w {
                 let idx = y * w + x;
-                if obstacle[idx] {
+                // Dirichlet: pressure = 0 at boundaries
+                if x == 0 || x == w - 1 || y == 0 || y == h - 1 {
                     p[idx] = 0.0;
                     continue;
                 }
-                let left = if x > 0 { p[idx - 1] } else { p[idx] };
-                let right = if x + 1 < w { p[idx + 1] } else { p[idx] };
-                let down = if y > 0 { p[idx - w] } else { p[idx] };
-                let up = if y + 1 < h { p[idx + w] } else { p[idx] };
-                // Count actual neighbors for accurate averaging
-                let mut count = 0.0;
-                let mut sum = 0.0;
-                if x > 0 {
-                    sum += left;
-                    count += 1.0;
-                } else {
-                    sum += p[idx];
-                    count += 1.0;
-                }
-                if x + 1 < w {
-                    sum += right;
-                    count += 1.0;
-                } else {
-                    sum += p[idx];
-                    count += 1.0;
-                }
-                if y > 0 {
-                    sum += down;
-                    count += 1.0;
-                } else {
-                    sum += p[idx];
-                    count += 1.0;
-                }
-                if y + 1 < h {
-                    sum += up;
-                    count += 1.0;
-                } else {
-                    sum += p[idx];
-                    count += 1.0;
-                }
-                p[idx] = (div[idx] + sum) / count;
+                let left = p[idx - 1];
+                let right = p[idx + 1];
+                let down = p[idx - w];
+                let up = p[idx + w];
+                p[idx] = (div[idx] + left + right + down + up) / 4.0;
             }
         }
     }
@@ -2234,11 +2241,6 @@ fn stam_project(vx: &mut [f64], vy: &mut [f64], w: usize, h: usize, obstacle: &[
     for y in 0..h {
         for x in 0..w {
             let idx = y * w + x;
-            if obstacle[idx] {
-                vx[idx] = 0.0;
-                vy[idx] = 0.0;
-                continue;
-            }
             let p_right = if x + 1 < w { p[idx + 1] } else { p[idx] };
             let p_left = if x > 0 { p[idx - 1] } else { p[idx] };
             let p_up = if y + 1 < h { p[idx + w] } else { p[idx] };
@@ -2251,15 +2253,7 @@ fn stam_project(vx: &mut [f64], vy: &mut [f64], w: usize, h: usize, obstacle: &[
 
 /// Semi-Lagrangian advection: trace each cell backward through the velocity
 /// field and sample the old value with bilinear interpolation.
-fn stam_advect(
-    field: &mut [f64],
-    vx: &[f64],
-    vy: &[f64],
-    w: usize,
-    h: usize,
-    dt: f64,
-    obstacle: &[bool],
-) {
+fn stam_advect(field: &mut [f64], vx: &[f64], vy: &[f64], w: usize, h: usize, dt: f64) {
     let old = field.to_vec();
     let wf = w as f64;
     let hf = h as f64;
@@ -2267,10 +2261,6 @@ fn stam_advect(
     for y in 0..h {
         for x in 0..w {
             let idx = y * w + x;
-            if obstacle[idx] {
-                field[idx] = 0.0;
-                continue;
-            }
             // Trace backward
             let px = (x as f64) - dt * vx[idx];
             let py = (y as f64) - dt * vy[idx];
@@ -4133,8 +4123,9 @@ mod tests {
     }
 
     #[test]
-    fn wind_shadow_zero_behind_tall_mountain() {
-        // A very tall mountain should create near-zero shadow on leeward side
+    fn wind_shadow_reduced_behind_tall_mountain() {
+        // A very tall mountain should create reduced but non-zero wind on leeward side.
+        // With the pressure-based solver, wind is deflected and slowed, not blocked.
         let w = 64;
         let h = 64;
         let mut heights = vec![0.0; w * h];
@@ -4148,15 +4139,56 @@ mod tests {
 
         let field = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
 
-        // Check shadow immediately behind mountain (x=35, center y).
-        // With the Stam fluid solver, wind routes around the wall's open ends
-        // (y<10 and y>=54), so the shadow is reduced but not near-zero.
-        // The key property: shadow behind the wall is noticeably less than 1.0.
+        // Shadow behind the wall is noticeably less than 1.0 (wind slowed)
         let shadow = field.get_shadow(35, 32);
         assert!(
             shadow < 0.7,
             "shadow behind very tall mountain should be reduced, got {}",
             shadow
+        );
+
+        // But speed on the mountain itself is NOT zero — pressure-based solver
+        // allows some flow over/through high terrain
+        let mountain_speed = field.get_speed(30, 32);
+        assert!(
+            mountain_speed > 0.0,
+            "mountain top speed should be non-zero with pressure solver, got {}",
+            mountain_speed
+        );
+    }
+
+    #[test]
+    fn wind_speed_on_mountain_lower_than_flat_but_not_zero() {
+        // Core property of the pressure-based solver: mountains slow wind
+        // but don't block it entirely.
+        let w = 64;
+        let h = 64;
+
+        // Flat terrain baseline
+        let flat_heights = vec![0.3; w * h];
+        let flat_field = WindField::compute_from_terrain(&flat_heights, w, h, 0.0, 0.8, None);
+        let flat_speed = flat_field.get_speed(32, 32);
+
+        // Mountain terrain
+        let mut mt_heights = vec![0.3; w * h];
+        for y in 20..44 {
+            for x in 20..44 {
+                mt_heights[y * w + x] = 0.9;
+            }
+        }
+        let mt_field = WindField::compute_from_terrain(&mt_heights, w, h, 0.0, 0.8, None);
+        let mt_speed = mt_field.get_speed(32, 32);
+
+        assert!(
+            mt_speed < flat_speed,
+            "mountain speed {} should be less than flat speed {}",
+            mt_speed,
+            flat_speed
+        );
+        assert!(
+            mt_speed > 0.0,
+            "mountain speed should be non-zero, got {}",
+            mt_speed
         );
     }
 
