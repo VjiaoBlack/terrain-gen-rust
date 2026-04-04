@@ -96,6 +96,7 @@ pub fn apply_spl_erosion(
 
             // Find steepest downhill slope (D8)
             let mut max_slope = 0.0f64;
+            let mut drains_to_ocean = false;
             for (di, &(dx, dy)) in dirs.iter().enumerate() {
                 let nx = x as i32 + dx;
                 let ny = y as i32 + dy;
@@ -106,7 +107,15 @@ pub fn apply_spl_erosion(
                 let s = (heights[i] - heights[ni]) / dist[di];
                 if s > max_slope {
                     max_slope = s;
+                    drains_to_ocean = heights[ni] <= params.water_level;
                 }
+            }
+
+            // Skip river mouths: tiles that drain directly to ocean don't incise —
+            // in nature they deposit sediment (deltas). Erosion happens upstream
+            // where rivers cut through bedrock, not at base level.
+            if drains_to_ocean {
+                continue;
             }
 
             // SPL: erosion_rate = K * A^m * S^n

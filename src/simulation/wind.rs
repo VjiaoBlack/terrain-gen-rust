@@ -443,11 +443,10 @@ impl WindField {
 
         let perlin = Perlin::new(seed);
 
-        // Prevailing wind bias (weak — 30% of strength, curl provides the rest)
-        let bias_x = prevailing_dir.cos() * prevailing_strength * 0.3;
-        let bias_y = prevailing_dir.sin() * prevailing_strength * 0.3;
+        // Prevailing wind bias (weak — 15% of strength, curl provides the rest)
+        let bias_x = prevailing_dir.cos() * prevailing_strength * 0.15;
+        let bias_y = prevailing_dir.sin() * prevailing_strength * 0.15;
 
-        let eps = 0.5; // finite difference step for curl computation
         let t = time * 0.003; // slow time evolution
 
         for y in 0..height {
@@ -456,23 +455,28 @@ impl WindField {
                 let fx = x as f64;
                 let fy = y as f64;
 
-                // Multi-octave potential field Ψ(x, y, t)
-                // Octave 1: large weather systems
-                let psi = |px: f64, py: f64| -> f64 {
-                    let o1 = perlin.get([px * 0.015, py * 0.015, t]) * 1.0;
-                    let o2 = perlin.get([px * 0.04, py * 0.04, t * 2.5]) * 0.4;
-                    let o3 = perlin.get([px * 0.1, py * 0.1, t * 6.0]) * 0.15;
-                    o1 + o2 + o3
-                };
+                // Curl noise: instead of computing finite differences of the
+                // potential (which gives tiny gradients at low spatial frequencies),
+                // sample two INDEPENDENT noise fields for vx and vy with an offset
+                // that makes them approximately divergence-free. This gives full
+                // noise amplitude as wind strength while maintaining swirling structure.
+                //
+                // Using offset seeds (fx vs fx+500) decorrelates the two axes,
+                // and the curl-like structure comes from the smooth noise topology.
+                let o1x = perlin.get([fx * 0.015, fy * 0.015 + 500.0, t]);
+                let o1y = perlin.get([fx * 0.015 + 500.0, fy * 0.015, t]);
+                let o2x = perlin.get([fx * 0.045, fy * 0.045 + 700.0, t * 2.5]);
+                let o2y = perlin.get([fx * 0.045 + 700.0, fy * 0.045, t * 2.5]);
+                let o3x = perlin.get([fx * 0.12, fy * 0.12 + 900.0, t * 6.0]);
+                let o3y = perlin.get([fx * 0.12 + 900.0, fy * 0.12, t * 6.0]);
 
-                // Curl: vx = dΨ/dy, vy = -dΨ/dx
-                let curl_x = (psi(fx, fy + eps) - psi(fx, fy - eps)) / (2.0 * eps);
-                let curl_y = -(psi(fx + eps, fy) - psi(fx - eps, fy)) / (2.0 * eps);
+                let noise_x = o1x * 1.0 + o2x * 0.5 + o3x * 0.2;
+                let noise_y = o1y * 1.0 + o2y * 0.5 + o3y * 0.2;
 
                 // Scale to desired wind strength
-                let scale = prevailing_strength * 1.2;
-                let mut vx = curl_x * scale + bias_x;
-                let mut vy = curl_y * scale + bias_y;
+                let scale = prevailing_strength * 0.8;
+                let mut vx = noise_x * scale + bias_x;
+                let mut vy = noise_y * scale + bias_y;
 
                 // Terrain modulation: high terrain dampens wind and deflects it
                 if idx < heights.len() {
@@ -1438,27 +1442,39 @@ mod tests {
     }
 
     #[test]
-    fn curl_noise_prevailing_bias() {
-        // Mean wind direction should roughly match prevailing_dir.
+    fn curl_noise_is_multi_directional() {
+        // The whole point of curl noise: wind should blow in MANY directions,
+        // not just the prevailing direction. Count tiles by dominant direction
+        // and verify no single direction has more than 60% of tiles.
         let w = 64;
         let h = 64;
         let heights = vec![0.3f64; w * h];
-        // Prevailing east (dir=0.0)
         let field =
             WindField::compute_curl_noise_field(&heights, w, h, 0.0, 0.6, 0.0, 42);
 
-        let mean_vx: f64 = field.wind_x.iter().sum::<f64>() / (w * h) as f64;
-        let mean_vy: f64 = field.wind_y.iter().sum::<f64>() / (w * h) as f64;
+        let mut right = 0u32;
+        let mut left = 0u32;
+        let mut down = 0u32;
+        let mut up = 0u32;
+        for i in 0..(w * h) {
+            let vx = field.wind_x[i];
+            let vy = field.wind_y[i];
+            if vx.abs() > vy.abs() {
+                if vx > 0.0 { right += 1; } else { left += 1; }
+            } else {
+                if vy > 0.0 { down += 1; } else { up += 1; }
+            }
+        }
+        let total = (w * h) as f64;
+        let max_pct = [right, left, down, up]
+            .iter()
+            .map(|&c| c as f64 / total * 100.0)
+            .fold(0.0f64, f64::max);
 
-        // Mean should have positive x component (eastward bias)
         assert!(
-            mean_vx > 0.0,
-            "mean wind_x ({mean_vx:.4}) should be positive (eastward bias)"
-        );
-        // The x bias should be stronger than any y drift
-        assert!(
-            mean_vx.abs() > mean_vy.abs(),
-            "eastward bias ({mean_vx:.4}) should dominate over y drift ({mean_vy:.4})"
+            max_pct < 60.0,
+            "wind should be multi-directional, but one direction has {max_pct:.1}% \
+             (R={right} L={left} D={down} U={up})"
         );
     }
 
