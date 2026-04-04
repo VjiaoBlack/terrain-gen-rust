@@ -2756,7 +2756,9 @@ impl Game {
                 }
 
                 // Seasonal auto-rain: light rain every 200 ticks in wet seasons + manual toggle
-                let should_rain = self.raining || (self.tick % 200 == 0 && mods.rain_mult > 0.4);
+                // No auto-rain — game starts dry. Player toggles rain with 'r'.
+                // Rain will come naturally from wind-moisture cycle over water bodies.
+                let should_rain = self.raining;
 
                 // Moisture update runs every tick — pipe_water is the sole water source now
                 self.moisture.update(

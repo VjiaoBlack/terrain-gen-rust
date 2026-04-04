@@ -534,8 +534,8 @@ fn main() -> Result<()> {
                 game.exploration.reveal(x, y, 1);
             }
         }
-        // Enable rain for visual interest
-        game.raining = true;
+        // Start dry — player can toggle rain with 'r'
+        game.raining = false;
         // Start in Landscape mode
         game.render_mode = terrain_gen_rust::game::RenderMode::Landscape;
         run_interactive(&mut game, &mut renderer)?;

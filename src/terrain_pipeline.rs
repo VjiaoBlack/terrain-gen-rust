@@ -1110,21 +1110,11 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // droplets stalled in flat basins when run after priority_flood)
     droplet_erosion(&mut heights, w, h, config);
 
-    // Stage 4: Hydrology — compute flow for river mask
+    // Stage 4: Hydrology DISABLED — rivers will form naturally at runtime
+    // from the wind→moisture→precipitation→pipe water cycle.
+    // Keep priority_flood for clean heightmap, but no river extraction.
     priority_flood(&mut heights, w, h);
-    let flow = compute_flow_direction(&heights, w, h);
-    let accum = compute_flow_accumulation(&heights, &flow, w, h);
-    let river_mask = extract_rivers(&accum, config.river_threshold);
-    let river_width = compute_river_width(
-        &accum,
-        &river_mask,
-        config.river_min_width,
-        config.river_max_width,
-    );
-
-    // Stage 5: River carving DISABLED — pipe model water + sediment
-    // transport will handle this at runtime instead
-    // carve_rivers(&mut heights, w, h, &river_mask, &river_width, &accum);
+    let river_mask = vec![false; w * h]; // empty — no pre-baked rivers
 
     // Stage 6: Climate + biomes
     let temperature = compute_temperature(&heights, w, h, config.terrain.seed);
@@ -1161,8 +1151,8 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         }
     }
 
-    // Stage 6b: Ford placement at narrow river points with flat banks
-    place_fords(&mut map, &river_mask, &river_width, &slope, w, h);
+    // Stage 6b: Ford placement DISABLED — no pre-baked rivers
+    // place_fords(&mut map, &river_mask, &river_width, &slope, w, h);
 
     // Stage 7: Soil
     let soil = assign_soil(
@@ -1218,17 +1208,14 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_generates_rivers() {
+    fn pipeline_river_mask_is_empty() {
+        // Rivers disabled — river_mask should be all false
         let config = PipelineConfig::default();
         let result = run_pipeline(128, 128, &config);
         let river_count = result.river_mask.iter().filter(|&&r| r).count();
-        assert!(
-            river_count > 0,
-            "should generate at least some river cells, got 0"
-        );
-        assert!(
-            river_count < 128 * 128 / 2,
-            "rivers should not cover more than half the map"
+        assert_eq!(
+            river_count, 0,
+            "river_mask should be empty (rivers disabled)"
         );
     }
 
