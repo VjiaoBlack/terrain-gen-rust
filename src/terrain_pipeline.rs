@@ -1576,3 +1576,88 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod height_diagnostics {
+    use super::*;
+
+    #[test]
+    fn terrain_height_distribution() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(256, 256, &config);
+        let n = result.heights.len();
+        let water_level = config.terrain.water_level;
+
+        let min_h = result.heights.iter().cloned().fold(f64::MAX, f64::min);
+        let max_h = result.heights.iter().cloned().fold(f64::MIN, f64::max);
+        let avg_h: f64 = result.heights.iter().sum::<f64>() / n as f64;
+
+        let below_water = result.heights.iter().filter(|&&h| h < water_level).count();
+
+        let mut sorted = result.heights.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        eprintln!("=== TERRAIN HEIGHT DIAGNOSTICS (seed default) ===");
+        eprintln!("water_level: {water_level}");
+        eprintln!("height range: {min_h:.3} to {max_h:.3}");
+        eprintln!("avg height: {avg_h:.3}");
+        eprintln!(
+            "below water: {below_water} / {n} ({:.1}%)",
+            below_water as f64 / n as f64 * 100.0
+        );
+        eprintln!("p10: {:.3}", sorted[n / 10]);
+        eprintln!("p25: {:.3}", sorted[n / 4]);
+        eprintln!("p50: {:.3}", sorted[n / 2]);
+        eprintln!("p75: {:.3}", sorted[3 * n / 4]);
+        eprintln!("p90: {:.3}", sorted[9 * n / 10]);
+
+        // At least 5% of the map should be water
+        assert!(
+            below_water as f64 / n as f64 > 0.05,
+            "Less than 5% water! below_water={below_water}, water_level={water_level}, avg={avg_h:.3}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod water_diagnostics {
+    use super::*;
+    use crate::tilemap::Terrain;
+
+    #[test]
+    fn water_tile_count_matches_height() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(256, 256, &config);
+        let n = result.heights.len();
+        let wl = config.terrain.water_level;
+
+        let below_wl = result.heights.iter().filter(|&&h| h < wl).count();
+        let water_terrain = (0..n)
+            .filter(|&i| {
+                let x = i % 256;
+                let y = i / 256;
+                result.map.get(x, y) == Some(&Terrain::Water)
+            })
+            .count();
+
+        eprintln!("=== WATER DIAGNOSTICS ===");
+        eprintln!(
+            "below water_level ({wl}): {below_wl} ({:.1}%)",
+            below_wl as f64 / n as f64 * 100.0
+        );
+        eprintln!(
+            "Terrain::Water tiles: {water_terrain} ({:.1}%)",
+            water_terrain as f64 / n as f64 * 100.0
+        );
+        eprintln!(
+            "difference: {} tiles not classified as Water despite being below wl",
+            below_wl as i64 - water_terrain as i64
+        );
+
+        // Water terrain count should roughly match below-water-level count
+        assert!(
+            water_terrain > 0,
+            "ZERO water terrain tiles! below_wl={below_wl}"
+        );
+    }
+}
