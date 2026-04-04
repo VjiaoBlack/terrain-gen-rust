@@ -1,0 +1,218 @@
+{
+  "$schema": "Features registry for terrain-gen-rust. Agents MUST NOT mark a feature 'passing' without cargo test --lib succeeding. Update 'last_verified' with date and seed when checking.",
+  "systems": {
+    "terrain_generation": {
+      "status": "ok",
+      "description": "Noise-based terrain pipeline (fBm -> erosion -> hydrology -> biomes -> soil -> resources)",
+      "files": ["src/terrain_gen.rs", "src/terrain_pipeline.rs"],
+      "test_count": 25,
+      "known_issues": [
+        "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs"
+      ],
+      "last_verified": null
+    },
+    "analytical_erosion": {
+      "status": "ok",
+      "description": "Stream Power Law (SPL) closed-form erosion: K * A^m * S^n",
+      "files": ["src/analytical_erosion.rs"],
+      "test_count": 6,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "pipe_water": {
+      "status": "ok",
+      "description": "Pipe model water simulation (O'Brien 1995 / Stam GDC 2008), 8-directional flux with sediment transport",
+      "files": ["src/pipe_water.rs"],
+      "test_count": 21,
+      "known_issues": [
+        "Research prototype — volume conservation not extensively tested"
+      ],
+      "last_verified": null
+    },
+    "simulation_water": {
+      "status": "needs_cleanup",
+      "description": "Legacy WaterMap heightfield model — still runs for moisture but should be replaced by PipeWater",
+      "files": ["src/simulation/water_map.rs"],
+      "test_count": 9,
+      "known_issues": [
+        "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)"
+      ],
+      "last_verified": null
+    },
+    "simulation_moisture": {
+      "status": "needs_work",
+      "description": "MoistureMap — reads from PipeWater + wind, feeds vegetation",
+      "files": ["src/simulation/moisture.rs"],
+      "test_count": 17,
+      "known_issues": [
+        "Moisture decay/persistence rules unclear",
+        "Chain: water_surface -> evaporation -> transport -> precipitation -> surface water -> vegetation moisture not fully connected"
+      ],
+      "last_verified": null
+    },
+    "simulation_vegetation": {
+      "status": "ok",
+      "description": "VegetationMap — growth/decay based on moisture, soil, season",
+      "files": ["src/simulation/vegetation.rs"],
+      "test_count": 6,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "simulation_day_night": {
+      "status": "ok",
+      "description": "DayNightCycle, seasons, lighting",
+      "files": ["src/simulation/day_night.rs"],
+      "test_count": 21,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "simulation_wind": {
+      "status": "ok",
+      "description": "WindField — Stam fluid solver + curl noise",
+      "files": ["src/simulation/wind.rs"],
+      "test_count": 22,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "simulation_scent": {
+      "status": "ok",
+      "description": "ScentMap — danger/home scent for creature AI",
+      "files": ["src/simulation/scent.rs"],
+      "test_count": 11,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "simulation_traffic": {
+      "status": "ok",
+      "description": "TrafficMap — tracks entity movement for auto-road building",
+      "files": ["src/simulation/traffic.rs"],
+      "test_count": 14,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "simulation_soil_fertility": {
+      "status": "ok",
+      "description": "SoilFertilityMap — fertility based on soil type and conditions",
+      "files": ["src/simulation/soil_fertility.rs"],
+      "test_count": 6,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "simulation_maps": {
+      "status": "ok",
+      "description": "InfluenceMap, ThreatMap, ExplorationMap",
+      "files": ["src/simulation/maps.rs"],
+      "test_count": 20,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "ecs_core": {
+      "status": "ok",
+      "description": "Entity-Component-System: components, AI, movement, hunger, death, farms, breeding, raids",
+      "files": ["src/ecs/components.rs", "src/ecs/systems.rs", "src/ecs/ai.rs", "src/ecs/spawn.rs", "src/ecs/tests.rs"],
+      "test_count": 230,
+      "known_issues": [
+        "ecs/tests.rs is 7164 lines in one file — should be split into focused test modules"
+      ],
+      "last_verified": null
+    },
+    "ecs_spatial": {
+      "status": "ok",
+      "description": "SpatialHashGrid for O(nearby) entity queries",
+      "files": ["src/ecs/spatial.rs"],
+      "test_count": 17,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "ecs_groups": {
+      "status": "ok",
+      "description": "GroupManager for agent clustering",
+      "files": ["src/ecs/groups.rs"],
+      "test_count": 32,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "pathfinding": {
+      "status": "ok",
+      "description": "Hierarchical A*, NavRegions, FlowFieldRegistry",
+      "files": ["src/pathfinding/graph.rs", "src/pathfinding/region.rs", "src/pathfinding/flow_field.rs"],
+      "test_count": 40,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "game_loop": {
+      "status": "needs_refactor",
+      "description": "Game struct, step(), input handling, water cycle, fire, particles",
+      "files": ["src/game/mod.rs", "src/game/input.rs", "src/game/water_cycle.rs", "src/game/fire.rs", "src/game/particles.rs", "src/game/tests.rs"],
+      "test_count": 107,
+      "known_issues": [
+        "game/mod.rs is 2379 lines — needs splitting into water_cycle, fire, particles, input modules"
+      ],
+      "last_verified": null
+    },
+    "building_system": {
+      "status": "ok",
+      "description": "Auto-build, building placement, demolish, outposts, influence, traffic",
+      "files": ["src/game/build.rs"],
+      "test_count": 0,
+      "test_note": "Tests live in src/game/tests.rs, counted under game_loop",
+      "known_issues": [],
+      "last_verified": null
+    },
+    "events": {
+      "status": "ok",
+      "description": "Random events: drought, harvest, migration, wolf surge, milestones, threat scaling",
+      "files": ["src/game/events.rs"],
+      "test_count": 13,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "chokepoint": {
+      "status": "ok",
+      "description": "Chokepoint detection for defensive positioning",
+      "files": ["src/game/chokepoint.rs"],
+      "test_count": 10,
+      "known_issues": [],
+      "last_verified": null
+    },
+    "rendering": {
+      "status": "ok",
+      "description": "Terminal rendering: 4 modes (Normal, Map, Landscape, Debug) + overlays",
+      "files": ["src/renderer.rs", "src/crossterm_renderer.rs", "src/headless_renderer.rs", "src/game/render/"],
+      "test_count": 62,
+      "known_issues": [
+        "Three color truth sources (Terrain::fg/bg, SoilType::ground_fg, vegetation_color_from_conditions) — should be unified"
+      ],
+      "last_verified": null
+    },
+    "save_load": {
+      "status": "needs_tests",
+      "description": "JSON save/load for game state + ECS world serialization",
+      "files": ["src/game/save.rs", "src/ecs/serialize.rs"],
+      "test_count": 0,
+      "known_issues": [
+        "No dedicated unit tests — only implicit coverage via integration tests"
+      ],
+      "last_verified": null
+    },
+    "scripting": {
+      "status": "stub",
+      "description": "Lua scripting (feature-gated, not fully implemented)",
+      "files": ["src/scripting/mod.rs"],
+      "test_count": 5,
+      "known_issues": [
+        "Not fully implemented or tested"
+      ],
+      "last_verified": null
+    }
+  },
+  "status_legend": {
+    "ok": "Working, tested, no major issues",
+    "needs_work": "Functional but has design/data-flow problems",
+    "needs_refactor": "Working but code structure needs improvement",
+    "needs_cleanup": "Should be removed or replaced",
+    "needs_tests": "Working but insufficient test coverage",
+    "stub": "Not fully implemented",
+    "broken": "Failing tests or known bugs"
+  }
+}
