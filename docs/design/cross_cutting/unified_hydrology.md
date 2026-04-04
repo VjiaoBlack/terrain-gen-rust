@@ -39,9 +39,9 @@ Ocean (constant boundary)
 
 No new structs. Modifications to existing types only.
 
-**`WindField`** (`src/simulation/wind.rs`) — struct unchanged. Add `update_moisture_carried()` fn: over ocean tiles load moisture proportional to wind speed (`evap_rate = 0.005`); over land, small evapotranspiration from soil moisture (`evapo_rate = 0.001`).
+**`WindField`** (`src/simulation/wind.rs`) — struct unchanged. `advect_moisture()` handles evaporation: over ocean tiles, pickup = `OCEAN_EVAP_RATE(0.006) * wind_speed`; over land, evapotranspiration scales quadratically with soil moisture: `LAND_EVAPO_RATE(0.005) * m * m`. The quadratic scaling makes wet areas significant moisture sources, creating a "moisture relay" that carries water further inland instead of a sharp wet/dry coastal boundary. Multi-octave curl noise turbulence (40% of prevailing strength) creates swirling wind patterns for vertical mixing.
 
-**`MoistureMap`** (`src/simulation/moisture.rs`) — remove `box_blur()` and the `delta[]` advection buffer. Keep `moisture`, `avg_moisture`, and EMA blend. Add passive decay `moisture[i] *= 0.995` per tick so un-rained tiles dry out.
+**`MoistureMap`** (`src/simulation/moisture.rs`) — `box_blur()` and `delta[]` advection buffer removed. Keeps `moisture`, `avg_moisture`, and EMA blend. Passive decay `moisture[i] *= 0.997` per tick. Precipitation: `BACKGROUND_RATE = 0.005`, `OROGRAPHIC_RATE = 0.25`. Groundwater diffusion: 4-connected lateral spread (2% exchange rate per tick) with gravity bias — moisture seeps sideways through soil independent of wind direction, preventing hard wet/dry boundaries along wind streamlines.
 
 **`PipeWater`** (`src/pipe_water.rs`) — add `ocean_mask: Vec<bool>` and `ocean_depth: Vec<f64>`, computed once from terrain at construction. After each `step()`, reset: `if ocean_mask[i] { depth[i] = ocean_depth[i]; }`.
 

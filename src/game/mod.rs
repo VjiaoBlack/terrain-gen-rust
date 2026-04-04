@@ -1295,14 +1295,25 @@ impl Game {
         g.chokepoints_dirty = false;
         // Compute initial wind field from terrain + chokepoints
         let wind_dir = WindField::seasonal_direction(g.day_night.season);
-        g.wind = WindField::compute_from_terrain(
-            &g.heights,
-            map_width,
-            map_height,
-            wind_dir,
-            0.6,
-            Some(&g.chokepoint_map.scores),
-        );
+        g.wind = match g.sim_config.wind_model {
+            crate::simulation::WindModel::CurlNoise => WindField::compute_curl_noise_field(
+                &g.heights,
+                map_width,
+                map_height,
+                wind_dir,
+                0.6,
+                0.0, // time=0 at start
+                g.terrain_config.seed,
+            ),
+            crate::simulation::WindModel::Stam => WindField::compute_from_terrain(
+                &g.heights,
+                map_width,
+                map_height,
+                wind_dir,
+                0.6,
+                Some(&g.chokepoint_map.scores),
+            ),
+        };
         // Build hierarchical pathfinding navigation graph from final terrain
         g.nav_graph = NavGraph::build(&g.map);
         // Pre-reveal settlement start area (around map center)

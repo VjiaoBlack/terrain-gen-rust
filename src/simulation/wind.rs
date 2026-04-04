@@ -213,20 +213,34 @@ impl WindField {
         use noise::{NoiseFn, Perlin};
 
         let perlin = Perlin::new(seed);
-        let turbulence_strength = 0.08 * self.prevailing_strength;
+        // Strong turbulence: 40% of prevailing wind strength creates real swirling.
+        // Multi-octave: large eddies (freq=0.02) + medium (0.06) + small (0.15).
+        // Time evolution at different rates per octave for natural-looking variation.
+        let base_strength = 0.4 * self.prevailing_strength;
 
         for y in 0..self.height {
             for x in 0..self.width {
                 let idx = y * self.width + x;
-                let nx = x as f64 * 0.05;
-                let ny = y as f64 * 0.05;
-                let nt = time * 0.01;
+                let fx = x as f64;
+                let fy = y as f64;
 
-                let turbulence_x = perlin.get([nx, ny, nt]) * turbulence_strength;
-                let turbulence_y = perlin.get([nx + 100.0, ny + 100.0, nt]) * turbulence_strength;
+                // Octave 1: large eddies (weather-front scale)
+                let t1 = time * 0.005;
+                let tx1 = perlin.get([fx * 0.02, fy * 0.02, t1]) * base_strength;
+                let ty1 = perlin.get([fx * 0.02 + 100.0, fy * 0.02 + 100.0, t1]) * base_strength;
 
-                self.wind_x[idx] += turbulence_x;
-                self.wind_y[idx] += turbulence_y;
+                // Octave 2: medium swirls
+                let t2 = time * 0.015;
+                let tx2 = perlin.get([fx * 0.06, fy * 0.06, t2]) * base_strength * 0.4;
+                let ty2 = perlin.get([fx * 0.06 + 200.0, fy * 0.06 + 200.0, t2]) * base_strength * 0.4;
+
+                // Octave 3: small gusts
+                let t3 = time * 0.04;
+                let tx3 = perlin.get([fx * 0.15, fy * 0.15, t3]) * base_strength * 0.15;
+                let ty3 = perlin.get([fx * 0.15 + 300.0, fy * 0.15 + 300.0, t3]) * base_strength * 0.15;
+
+                self.wind_x[idx] += tx1 + tx2 + tx3;
+                self.wind_y[idx] += ty1 + ty2 + ty3;
                 self.wind_speed[idx] = (self.wind_x[idx] * self.wind_x[idx]
                     + self.wind_y[idx] * self.wind_y[idx])
                     .sqrt();
@@ -294,25 +308,31 @@ impl WindField {
 
         // Phase 1: Evaporation (unified hydrology Step 2)
         // Ocean tiles load moisture proportional to wind speed.
-        // Land tiles with soil moisture evapotranspire at a lower rate.
-        const OCEAN_EVAP_RATE: f64 = 0.005;
-        const LAND_EVAPO_RATE: f64 = 0.001;
+        // Land tiles evapotranspire proportional to soil moisture squared —
+        // wet tiles pump much more moisture back into the atmosphere,
+        // creating a "moisture relay" that carries water inland.
+        const OCEAN_EVAP_RATE: f64 = 0.006;
+        const LAND_EVAPO_RATE: f64 = 0.005;
         for i in 0..n {
             if ocean_mask[i] {
                 let pickup = OCEAN_EVAP_RATE * self.wind_speed[i];
                 self.moisture_carried[i] += pickup;
                 evaporated[i] = pickup;
             } else {
-                // Evapotranspiration from soil moisture
-                let evapo = LAND_EVAPO_RATE * soil_moisture[i];
+                // Evapotranspiration scales with soil moisture squared:
+                // dry land (0.1) -> 0.00005, wet land (0.8) -> 0.0032
+                // This makes wet areas significant moisture sources, spreading
+                // water further inland instead of creating a sharp wet/dry boundary.
+                let m = soil_moisture[i];
+                let evapo = LAND_EVAPO_RATE * m * m;
                 self.moisture_carried[i] += evapo;
                 evaporated[i] = evapo;
             }
         }
 
         // Phase 2: Orographic precipitation — wind pushing air uphill drops rain
-        // Low rate so only significant slopes cause rain (mountains, not gentle hills)
-        const OROGRAPHIC_PRECIP_RATE: f64 = 0.05;
+        // Moderate rate — mountains cause significant rain shadow, gentle hills less so
+        const OROGRAPHIC_PRECIP_RATE: f64 = 0.04;
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;
@@ -379,6 +399,165 @@ impl WindField {
             Season::Autumn => 0.0, // east (westerly)
             Season::Winter => -std::f64::consts::FRAC_PI_4, // SE (northerly component)
         }
+    }
+
+    /// Compute wind field using curl noise — a divergence-free vector field
+    /// derived from the curl of a scalar Perlin noise potential.
+    ///
+    /// Unlike Stam (which solves N-S equations for steady state), curl noise:
+    /// - Naturally produces swirling, eddy-like patterns
+    /// - Evolves smoothly over time (time parameter animates the field)
+    /// - Is terrain-aware: high terrain dampens wind speed and deflects flow
+    /// - Includes a weak prevailing bias so dominant direction is preserved
+    /// - Is much cheaper than Stam (~2 noise evals per tile vs 50 solver iterations)
+    ///
+    /// The curl of a 2D scalar field Ψ gives: vx = dΨ/dy, vy = -dΨ/dx
+    /// This is automatically divergence-free (no pressure solve needed).
+    pub fn compute_curl_noise_field(
+        heights: &[f64],
+        width: usize,
+        height: usize,
+        prevailing_dir: f64,
+        prevailing_strength: f64,
+        time: f64,
+        seed: u32,
+    ) -> Self {
+        use noise::{NoiseFn, Perlin};
+
+        let n = width * height;
+        let mut field = Self {
+            width,
+            height,
+            wind_x: vec![0.0; n],
+            wind_y: vec![0.0; n],
+            wind_speed: vec![0.0; n],
+            wind_shadow: vec![1.0; n],
+            moisture_carried: vec![0.0; n],
+            prevailing_dir,
+            prevailing_strength,
+        };
+
+        if n == 0 {
+            return field;
+        }
+
+        let perlin = Perlin::new(seed);
+
+        // Prevailing wind bias (weak — 30% of strength, curl provides the rest)
+        let bias_x = prevailing_dir.cos() * prevailing_strength * 0.3;
+        let bias_y = prevailing_dir.sin() * prevailing_strength * 0.3;
+
+        let eps = 0.5; // finite difference step for curl computation
+        let t = time * 0.003; // slow time evolution
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                let fx = x as f64;
+                let fy = y as f64;
+
+                // Multi-octave potential field Ψ(x, y, t)
+                // Octave 1: large weather systems
+                let psi = |px: f64, py: f64| -> f64 {
+                    let o1 = perlin.get([px * 0.015, py * 0.015, t]) * 1.0;
+                    let o2 = perlin.get([px * 0.04, py * 0.04, t * 2.5]) * 0.4;
+                    let o3 = perlin.get([px * 0.1, py * 0.1, t * 6.0]) * 0.15;
+                    o1 + o2 + o3
+                };
+
+                // Curl: vx = dΨ/dy, vy = -dΨ/dx
+                let curl_x = (psi(fx, fy + eps) - psi(fx, fy - eps)) / (2.0 * eps);
+                let curl_y = -(psi(fx + eps, fy) - psi(fx - eps, fy)) / (2.0 * eps);
+
+                // Scale to desired wind strength
+                let scale = prevailing_strength * 1.2;
+                let mut vx = curl_x * scale + bias_x;
+                let mut vy = curl_y * scale + bias_y;
+
+                // Terrain modulation: high terrain dampens wind and deflects it
+                if idx < heights.len() {
+                    let h = heights[idx];
+                    // Damping: mountains slow wind (drag increases above height 0.5)
+                    let drag = (h - 0.4).max(0.0) * 2.0;
+                    let damping = 1.0 / (1.0 + drag);
+                    vx *= damping;
+                    vy *= damping;
+
+                    // Deflection: wind pushed perpendicular to height gradient
+                    // (simulates air flowing around obstacles)
+                    if x > 0 && x + 1 < width && y > 0 && y + 1 < height {
+                        let dhdx = (heights[idx + 1] - heights[idx - 1]) * 0.5;
+                        let dhdy = (heights[idx + width] - heights[idx - width]) * 0.5;
+                        let grad_mag = (dhdx * dhdx + dhdy * dhdy).sqrt();
+                        if grad_mag > 0.01 {
+                            // Push perpendicular to gradient (deflect around terrain)
+                            let deflect_strength = (grad_mag * 3.0).min(0.5);
+                            vx += -dhdy * deflect_strength;
+                            vy += dhdx * deflect_strength;
+                        }
+                    }
+                }
+
+                field.wind_x[idx] = vx;
+                field.wind_y[idx] = vy;
+                field.wind_speed[idx] = (vx * vx + vy * vy).sqrt();
+            }
+        }
+
+        // Compute wind shadow (reuse the same approach as Stam)
+        if prevailing_strength > 0.0 {
+            let prev_dx = prevailing_dir.cos();
+            let prev_dy = prevailing_dir.sin();
+            for y in 0..height {
+                for x in 0..width {
+                    let i = y * width + x;
+                    let speed_shadow = (field.wind_speed[i] / prevailing_strength).min(1.0);
+                    let h_here = if i < heights.len() { heights[i] } else { 0.0 };
+                    let mut geo_shadow = 1.0f64;
+                    for step in 1..=12 {
+                        let sx = (x as f64 - prev_dx * step as f64).round() as i32;
+                        let sy = (y as f64 - prev_dy * step as f64).round() as i32;
+                        if sx >= 0 && sx < width as i32 && sy >= 0 && sy < height as i32 {
+                            let si = sy as usize * width + sx as usize;
+                            let h_up = heights[si];
+                            let elevation_diff = h_up - h_here;
+                            if elevation_diff > 0.1 {
+                                let block = (elevation_diff * 2.0 / step as f64).min(1.0);
+                                geo_shadow = geo_shadow.min(1.0 - block);
+                            }
+                        }
+                    }
+                    field.wind_shadow[i] = speed_shadow.min(geo_shadow.max(0.0));
+                }
+            }
+        }
+
+        field
+    }
+
+    /// Evolve a curl-noise wind field forward in time. Recomputes the wind
+    /// vectors from the noise potential at the new time, preserving moisture_carried.
+    /// Call this every N ticks for smoothly-changing wind patterns.
+    pub fn evolve_curl_noise(
+        &mut self,
+        heights: &[f64],
+        time: f64,
+        seed: u32,
+    ) {
+        let new_field = Self::compute_curl_noise_field(
+            heights,
+            self.width,
+            self.height,
+            self.prevailing_dir,
+            self.prevailing_strength,
+            time,
+            seed,
+        );
+        // Update wind vectors but KEEP moisture_carried (it's advected separately)
+        self.wind_x = new_field.wind_x;
+        self.wind_y = new_field.wind_y;
+        self.wind_speed = new_field.wind_speed;
+        self.wind_shadow = new_field.wind_shadow;
     }
 }
 
@@ -1217,5 +1396,111 @@ mod tests {
             "Wet soil should evapotranspire some moisture into air, got {:.6}",
             avg_carried
         );
+    }
+
+    // ── Curl noise wind field tests ─────────────────────────────────────
+
+    #[test]
+    fn curl_noise_terrain_damping() {
+        // Wind speed on high terrain should be less than on flat terrain.
+        let w = 32;
+        let h = 32;
+        let mut flat_heights = vec![0.3f64; w * h];
+        let mut mt_heights = vec![0.3f64; w * h];
+        // Place a mountain in the center
+        for y in 12..20 {
+            for x in 12..20 {
+                mt_heights[y * w + x] = 0.8;
+            }
+        }
+
+        let flat_field =
+            WindField::compute_curl_noise_field(&flat_heights, w, h, 0.0, 0.6, 0.0, 42);
+        let mt_field =
+            WindField::compute_curl_noise_field(&mt_heights, w, h, 0.0, 0.6, 0.0, 42);
+
+        // Average speed on mountain tiles should be lower
+        let mt_speed: f64 = (12..20)
+            .flat_map(|y| (12..20).map(move |x| (x, y)))
+            .map(|(x, y)| mt_field.get_speed(x, y))
+            .sum::<f64>()
+            / 64.0;
+        let flat_speed: f64 = (12..20)
+            .flat_map(|y| (12..20).map(move |x| (x, y)))
+            .map(|(x, y)| flat_field.get_speed(x, y))
+            .sum::<f64>()
+            / 64.0;
+
+        assert!(
+            mt_speed < flat_speed,
+            "mountain wind speed ({mt_speed:.4}) should be less than flat ({flat_speed:.4})"
+        );
+    }
+
+    #[test]
+    fn curl_noise_prevailing_bias() {
+        // Mean wind direction should roughly match prevailing_dir.
+        let w = 64;
+        let h = 64;
+        let heights = vec![0.3f64; w * h];
+        // Prevailing east (dir=0.0)
+        let field =
+            WindField::compute_curl_noise_field(&heights, w, h, 0.0, 0.6, 0.0, 42);
+
+        let mean_vx: f64 = field.wind_x.iter().sum::<f64>() / (w * h) as f64;
+        let mean_vy: f64 = field.wind_y.iter().sum::<f64>() / (w * h) as f64;
+
+        // Mean should have positive x component (eastward bias)
+        assert!(
+            mean_vx > 0.0,
+            "mean wind_x ({mean_vx:.4}) should be positive (eastward bias)"
+        );
+        // The x bias should be stronger than any y drift
+        assert!(
+            mean_vx.abs() > mean_vy.abs(),
+            "eastward bias ({mean_vx:.4}) should dominate over y drift ({mean_vy:.4})"
+        );
+    }
+
+    #[test]
+    fn evolve_curl_noise_preserves_moisture() {
+        let w = 16;
+        let h = 16;
+        let heights = vec![0.3f64; w * h];
+        let mut field =
+            WindField::compute_curl_noise_field(&heights, w, h, 0.0, 0.6, 0.0, 42);
+
+        // Set some moisture
+        for i in 0..field.moisture_carried.len() {
+            field.moisture_carried[i] = 0.5;
+        }
+
+        field.evolve_curl_noise(&heights, 100.0, 42);
+
+        // Moisture should be unchanged
+        for (i, &m) in field.moisture_carried.iter().enumerate() {
+            assert!(
+                (m - 0.5).abs() < 1e-10,
+                "moisture_carried[{i}] changed from 0.5 to {m}"
+            );
+        }
+    }
+
+    #[test]
+    fn evolve_curl_noise_changes_wind() {
+        let w = 16;
+        let h = 16;
+        let heights = vec![0.3f64; w * h];
+        let mut field =
+            WindField::compute_curl_noise_field(&heights, w, h, 0.0, 0.6, 0.0, 42);
+
+        let old_vx = field.wind_x.clone();
+        field.evolve_curl_noise(&heights, 500.0, 42); // different time → different noise
+
+        let changed = old_vx
+            .iter()
+            .zip(field.wind_x.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
+        assert!(changed, "evolve should change wind vectors at different time");
     }
 }

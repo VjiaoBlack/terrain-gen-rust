@@ -7,6 +7,14 @@ impl super::Game {
     ///
     /// Extracted from step() — called once per sim tick inside the speed loop.
     pub(super) fn step_water_cycle(&mut self, should_rain: bool, veg_growth_mult: f64) {
+        // Evolve curl noise wind field every 10 ticks (smooth animation, cheap)
+        if self.sim_config.wind_model == crate::simulation::WindModel::CurlNoise
+            && self.tick % 10 == 0
+        {
+            self.wind
+                .evolve_curl_noise(&self.heights, self.tick as f64, self.terrain_config.seed);
+        }
+
         // Moisture update runs every tick -- pipe_water is the sole water source now
         self.moisture.update(
             &mut self.pipe_water,
@@ -92,14 +100,25 @@ impl super::Game {
 
         // --- Recompute wind field for new seasonal direction ---
         let wind_dir = WindField::seasonal_direction(self.day_night.season);
-        self.wind = WindField::compute_from_terrain(
-            &self.heights,
-            self.map.width,
-            self.map.height,
-            wind_dir,
-            self.wind.prevailing_strength,
-            Some(&self.chokepoint_map.scores),
-        );
+        self.wind = match self.sim_config.wind_model {
+            crate::simulation::WindModel::CurlNoise => WindField::compute_curl_noise_field(
+                &self.heights,
+                self.map.width,
+                self.map.height,
+                wind_dir,
+                self.wind.prevailing_strength,
+                self.tick as f64,
+                self.terrain_config.seed,
+            ),
+            crate::simulation::WindModel::Stam => WindField::compute_from_terrain(
+                &self.heights,
+                self.map.width,
+                self.map.height,
+                wind_dir,
+                self.wind.prevailing_strength,
+                Some(&self.chokepoint_map.scores),
+            ),
+        };
 
         // --- Seasonal terrain transitions ---
         // Revert previous season's overlays before applying new ones.

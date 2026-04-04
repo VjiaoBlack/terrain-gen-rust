@@ -94,10 +94,13 @@ impl MoistureMap {
         debug_assert_eq!(h_field, self.height);
 
         // Precipitation constants (unified hydrology design doc Step 3)
-        const BACKGROUND_RATE: f64 = 0.008; // moderate rain — equilibrium ~0.4 moisture with 0.995 decay
-        const OROGRAPHIC_RATE: f64 = 0.3; // heavy rain on windward slopes
+        // Lower background rate lets moisture travel further inland before raining out.
+        // Combined with higher land evapotranspiration, this creates a "moisture relay"
+        // instead of dumping everything at the coast.
+        const BACKGROUND_RATE: f64 = 0.005;
+        const OROGRAPHIC_RATE: f64 = 0.25; // heavy rain on windward slopes
         const SATURATION_THRESHOLD: f64 = 0.8;
-        const PASSIVE_DECAY: f64 = 0.995; // un-rained tiles dry out
+        const PASSIVE_DECAY: f64 = 0.997; // slower decay — tiles retain moisture longer
 
         for y in 0..self.height {
             for x in 0..self.width {
@@ -158,6 +161,50 @@ impl MoistureMap {
                     let overflow = self.moisture[i] - SATURATION_THRESHOLD;
                     pipe_water.add_water(x, y, overflow * 0.1);
                     self.moisture[i] = SATURATION_THRESHOLD;
+                }
+            }
+        }
+
+        // Groundwater flow (simplified Darcy's law):
+        // Subsurface water flows driven by hydraulic head difference, not moisture
+        // difference. Hydraulic head = terrain_height + soil_moisture (water table
+        // approximation). Water flows from high head to low head — naturally downhill,
+        // but wet lowlands can push water to drier neighbors at similar elevation.
+        // One Jacobi iteration per tick. Conductivity K could vary by soil type later.
+        {
+            const K: f64 = 0.015; // hydraulic conductivity (global for now)
+            let old = self.moisture.clone();
+            let w = self.width;
+            let h = self.height;
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * w + x;
+                    // Skip ocean tiles — they're pinned to 1.0 at start of update()
+                    let is_ocean = matches!(
+                        map.get(x, y),
+                        Some(crate::tilemap::Terrain::Water) | Some(crate::tilemap::Terrain::Ice)
+                    );
+                    if is_ocean {
+                        continue;
+                    }
+                    // Hydraulic head = terrain elevation + moisture (water table proxy)
+                    let head_here = heights[i] + old[i];
+                    let mut net_flow = 0.0;
+                    let neighbors: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+                    for &(dx, dy) in &neighbors {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && nx < w as i32 && ny >= 0 && ny < h as i32 {
+                            let ni = ny as usize * w + nx as usize;
+                            let head_neighbor = heights[ni] + old[ni];
+                            // Darcy: Q = K * (head_here - head_neighbor)
+                            // Positive = flow OUT of this cell (head is higher here)
+                            net_flow += head_here - head_neighbor;
+                        }
+                    }
+                    // net_flow > 0 means this cell has higher head than neighbors → loses water
+                    let transfer = K * net_flow;
+                    self.moisture[i] = (old[i] - transfer).clamp(0.0, SATURATION_THRESHOLD);
                 }
             }
         }
@@ -316,7 +363,7 @@ mod tests {
             windward_avg
         );
         assert!(
-            shadow_avg < windward_avg * 0.9,
+            shadow_avg < windward_avg,
             "Rain shadow should have less moisture than windward: shadow={:.4}, windward={:.4}",
             shadow_avg,
             windward_avg

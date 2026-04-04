@@ -21,6 +21,24 @@ pub use vegetation::VegetationMap;
 pub use water_map::WaterMap;
 pub use wind::WindField;
 
+/// Which wind model to use for atmospheric simulation.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum WindModel {
+    /// Jos Stam stable fluids solver. Physically accurate but static within a season.
+    /// Good for: steady-state wind patterns, precise terrain deflection.
+    Stam,
+    /// Curl noise vector field with prevailing bias. Evolves every tick.
+    /// Cheaper than Stam, produces natural swirling/mixing, better moisture distribution.
+    /// Terrain modulates the noise field (high terrain dampens + deflects).
+    CurlNoise,
+}
+
+impl Default for WindModel {
+    fn default() -> Self {
+        WindModel::CurlNoise
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub rain_rate: f64,     // fraction of tiles that get rain per tick
@@ -30,6 +48,8 @@ pub struct SimConfig {
     pub erosion_enabled: bool,
     pub erosion_strength: f64, // multiplier for erosion effect
     pub avg_factor: f64,       // smoothing: 0.95 = slow, 0.5 = fast
+    #[serde(default)]
+    pub wind_model: WindModel,
 }
 
 impl Default for SimConfig {
@@ -42,6 +62,7 @@ impl Default for SimConfig {
             erosion_enabled: false,
             erosion_strength: 1.0,
             avg_factor: 0.8, // faster averaging for responsive water visuals
+            wind_model: WindModel::default(),
         }
     }
 }

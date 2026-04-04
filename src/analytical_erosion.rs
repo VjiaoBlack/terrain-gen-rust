@@ -130,9 +130,18 @@ pub fn apply_spl_erosion(
 }
 
 /// Convenience: compute drainage + apply SPL in one call.
+/// Uses multi-pass iteration: recomputes drainage between passes so the
+/// terrain relaxes gradually instead of creating deep single-pixel gullies.
 pub fn run_spl_erosion(heights: &mut [f64], w: usize, h: usize, params: &SplParams) {
-    let drainage = compute_drainage_area(heights, w, h);
-    apply_spl_erosion(heights, w, h, &drainage, params);
+    let passes = 4;
+    let per_pass = SplParams {
+        time: params.time / passes as f64,
+        ..params.clone()
+    };
+    for _ in 0..passes {
+        let drainage = compute_drainage_area(heights, w, h);
+        apply_spl_erosion(heights, w, h, &drainage, &per_pass);
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -387,4 +396,5 @@ mod tests {
             "bottom row (avg drainage {bottom_avg:.1}) should have more drainage than top ({top_avg:.1})"
         );
     }
+
 }

@@ -133,14 +133,29 @@ impl Game {
         game.chokepoints_dirty = false;
         // Recompute wind field from terrain + chokepoints
         let wind_dir = crate::simulation::WindField::seasonal_direction(game.day_night.season);
-        game.wind = crate::simulation::WindField::compute_from_terrain(
-            &game.heights,
-            map_w,
-            map_h,
-            wind_dir,
-            0.6,
-            Some(&game.chokepoint_map.scores),
-        );
+        game.wind = match game.sim_config.wind_model {
+            crate::simulation::WindModel::CurlNoise => {
+                crate::simulation::WindField::compute_curl_noise_field(
+                    &game.heights,
+                    map_w,
+                    map_h,
+                    wind_dir,
+                    0.6,
+                    game.tick as f64,
+                    game.terrain_config.seed,
+                )
+            }
+            crate::simulation::WindModel::Stam => {
+                crate::simulation::WindField::compute_from_terrain(
+                    &game.heights,
+                    map_w,
+                    map_h,
+                    wind_dir,
+                    0.6,
+                    Some(&game.chokepoint_map.scores),
+                )
+            }
+        };
         game.nav_graph = crate::pathfinding::NavGraph::build(&game.map);
         // Seed pipe_water from river_mask and Water tiles
         for y in 0..map_h {
