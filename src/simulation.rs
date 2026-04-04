@@ -2177,9 +2177,10 @@ impl WindField {
         let n = w * h;
         let mut precip = vec![0.0f64; n];
 
-        // Phase 1: Pick up moisture over water, evaporate over land
-        const PICKUP_RATE: f64 = 0.05;
-        const EVAP_RATE: f64 = 0.002;
+        // Phase 1: Pick up moisture over water, very slow loss over land
+        // so moisture can travel far (100+ tiles)
+        const PICKUP_RATE: f64 = 0.08;
+        const EVAP_RATE: f64 = 0.0005; // 0.05% per call — moisture survives ~200 tiles
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;
@@ -2196,7 +2197,8 @@ impl WindField {
         }
 
         // Phase 2: Orographic precipitation — wind pushing air uphill drops rain
-        const OROGRAPHIC_PRECIP_RATE: f64 = 0.3;
+        // Low rate so only significant slopes cause rain (mountains, not gentle hills)
+        const OROGRAPHIC_PRECIP_RATE: f64 = 0.05;
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;

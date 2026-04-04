@@ -2920,25 +2920,24 @@ impl super::Game {
                 let speed = self.wind.get_speed(ux, uy);
                 let shadow = self.wind.get_shadow(ux, uy);
 
-                // Direction arrow: 8 directions + calm
+                // Direction arrow: points where wind is going
+                // In our coordinate system: +x = right, +y = down
                 let ch = if speed < 0.05 {
                     '·' // calm
                 } else {
-                    let angle = vy.atan2(vx);
-                    // Map angle to 8 compass directions
-                    let octant = ((angle + std::f64::consts::PI) / (std::f64::consts::PI / 4.0))
-                        .round() as i32
-                        % 8;
-                    match octant {
-                        0 => '←', // PI: pointing west (wind blowing west)
-                        1 => '↙',
-                        2 => '↓',
-                        3 => '↘',
-                        4 => '→', // 0: pointing east
-                        5 => '↗',
-                        6 => '↑',
-                        7 => '↖',
-                        _ => '·',
+                    // Simple: pick arrow based on dominant axis
+                    if vx.abs() > vy.abs() * 1.5 {
+                        if vx > 0.0 { '→' } else { '←' }
+                    } else if vy.abs() > vx.abs() * 1.5 {
+                        if vy > 0.0 { '↓' } else { '↑' }
+                    } else {
+                        // Diagonal
+                        match (vx > 0.0, vy > 0.0) {
+                            (true, true) => '↘',
+                            (true, false) => '↗',
+                            (false, true) => '↙',
+                            (false, false) => '↖',
+                        }
                     }
                 };
 
