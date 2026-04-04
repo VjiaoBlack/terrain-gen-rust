@@ -1746,4 +1746,122 @@ mod tests {
             east_avg
         );
     }
+
+    /// Diagnostic: trace moisture at different distances from coast over time.
+    /// NOT a pass/fail test — prints data to understand the moisture distribution.
+    #[test]
+    #[ignore] // run with: cargo test --lib diag_inland -- --nocapture --ignored
+    fn diag_inland_moisture_reach() {
+        let w = 64;
+        let h = 32;
+        let n = w * h;
+
+        let mut heights = vec![0.45f64; n];
+        for y in 0..h {
+            for x in 0..8 {
+                heights[y * w + x] = 0.3;
+            }
+        }
+
+        let mut map = TileMap::new(w, h, Terrain::Grass);
+        for y in 0..h {
+            for x in 0..8 {
+                map.set(x, y, Terrain::Water);
+            }
+        }
+
+        let mut wind = WindField::compute_curl_noise_field(&heights, w, h, 0.0, 0.6, 0.0, 42);
+        let mut mm = MoistureMap::new(w, h);
+        let mut vm = VegetationMap::new(w, h);
+        let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        for y in 0..h {
+            for x in 0..8 {
+                pw.set_ocean_boundary(x, y, 0.05);
+                pw.add_water(x, y, 0.05);
+            }
+        }
+
+        // Debug: check wind speed and direction over ocean
+        eprintln!("=== Wind field at tick 0 ===");
+        let mid_y = h / 2;
+        for x in [4, 8, 12, 20, 30] {
+            let (vx, vy) = wind.get_wind(x, mid_y);
+            let speed = wind.get_speed(x, mid_y);
+            eprintln!(
+                "  x={:2}: vx={:+.3} vy={:+.3} speed={:.3} mc={:.4}",
+                x, vx, vy, speed, wind.get_moisture_carried(x, mid_y)
+            );
+        }
+
+        // Check total moisture_carried after a few advection calls
+        eprintln!("\n=== Advection trace ===");
+        for pre_tick in 0..10 {
+            wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
+            let total_mc: f64 = wind.moisture_carried.iter().sum();
+            let max_mc = wind.moisture_carried.iter().cloned().fold(0.0f64, f64::max);
+            let ocean_mc: f64 = (0..h)
+                .flat_map(|y| (0..8).map(move |x| y * w + x))
+                .map(|i| wind.moisture_carried[i])
+                .sum();
+            let land_mc: f64 = total_mc - ocean_mc;
+            eprintln!(
+                "  advect {:2}: total_mc={:.4} ocean_mc={:.4} land_mc={:.4} max={:.4}",
+                pre_tick, total_mc, ocean_mc, land_mc, max_mc
+            );
+        }
+        // Reset moisture_carried for the main loop
+        for v in wind.moisture_carried.iter_mut() {
+            *v = 0.0;
+        }
+
+        let sample_cols = [9, 15, 25, 35, 50];
+
+        for tick in 0..500 {
+            let is_advection = tick % 3 == 0;
+            if is_advection {
+                wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
+            }
+            if tick % 20 == 0 {
+                wind.evolve_curl_noise(&heights, tick as f64, 42);
+            }
+            mm.update(&mut pw, &mut vm, &map, &mut wind, &heights, is_advection);
+
+            if tick % 100 == 99 {
+                eprint!("tick {:3}: ", tick + 1);
+                for &x in &sample_cols {
+                    let soil = mm.get(x, mid_y);
+                    let air = wind.get_moisture_carried(x, mid_y);
+                    eprint!("x={:2} soil={:.3} air={:.4}  ", x, soil, air);
+                }
+                eprintln!();
+            }
+        }
+
+        // Also print band averages
+        eprintln!("\n=== Band averages at tick 500 ===");
+        for &(label, x_start, x_end) in &[
+            ("coast (9-12)", 9usize, 12usize),
+            ("near (13-20)", 13, 20),
+            ("mid (21-35)", 21, 35),
+            ("far (36-55)", 36, 55),
+        ] {
+            let mut soil_sum = 0.0;
+            let mut air_sum = 0.0;
+            let mut count = 0.0;
+            for y in 0..h {
+                for x in x_start..=x_end {
+                    soil_sum += mm.get(x, y);
+                    air_sum += wind.get_moisture_carried(x, y);
+                    count += 1.0;
+                }
+            }
+            eprintln!(
+                "  {}: soil={:.4} air={:.5}",
+                label,
+                soil_sum / count,
+                air_sum / count
+            );
+        }
+        eprintln!("(This is a diagnostic — check the numbers above)");
+    }
 }

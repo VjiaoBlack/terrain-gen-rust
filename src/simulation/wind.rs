@@ -443,9 +443,11 @@ impl WindField {
 
         let perlin = Perlin::new(seed);
 
-        // Prevailing wind bias (weak — 15% of strength, curl provides the rest)
-        let bias_x = prevailing_dir.cos() * prevailing_strength * 0.15;
-        let bias_y = prevailing_dir.sin() * prevailing_strength * 0.15;
+        // Prevailing wind bias — strong enough to ensure net moisture transport
+        // from ocean to land. 50% of strength goes to prevailing direction,
+        // 50% comes from curl noise for swirling variation.
+        let bias_x = prevailing_dir.cos() * prevailing_strength * 0.5;
+        let bias_y = prevailing_dir.sin() * prevailing_strength * 0.5;
 
         // Two-layer wind timescales (from weather model research):
         // - Synoptic (octave 1): large weather systems, changes over ~500 ticks (days)
@@ -475,8 +477,10 @@ impl WindField {
                 let noise_x = o1x * 1.0 + o2x * 0.35 + o3x * 0.15;
                 let noise_y = o1y * 1.0 + o2y * 0.35 + o3y * 0.15;
 
-                // Scale to desired wind strength
-                let scale = prevailing_strength * 0.8;
+                // Scale noise to 50% of wind strength — combined with 50% bias,
+                // this ensures net transport in the prevailing direction while
+                // still producing visible swirling and eddies.
+                let scale = prevailing_strength * 0.5;
                 let mut vx = noise_x * scale + bias_x;
                 let mut vy = noise_y * scale + bias_y;
 
@@ -1473,9 +1477,21 @@ mod tests {
             .map(|&c| c as f64 / total * 100.0)
             .fold(0.0f64, f64::max);
 
+        // With 50% prevailing bias, the dominant direction will have more tiles,
+        // but wind should still have significant variation (not 90%+ one way).
         assert!(
-            max_pct < 60.0,
-            "wind should be multi-directional, but one direction has {max_pct:.1}% \
+            max_pct < 80.0,
+            "wind should have variation, but one direction has {max_pct:.1}% \
+             (R={right} L={left} D={down} U={up})"
+        );
+        // At least 2 directions should have > 5% of tiles
+        let above_5 = [right, left, down, up]
+            .iter()
+            .filter(|&&c| c as f64 / total * 100.0 > 5.0)
+            .count();
+        assert!(
+            above_5 >= 2,
+            "at least 2 directions should have >5% of tiles, got {above_5} \
              (R={right} L={left} D={down} U={up})"
         );
     }
