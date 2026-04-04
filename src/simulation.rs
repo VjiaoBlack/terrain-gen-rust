@@ -2219,6 +2219,9 @@ impl WindField {
         }
 
         // Phase 3: Semi-Lagrangian advection of moisture_carried
+        // Multiply wind by transport_speed so moisture crosses the map in reasonable time.
+        // At speed 5.0, wind of 0.6 moves moisture 3 tiles per call (called every 3 ticks).
+        const TRANSPORT_SPEED: f64 = 5.0;
         let old = self.moisture_carried.clone();
         let wf = w as f64;
         let hf = h as f64;
@@ -2226,8 +2229,8 @@ impl WindField {
             for y in 0..h {
                 for x in 0..w {
                     let idx = y * w + x;
-                    let px = (x as f64) - self.wind_x[idx];
-                    let py = (y as f64) - self.wind_y[idx];
+                    let px = (x as f64) - self.wind_x[idx] * TRANSPORT_SPEED;
+                    let py = (y as f64) - self.wind_y[idx] * TRANSPORT_SPEED;
                     let px = px.clamp(0.5, wf - 1.5);
                     let py = py.clamp(0.5, hf - 1.5);
                     let i0 = px.floor() as usize;
