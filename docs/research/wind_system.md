@@ -137,3 +137,29 @@ For the Stam upgrade path, the `woeishi/StableFluids` SIMD implementation is dir
 - [Nick McDonald, "Procedural Weather Patterns" blog post](https://nickmcd.me/2018/07/10/procedural-weather-patterns/)
 - [RimWorld Wiki — Wind turbine / Environment](https://rimworldwiki.com/wiki/Wind_turbine)
 - [Dwarf Fortress Wiki — Weather](https://dwarffortresswiki.org/index.php/DF2014:Weather)
+
+---
+
+## Curl Noise Implementation (Current)
+
+Replaced the Stam stable fluids solver (which produced a static field within each
+season) with a curl noise vector field that evolves every 10 ticks.
+
+**Architecture:**
+- Two decorrelated Perlin noise fields generate `vx` and `vy` independently, 3
+  octaves each, sampled with a time coordinate that advances each update.
+- 15% prevailing wind bias is added to the curl output, giving a dominant
+  direction while allowing local variation and reversal.
+- Terrain damping: wind speed is reduced behind high terrain (orographic
+  sheltering). Terrain deflection: wind vectors bend around steep gradients
+  rather than passing through ridges.
+- Switchable at config level via `WindModel::CurlNoise` (default) vs.
+  `WindModel::Stam` in `SimConfig`.
+
+**Research finding:** The terrain generation community (SoilMachine, World Machine,
+Gaea) consistently uses noise-based wind fields rather than fluid solvers for
+climate-scale wind simulation. Fluid solvers are reserved for small-scale effects
+(fire plumes, gas diffusion in ONI). At world-gen scale, noise fields produce
+equivalent climate patterns (rain shadows, prevailing belts) at a fraction of the
+cost, and their stochastic nature better represents the chaotic mixing of real
+atmospheric circulation than a laminar Stokes solution on a coarse grid.

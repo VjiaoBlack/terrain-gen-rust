@@ -276,3 +276,15 @@ Implement the momentum+discharge map enhancement to our existing hydraulic erosi
 It requires only two extra `f32` fields on the cell struct and an exponential blend
 step after each erosion batch. This alone produces the meandering behavior and
 eliminates the braided/random-walk appearance of current erosion channels.
+
+---
+
+## Implementation Status & Next Steps
+
+| Feature | Status | Notes |
+|---|---|---|
+| Momentum + discharge maps | **NOT YET** | Highest-ROI port — two `f32` buffers + exponential blend give meandering rivers without structural changes |
+| Root-density erosion resistance | **NOT YET** | Would connect vegetation stage to erosion; requires `root_density: f32` per cell updated by plant sim |
+| Water seepage | **PARTIALLY DONE** | Darcy's law groundwater diffusion exists in `moisture.rs`, but not the full saturation/spring model (saturation → 1.0 forces water to surface) |
+| Soil column LayerMap | **NOT YET** | High complexity; linked-list-per-cell stratigraphy is a large architectural change — future work |
+| Wind / weather | **DONE** | Curl noise wind field implemented, similar to SoilMachine's Perlin noise approach (section 4 above); evolves every 10 ticks with terrain damping |

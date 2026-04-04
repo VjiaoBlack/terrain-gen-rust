@@ -92,3 +92,33 @@ separately.
 Prototype a CPU implementation of drainage-area + analytical SPL for our 256x256
 heightmap, comparing output against our current droplet pass. Key metric: do ocean
 basins stay flat while river valleys carve correctly?
+
+---
+
+## Known Limitations & Future Work
+
+**Coastline gully artifact.** SPL creates anomalously deep gullies at coastlines
+because drainage area and slope both peak at the ocean boundary — every inland
+pixel's flow converges there while the elevation drops sharply to sea level. The
+incision term `K * A^m * S^n` is maximized exactly where we least want erosion.
+
+**Current workaround.** Skip tiles whose flow drains directly to an ocean cell.
+This is physically defensible: real river mouths are depositional environments
+(deltas, estuaries), not incisional ones. Sediment decelerates and drops out at
+the coast rather than carving deeper.
+
+**Proper fix: add a deposition pass after SPL.** The Tzathas 2024 paper itself
+acknowledges that "depositional landforms need an additional deposition layer" on
+top of the incision-only SPL solve. A sediment-capacity transport rule (deposit
+when capacity drops below load) would naturally infill the coastline gullies with
+alluvial deposits.
+
+**SoilMachine's particle-descent approach** solves this organically: each water
+particle deposits its remaining sediment at end-of-life (`height[ipos] +=
+drop.sediment`), so coastlines accumulate deltas instead of incising. Porting the
+particle descent deposition logic would complement the analytical SPL pass.
+
+**Multi-pass iterative SPL** (recompute drainage area between passes) helps the
+terrain relax toward equilibrium and softens artifacts, but does not fix the
+fundamental issue — the coastline incision is a structural consequence of the SPL
+equation, not a convergence problem. Deposition is the missing physics.
