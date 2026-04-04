@@ -593,7 +593,9 @@ impl Game {
             }
         }
         let mut moisture = MoistureMap::new(map_width, map_height);
-        // Initialize average moisture from pipeline so vegetation starts sensible
+        // Initialize both current and average moisture from pipeline so vegetation
+        // starts sensible and the runtime moisture isn't stuck at zero.
+        moisture.moisture = result.moisture.clone();
         moisture.avg_moisture = result.moisture.clone();
         let mut vegetation = VegetationMap::new(map_width, map_height);
 
@@ -1822,7 +1824,10 @@ impl Game {
                     self.try_place_building();
                 }
             }
-            GameInput::Drain => self.water.drain(),
+            GameInput::Drain => {
+                self.water.drain();
+                self.pipe_water.drain();
+            }
             GameInput::ToggleAutoBuild => self.auto_build = !self.auto_build,
             GameInput::CycleOverlay => {
                 self.overlay = match self.overlay {
@@ -2731,34 +2736,17 @@ impl Game {
                     tick_config.rain_rate *= 1.5;
                 }
 
-                // Seasonal auto-rain + manual toggle
-                let should_rain = self.raining || (self.tick % 40 == 0 && mods.rain_mult > 0.4);
-                if should_rain {
-                    self.water.rain(&tick_config);
-                }
-                // Only run expensive water sim when there's actually water
-                let viewport_bounds = Some((
-                    self.camera.x.max(0) as usize,
-                    self.camera.y.max(0) as usize,
-                    (self.camera.x.max(0) as usize).saturating_add(world_vw as usize),
-                    (self.camera.y.max(0) as usize).saturating_add(vh as usize),
-                ));
-                if should_rain || self.water.has_water() {
-                    // Disable erosion — it makes lakes super deep and weird.
-                    // Water still flows, just doesn't erode terrain.
-                    let mut no_erosion_config = tick_config.clone();
-                    no_erosion_config.erosion_enabled = false;
-                    self.water
-                        .update(&mut self.heights, &no_erosion_config, viewport_bounds);
-                    self.moisture.update(
-                        &self.water,
-                        &mut self.vegetation,
-                        &self.map,
-                        &self.wind,
-                        &self.heights,
-                        &mut self.pipe_water,
-                    );
-                }
+                // Seasonal auto-rain: light rain every 200 ticks in wet seasons + manual toggle
+                let should_rain = self.raining || (self.tick % 200 == 0 && mods.rain_mult > 0.4);
+
+                // Moisture update runs every tick — pipe_water is the sole water source now
+                self.moisture.update(
+                    &mut self.pipe_water,
+                    &mut self.vegetation,
+                    &self.map,
+                    &self.wind,
+                    &self.heights,
+                );
 
                 // Pipe-model water simulation: add rain and step
                 if should_rain {

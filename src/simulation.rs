@@ -310,7 +310,7 @@ impl SoilFertilityMap {
 pub struct MoistureMap {
     pub width: usize,
     pub height: usize,
-    moisture: Vec<f64>,
+    pub moisture: Vec<f64>,
     /// Long-term average moisture — slowly tracks current moisture.
     /// Vegetation and biome respond to this instead of instantaneous moisture.
     #[serde(default)]
@@ -381,12 +381,11 @@ impl MoistureMap {
     /// Also updates vegetation based on moisture bands.
     pub fn update(
         &mut self,
-        water: &WaterMap,
+        pipe_water: &mut crate::pipe_water::PipeWater,
         vegetation: &mut VegetationMap,
         map: &crate::tilemap::TileMap,
         wind: &WindField,
         heights: &[f64],
-        pipe_water: &mut crate::pipe_water::PipeWater,
     ) {
         let w_field = wind.width;
         let h_field = wind.height;
@@ -403,7 +402,7 @@ impl MoistureMap {
                     self.moisture[i] = 0.0; // oceans don't generate land moisture
                     continue;
                 }
-                let w = water.get(x, y);
+                let w = pipe_water.get_depth(x, y);
                 if w > 0.01 {
                     // Standing water: high moisture, but blend don't slam to 1.0
                     self.moisture[i] = self.moisture[i] * 0.8 + 0.2;
@@ -2423,17 +2422,16 @@ mod tests {
 
     #[test]
     fn moisture_rises_near_water() {
-        let mut wm = WaterMap::new(10, 10);
-        wm.water[55] = 0.5; // water at (5, 5)
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
         let wind = default_wind(10, 10);
         let heights = flat_heights(10, 10, 0.3);
         let mut pw = crate::pipe_water::PipeWater::new(10, 10);
+        pw.add_water(5, 5, 0.5); // water at (5, 5)
 
         for _ in 0..20 {
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
 
         assert!(
@@ -2456,7 +2454,6 @@ mod tests {
 
     #[test]
     fn moisture_decays_without_water() {
-        let wm = WaterMap::new(10, 10);
         let mut mm = MoistureMap::new(10, 10);
         mm.moisture[55] = 0.8; // some initial moisture, no water
         let mut vm = VegetationMap::new(10, 10);
@@ -2467,7 +2464,7 @@ mod tests {
 
         // slower decay (0.95 factor) needs more ticks
         for _ in 0..100 {
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
 
         assert!(
@@ -2479,7 +2476,6 @@ mod tests {
 
     #[test]
     fn vegetation_grows_with_moisture() {
-        let wm = WaterMap::new(10, 10);
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
@@ -2502,7 +2498,7 @@ mod tests {
                     mm.moisture[y * 10 + x] = 0.3;
                 }
             }
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
 
         assert!(
@@ -2514,7 +2510,6 @@ mod tests {
 
     #[test]
     fn vegetation_decays_without_moisture() {
-        let wm = WaterMap::new(10, 10);
         let mut mm = MoistureMap::new(10, 10);
         let mut vm = VegetationMap::new(10, 10);
         let map = grass_map(10, 10);
@@ -2525,7 +2520,7 @@ mod tests {
 
         // slower decay (0.003/tick), 0.5 / 0.003 = ~167 ticks to fully decay
         for _ in 0..200 {
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
 
         assert!(
@@ -2540,17 +2535,16 @@ mod tests {
         // Wind blows east (prevailing_dir=0 means east).
         // Place water source at center. After many ticks, moisture should
         // be higher east of the source than west.
-        let mut wm = WaterMap::new(20, 20);
-        wm.water[10 * 20 + 10] = 0.5; // water at (10, 10)
         let mut mm = MoistureMap::new(20, 20);
         let mut vm = VegetationMap::new(20, 20);
         let map = grass_map(20, 20);
         let heights = flat_heights(20, 20, 0.3);
         let wind = WindField::compute_from_terrain(&heights, 20, 20, 0.0, 0.6, None);
         let mut pw = crate::pipe_water::PipeWater::new(20, 20);
+        pw.add_water(10, 10, 0.5); // water at (10, 10)
 
         for _ in 0..50 {
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
 
         // Downwind (east of source) should have more moisture than upwind (west)
@@ -2580,19 +2574,18 @@ mod tests {
             }
         }
 
-        let mut wm = WaterMap::new(w, h);
-        // Water source on the far west
-        for y in 0..h {
-            wm.water[y * w + 0] = 0.3;
-        }
         let mut mm = MoistureMap::new(w, h);
         let mut vm = VegetationMap::new(w, h);
         let map = grass_map(w, h);
         let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
         let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        // Water source on the far west
+        for y in 0..h {
+            pw.add_water(0, y, 0.3);
+        }
 
         for _ in 0..80 {
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
 
         // Windward slope (x=7, before ridge peak) vs leeward (x=13, after ridge)
@@ -2620,20 +2613,19 @@ mod tests {
             }
         }
 
-        let mut wm = WaterMap::new(w, h);
-        // Water source on the west edge
-        for y in 0..h {
-            wm.water[y * w + 0] = 0.5;
-        }
         let mut mm = MoistureMap::new(w, h);
         let mut vm = VegetationMap::new(w, h);
         let map = grass_map(w, h);
         let wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.6, None);
         let mut pw = crate::pipe_water::PipeWater::new(w, h);
+        // Water source on the west edge
+        for y in 0..h {
+            pw.add_water(0, y, 0.5);
+        }
 
         let total_before: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
         for _ in 0..40 {
-            mm.update(&wm, &mut vm, &map, &wind, &heights, &mut pw);
+            mm.update(&mut pw, &mut vm, &map, &wind, &heights);
         }
         let total_after: f64 = (0..w * h).map(|i| pw.get_depth(i % w, i / w)).sum();
 

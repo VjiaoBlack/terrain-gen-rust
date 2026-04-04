@@ -105,6 +105,17 @@ impl PipeWater {
         self.depth[i] = (self.depth[i] + amount).max(0.0);
     }
 
+    /// Clear all water, flux, velocity, and sediment.
+    pub fn drain(&mut self) {
+        self.depth.fill(0.0);
+        for f in &mut self.flux {
+            *f = [0.0; 8];
+        }
+        self.velocity_x.fill(0.0);
+        self.velocity_y.fill(0.0);
+        self.suspended.fill(0.0);
+    }
+
     /// Advance the simulation by one timestep `dt` (seconds).
     ///
     /// `heights` is the terrain height array (row-major, same layout as depth).

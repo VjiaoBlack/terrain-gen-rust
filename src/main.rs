@@ -982,18 +982,16 @@ mod tests {
 
         let n = 100;
 
-        // Phase: water + moisture
+        // Phase: water + moisture (pipe_water is the sole water sim now)
         let start = Instant::now();
         for _ in 0..n {
-            game.water.rain(&game.sim_config);
-            game.water.update(&mut game.heights, &game.sim_config, None);
+            game.pipe_water.step(&game.heights, 0.1);
             game.moisture.update(
-                &game.water,
+                &mut game.pipe_water,
                 &mut game.vegetation,
                 &game.map,
                 &game.wind,
                 &game.heights,
-                &mut game.pipe_water,
             );
         }
         let water_us = start.elapsed().as_micros() / n as u128;
