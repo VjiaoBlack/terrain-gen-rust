@@ -2759,6 +2759,24 @@ impl Game {
                 }
                 self.pipe_water.step(&self.heights, 0.1);
 
+                // Wind carries moisture: pick up over water, drop on windward slopes
+                if self.tick % 3 == 0 {
+                    let map_ref = &self.map;
+                    let precip = self.wind.advect_moisture(&self.heights, &|x, y| {
+                        self.pipe_water.get_depth(x, y) > 0.002
+                            || matches!(map_ref.get(x, y), Some(&crate::tilemap::Terrain::Water))
+                    });
+                    // Add orographic precipitation to pipe water
+                    for y in 0..self.map.height {
+                        for x in 0..self.map.width {
+                            let p = precip[y * self.map.width + x];
+                            if p > 0.0001 {
+                                self.pipe_water.add_water(x, y, p * 0.5);
+                            }
+                        }
+                    }
+                }
+
                 // Sediment transport: run every 5 ticks (geological timescale)
                 if self.tick % 5 == 0 {
                     self.pipe_water.step_sediment(&mut self.heights);
