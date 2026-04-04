@@ -123,6 +123,7 @@ impl Game {
             last_threat_tick: 0,
             wind: crate::simulation::WindField::new(map_w, map_h), // rebuilt below
             outposts: Vec::new(),
+            pipe_water: crate::pipe_water::PipeWater::new(map_w, map_h),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -141,6 +142,18 @@ impl Game {
             Some(&game.chokepoint_map.scores),
         );
         game.nav_graph = crate::pathfinding::NavGraph::build(&game.map);
+        // Seed pipe_water from river_mask and Water tiles
+        for y in 0..map_h {
+            for x in 0..map_w {
+                let i = y * map_w + x;
+                if game.river_mask[i]
+                    || matches!(game.map.get(x, y), Some(crate::tilemap::Terrain::Water))
+                {
+                    let depth = (game.terrain_config.water_level - game.heights[i]).max(0.01);
+                    game.pipe_water.add_water(x, y, depth);
+                }
+            }
+        }
         Ok(game)
     }
 }

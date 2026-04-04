@@ -550,6 +550,8 @@ pub struct Game {
     pub wind: WindField,
     /// Active outposts — satellite settlements near distant resources.
     pub outposts: Vec<Outpost>,
+    /// Pipe-model water simulation: 8-directional flow driven by hydrostatic pressure.
+    pub pipe_water: crate::pipe_water::PipeWater,
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -1299,9 +1301,22 @@ impl Game {
             last_threat_tick: 0,
             wind: WindField::new(map_width, map_height), // rebuilt below
             outposts: Vec::new(),
+            pipe_water: crate::pipe_water::PipeWater::new(map_width, map_height),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
+
+        // Seed pipe_water from river_mask and Water tiles
+        for y in 0..map_height {
+            for x in 0..map_width {
+                let i = y * map_width + x;
+                if g.river_mask[i] || matches!(g.map.get(x, y), Some(Terrain::Water)) {
+                    let depth = (g.terrain_config.water_level - g.heights[i]).max(0.01);
+                    g.pipe_water.add_water(x, y, depth);
+                }
+            }
+        }
+
         // Compute initial chokepoint map from generated terrain
         g.chokepoint_map = chokepoint::ChokepointMap::compute(&g.map, &g.river_mask);
         g.chokepoints_dirty = false;
@@ -2738,6 +2753,17 @@ impl Game {
                     self.moisture
                         .update(&self.water, &mut self.vegetation, &self.map);
                 }
+
+                // Pipe-model water simulation: add rain and step
+                if should_rain {
+                    let rain_amount = tick_config.rain_rate * 0.01;
+                    for y in 0..self.map.height {
+                        for x in 0..self.map.width {
+                            self.pipe_water.add_water(x, y, rain_amount);
+                        }
+                    }
+                }
+                self.pipe_water.step(&self.heights, 0.1);
 
                 // Seasonal vegetation decay (winter/autumn)
                 self.vegetation.apply_season(mods.veg_growth_mult);

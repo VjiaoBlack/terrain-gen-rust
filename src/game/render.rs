@@ -783,8 +783,8 @@ impl super::Game {
                             renderer.draw(sx, sy, ch, fg, bg);
                         } else {
                             // Check for runtime water depth — render as water if flooded
-                            // Use raw water depth (not slow average) for responsive visuals
-                            let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                            // Use pipe_water for responsive physics-based depth
+                            let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
                             if water_depth > 0.005
                                 && !matches!(
                                     terrain,
@@ -964,7 +964,7 @@ impl super::Game {
                     if matches!(self.map.get(wx as usize, wy as usize), Some(Terrain::Water)) {
                         continue;
                     }
-                    let depth = self.water.get_avg(wx as usize, wy as usize);
+                    let depth = self.pipe_water.get_depth(wx as usize, wy as usize);
                     if depth > 0.05 {
                         let intensity = (depth * 5.0).min(1.0);
                         let r = (50.0 * (1.0 - intensity)) as u8;
@@ -1194,8 +1194,8 @@ impl super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        // Water depth override
-                        let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                        // Water depth override (pipe_water for physics-based depth)
+                        let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
                         if water_depth > 0.005
                             && !matches!(
                                 terrain,
@@ -1393,8 +1393,8 @@ impl super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        // Check for runtime water depth
-                        let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                        // Check for runtime water depth (pipe_water)
+                        let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
                         if water_depth > 0.005
                             && !matches!(
                                 terrain,
@@ -2088,8 +2088,8 @@ impl super::Game {
                     let height = self.heights[uy * self.map.width + ux];
                     lines.push(format!("height: {:.3}", height));
                 }
-                let water_depth = if ux < self.water.width && uy < self.water.height {
-                    self.water.get_avg(ux, uy)
+                let water_depth = if ux < self.pipe_water.width && uy < self.pipe_water.height {
+                    self.pipe_water.get_depth(ux, uy)
                 } else {
                     0.0
                 };
@@ -3026,11 +3026,11 @@ impl super::Game {
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0
                     && wy >= 0
-                    && (wx as usize) < self.water.width
-                    && (wy as usize) < self.water.height
+                    && (wx as usize) < self.pipe_water.width
+                    && (wy as usize) < self.pipe_water.height
                     && self.dirty.is_dirty(wx as usize, wy as usize)
                 {
-                    let depth = self.water.get_avg(wx as usize, wy as usize);
+                    let depth = self.pipe_water.get_depth(wx as usize, wy as usize);
                     if depth > 0.0005 {
                         let level = ((depth * 1000.0).min(9.0)) as u8;
                         let ch = (b'0' + level) as char;
