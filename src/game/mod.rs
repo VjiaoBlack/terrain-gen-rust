@@ -584,10 +584,11 @@ impl Game {
 
         // Seed water from pipeline rivers + water tiles
         let mut water = WaterMap::new(map_width, map_height);
+        // Only seed old WaterMap on actual Water terrain (river_mask disabled)
         for y in 0..map_height {
             for x in 0..map_width {
-                let i = y * map_width + x;
-                if result.river_mask[i] || matches!(map.get(x, y), Some(Terrain::Water)) {
+                if matches!(map.get(x, y), Some(Terrain::Water)) {
+                    let i = y * map_width + x;
                     let depth = (terrain_config.water_level - heights[i]).max(0.01);
                     water.set(x, y, depth);
                 }
@@ -1309,11 +1310,13 @@ impl Game {
             script_engine: None,
         };
 
-        // Seed pipe_water from river_mask and Water tiles
+        // Seed pipe_water from actual Water terrain tiles only.
+        // River_mask disabled — river carving is off, so river_mask tiles
+        // are dry land that shouldn't have water dumped on them.
         for y in 0..map_height {
             for x in 0..map_width {
-                let i = y * map_width + x;
-                if g.river_mask[i] || matches!(g.map.get(x, y), Some(Terrain::Water)) {
+                if matches!(g.map.get(x, y), Some(Terrain::Water)) {
+                    let i = y * map_width + x;
                     let depth = (g.terrain_config.water_level - g.heights[i]).max(0.01);
                     g.pipe_water.add_water(x, y, depth);
                 }
