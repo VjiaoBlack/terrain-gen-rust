@@ -12,6 +12,20 @@ const GRAVITY: f64 = 9.81;
 const PIPE_AREA: f64 = 1.0;
 const MIN_DEPTH: f64 = 0.0001;
 
+// --- Sediment transport constants ---
+/// Carrying capacity coefficient (Hjulström simplified).
+const K_C: f64 = 0.01;
+/// Erosion rate — slow, geological time.
+const K_E: f64 = 0.0005;
+/// Deposition rate — faster than erosion.
+const K_D: f64 = 0.005;
+/// Maximum erosion per tick to prevent runaway.
+const MAX_ERODE: f64 = 0.001;
+/// Outside-of-bend erosion multiplier.
+const CURVATURE_EROSION_MULT: f64 = 2.0;
+/// Minimum depth for sediment erosion to occur.
+const SEDIMENT_MIN_DEPTH: f64 = 0.01;
+
 /// Pipe length for cardinal directions (tile spacing = 1.0).
 const PIPE_LEN_CARDINAL: f64 = 1.0;
 /// Pipe length for diagonal directions (sqrt(2) tile spacings).
@@ -61,6 +75,8 @@ pub struct PipeWater {
     pub velocity_x: Vec<f64>,
     /// Derived velocity y-component (South positive).
     pub velocity_y: Vec<f64>,
+    /// Suspended sediment concentration per tile (volume units).
+    pub suspended: Vec<f64>,
 }
 
 impl PipeWater {
@@ -74,6 +90,7 @@ impl PipeWater {
             flux: vec![[0.0; 8]; n],
             velocity_x: vec![0.0; n],
             velocity_y: vec![0.0; n],
+            suspended: vec![0.0; n],
         }
     }
 
@@ -266,6 +283,152 @@ impl PipeWater {
     /// Compute total water volume on the grid (for conservation checks).
     pub fn total_water(&self) -> f64 {
         self.depth.iter().sum()
+    }
+
+    /// Compute total suspended sediment on the grid (for conservation checks).
+    pub fn total_suspended(&self) -> f64 {
+        self.suspended.iter().sum()
+    }
+
+    /// Bilinear sample of velocity at fractional coordinates.
+    /// Returns (vx, vy). Clamps to grid boundaries.
+    fn sample_velocity(&self, fx: f64, fy: f64) -> (f64, f64) {
+        let x0 = (fx.floor() as i64).clamp(0, self.width as i64 - 1) as usize;
+        let y0 = (fy.floor() as i64).clamp(0, self.height as i64 - 1) as usize;
+        let x1 = (x0 + 1).min(self.width - 1);
+        let y1 = (y0 + 1).min(self.height - 1);
+
+        let sx = (fx - x0 as f64).clamp(0.0, 1.0);
+        let sy = (fy - y0 as f64).clamp(0.0, 1.0);
+
+        let i00 = self.idx(x0, y0);
+        let i10 = self.idx(x1, y0);
+        let i01 = self.idx(x0, y1);
+        let i11 = self.idx(x1, y1);
+
+        let vx = self.velocity_x[i00] * (1.0 - sx) * (1.0 - sy)
+            + self.velocity_x[i10] * sx * (1.0 - sy)
+            + self.velocity_x[i01] * (1.0 - sx) * sy
+            + self.velocity_x[i11] * sx * sy;
+
+        let vy = self.velocity_y[i00] * (1.0 - sx) * (1.0 - sy)
+            + self.velocity_y[i10] * sx * (1.0 - sy)
+            + self.velocity_y[i01] * (1.0 - sx) * sy
+            + self.velocity_y[i11] * sx * sy;
+
+        (vx, vy)
+    }
+
+    /// Compute flow curvature at tile (x, y).
+    ///
+    /// Measures how much the velocity direction changes vs the upstream neighbor.
+    /// Positive curvature = turning left (outside of a rightward bend), negative = right.
+    /// Returns the absolute curvature magnitude, suitable for erosion scaling.
+    pub fn flow_curvature(&self, x: usize, y: usize) -> f64 {
+        let i = self.idx(x, y);
+        let vx = self.velocity_x[i];
+        let vy = self.velocity_y[i];
+        let speed = (vx * vx + vy * vy).sqrt();
+        if speed < 0.001 {
+            return 0.0;
+        }
+
+        // Sample velocity at upstream position (one unit upstream).
+        let ux = x as f64 - vx / speed;
+        let uy = y as f64 - vy / speed;
+        let (uvx, uvy) = self.sample_velocity(ux, uy);
+        let uspeed = (uvx * uvx + uvy * uvy).sqrt();
+        if uspeed < 0.001 {
+            return 0.0;
+        }
+
+        // Curvature via cross product of normalized upstream and current direction.
+        // cross = upstream_dir × current_dir (z-component of 2D cross product)
+        let cross = (uvx / uspeed) * (vy / speed) - (uvy / uspeed) * (vx / speed);
+
+        // Return absolute curvature scaled by speed (faster flow = more curvature effect).
+        cross.abs()
+    }
+
+    /// Advance sediment transport by one step.
+    ///
+    /// This should be called after `step()` so that velocity fields are current.
+    /// Modifies `heights` (erosion removes terrain, deposition adds it) and
+    /// updates `self.suspended`.
+    pub fn step_sediment(&mut self, heights: &mut [f64]) {
+        let n = self.width * self.height;
+        assert_eq!(heights.len(), n, "heights length must match grid size");
+
+        // --- Phase 1: Erosion and deposition ---
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let i = self.idx(x, y);
+                let d = self.depth[i];
+                let vx = self.velocity_x[i];
+                let vy = self.velocity_y[i];
+                let speed_sq = vx * vx + vy * vy;
+
+                // Carrying capacity: Hjulström simplified.
+                let capacity = K_C * d * speed_sq;
+
+                if self.suspended[i] < capacity && d > SEDIMENT_MIN_DEPTH {
+                    // Erode: pick up sediment from terrain.
+                    let curvature = self.flow_curvature(x, y);
+                    // Scale erosion: 1.0 at zero curvature, up to CURVATURE_EROSION_MULT at high curvature.
+                    let curvature_factor =
+                        1.0 + curvature.min(1.0) * (CURVATURE_EROSION_MULT - 1.0);
+                    let erode =
+                        (K_E * (capacity - self.suspended[i]) * curvature_factor).min(MAX_ERODE);
+                    let erode = erode.min(heights[i].max(0.0)); // Don't erode below 0.
+                    heights[i] -= erode;
+                    self.suspended[i] += erode;
+                } else if self.suspended[i] > capacity {
+                    // Deposit: drop sediment onto terrain.
+                    let deposit = K_D * (self.suspended[i] - capacity);
+                    let deposit = deposit.min(self.suspended[i]); // Don't deposit more than we have.
+                    heights[i] += deposit;
+                    self.suspended[i] -= deposit;
+                }
+            }
+        }
+
+        // --- Phase 2: Advect suspended sediment with water velocity ---
+        let mut new_suspended = vec![0.0_f64; n];
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let i = self.idx(x, y);
+                let sed = self.suspended[i];
+                if sed < 1e-15 {
+                    continue;
+                }
+
+                let vx = self.velocity_x[i];
+                let vy = self.velocity_y[i];
+
+                // Source position (semi-Lagrangian backtrack).
+                // We move sediment forward by computing where it goes.
+                // For stability, use a simple forward Euler with clamping.
+                let dst_x = (x as f64 + vx).clamp(0.0, (self.width - 1) as f64);
+                let dst_y = (y as f64 + vy).clamp(0.0, (self.height - 1) as f64);
+
+                // Bilinear splat to destination.
+                let x0 = dst_x.floor() as usize;
+                let y0 = dst_y.floor() as usize;
+                let x1 = (x0 + 1).min(self.width - 1);
+                let y1 = (y0 + 1).min(self.height - 1);
+
+                let sx = dst_x - x0 as f64;
+                let sy = dst_y - y0 as f64;
+
+                new_suspended[self.idx(x0, y0)] += sed * (1.0 - sx) * (1.0 - sy);
+                new_suspended[self.idx(x1, y0)] += sed * sx * (1.0 - sy);
+                new_suspended[self.idx(x0, y1)] += sed * (1.0 - sx) * sy;
+                new_suspended[self.idx(x1, y1)] += sed * sx * sy;
+            }
+        }
+
+        self.suspended = new_suspended;
     }
 }
 
@@ -666,6 +829,276 @@ mod tests {
         assert!(
             (final_total - initial_total).abs() < 1e-8,
             "water escaped grid: initial={initial_total:.8}, final={final_total:.8}"
+        );
+    }
+
+    // =========================================================================
+    // Sediment transport tests
+    // =========================================================================
+
+    /// Helper: run pipe water steps then sediment steps.
+    fn run_sediment_steps(sim: &mut PipeWater, heights: &mut [f64], steps: usize) {
+        for _ in 0..steps {
+            sim.step(heights, DT);
+            sim.step_sediment(heights);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 1: Sediment picks up on steep flow.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_sediment_pickup_on_steep_flow() {
+        let w = 10;
+        let h = 5;
+        let mut terrain = slope_terrain(w, h);
+        let mut sim = PipeWater::new(w, h);
+
+        // Add enough water on the slope to generate flow.
+        for y in 0..h {
+            for x in 0..w {
+                sim.add_water(x, y, 1.0);
+            }
+        }
+
+        // Run water steps first to establish flow.
+        run_steps(&mut sim, &terrain, 50);
+
+        // Now run sediment steps.
+        let initial_suspended = sim.total_suspended();
+        assert!(initial_suspended < 1e-15, "suspended should start at zero");
+
+        for _ in 0..100 {
+            sim.step(&terrain, DT);
+            sim.step_sediment(&mut terrain);
+        }
+
+        let final_suspended = sim.total_suspended();
+        assert!(
+            final_suspended > 0.0,
+            "sediment should be picked up on steep flow, got {final_suspended}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 2: Sediment deposits in calm water.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_sediment_deposits_in_calm_water() {
+        let w = 7;
+        let h = 7;
+        let mut terrain = vec![0.0; w * h];
+
+        // Build a basin with high walls.
+        for x in 0..w {
+            for y in 0..h {
+                if x == 0 || x == w - 1 || y == 0 || y == h - 1 {
+                    terrain[y * w + x] = 10.0;
+                }
+            }
+        }
+
+        let mut sim = PipeWater::new(w, h);
+
+        // Fill basin with calm water.
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                sim.add_water(x, y, 2.0);
+            }
+        }
+
+        // Manually inject suspended sediment into the calm water.
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                let i = sim.idx(x, y);
+                sim.suspended[i] = 0.01;
+            }
+        }
+
+        // Let it settle — water in a basin should reach equilibrium (no flow),
+        // and sediment should deposit.
+        run_steps(&mut sim, &terrain, 200);
+        let initial_suspended = sim.total_suspended();
+
+        for _ in 0..200 {
+            sim.step(&terrain, DT);
+            sim.step_sediment(&mut terrain);
+        }
+
+        let final_suspended = sim.total_suspended();
+        assert!(
+            final_suspended < initial_suspended,
+            "sediment should deposit in calm water: initial={initial_suspended:.6}, final={final_suspended:.6}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 3: Total mass conservation (terrain + sediment = constant).
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_sediment_mass_conservation() {
+        let w = 8;
+        let h = 8;
+        let mut terrain = slope_terrain(w, h);
+        let mut sim = PipeWater::new(w, h);
+
+        // Add water.
+        for y in 0..h {
+            for x in 0..w {
+                sim.add_water(x, y, 0.5);
+            }
+        }
+
+        let initial_terrain_mass: f64 = terrain.iter().sum();
+        let initial_suspended = sim.total_suspended();
+        let initial_total = initial_terrain_mass + initial_suspended;
+
+        // Run many combined steps.
+        for _ in 0..200 {
+            sim.step(&terrain, DT);
+            sim.step_sediment(&mut terrain);
+        }
+
+        let final_terrain_mass: f64 = terrain.iter().sum();
+        let final_suspended = sim.total_suspended();
+        let final_total = final_terrain_mass + final_suspended;
+
+        let diff = (final_total - initial_total).abs();
+        assert!(
+            diff < 1e-6,
+            "mass not conserved: initial={initial_total:.8}, final={final_total:.8}, diff={diff:.2e}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 4: Curvature detection on a curved channel.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_curvature_detection_curved_channel() {
+        // Set up a scenario where velocity changes direction.
+        // Use a small grid with manually set velocities to test curvature.
+        let w = 5;
+        let h = 5;
+        let mut sim = PipeWater::new(w, h);
+
+        // Create a bend: flow going East at (1,2), then turning South at (2,2).
+        // Fill with water so depth is non-trivial.
+        for y in 0..h {
+            for x in 0..w {
+                sim.add_water(x, y, 1.0);
+            }
+        }
+
+        // Manually set velocity field to simulate a turning flow.
+        // Row 2: flow going East.
+        for x in 0..w {
+            let i = sim.idx(x, 2);
+            sim.velocity_x[i] = 1.0;
+            sim.velocity_y[i] = 0.0;
+        }
+        // At (3,2) the flow turns South.
+        let bend_idx = sim.idx(3, 2);
+        sim.velocity_x[bend_idx] = 0.5;
+        sim.velocity_y[bend_idx] = 0.87; // ~60 degrees turn
+
+        // Curvature at the bend point should be non-zero.
+        let curvature_at_bend = sim.flow_curvature(3, 2);
+        // Curvature at a straight section should be near zero.
+        let curvature_straight = sim.flow_curvature(1, 2);
+
+        assert!(
+            curvature_at_bend > curvature_straight,
+            "curvature at bend ({curvature_at_bend:.4}) should exceed straight ({curvature_straight:.4})"
+        );
+        assert!(
+            curvature_at_bend > 0.01,
+            "curvature at bend should be significant, got {curvature_at_bend:.6}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 5: Heights change after many sediment steps.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_heights_change_after_sediment_steps() {
+        let w = 10;
+        let h = 5;
+        let mut terrain = slope_terrain(w, h);
+        let original_terrain = terrain.clone();
+        let mut sim = PipeWater::new(w, h);
+
+        // Add water to generate flow.
+        for y in 0..h {
+            for x in 0..w {
+                sim.add_water(x, y, 1.0);
+            }
+        }
+
+        // Run many steps.
+        for _ in 0..500 {
+            sim.step(&terrain, DT);
+            sim.step_sediment(&mut terrain);
+        }
+
+        // Heights should have changed somewhere.
+        let max_change = terrain
+            .iter()
+            .zip(original_terrain.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            max_change > 1e-6,
+            "heights should change after sediment transport, max change = {max_change:.2e}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 6: Curvature is zero for straight uniform flow.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_curvature_zero_straight_flow() {
+        let w = 10;
+        let h = 5;
+        let mut sim = PipeWater::new(w, h);
+
+        // Uniform eastward flow everywhere.
+        for y in 0..h {
+            for x in 0..w {
+                sim.add_water(x, y, 1.0);
+                let i = sim.idx(x, y);
+                sim.velocity_x[i] = 1.0;
+                sim.velocity_y[i] = 0.0;
+            }
+        }
+
+        // Interior point should have near-zero curvature.
+        let curv = sim.flow_curvature(5, 2);
+        assert!(
+            curv < 0.01,
+            "curvature should be near zero for straight flow, got {curv:.6}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Sediment Test 7: No erosion in dry tiles.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_no_erosion_dry_tiles() {
+        let w = 5;
+        let h = 5;
+        let mut terrain = slope_terrain(w, h);
+        let original_terrain = terrain.clone();
+        let mut sim = PipeWater::new(w, h);
+
+        // No water added — all tiles are dry.
+        // Run sediment step directly.
+        sim.step_sediment(&mut terrain);
+
+        assert_eq!(terrain, original_terrain, "dry tiles should not erode");
+        assert!(
+            sim.total_suspended() < 1e-15,
+            "no sediment should be picked up from dry tiles"
         );
     }
 }

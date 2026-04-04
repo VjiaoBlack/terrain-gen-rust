@@ -2765,6 +2765,11 @@ impl Game {
                 }
                 self.pipe_water.step(&self.heights, 0.1);
 
+                // Sediment transport: run every 5 ticks (geological timescale)
+                if self.tick % 5 == 0 {
+                    self.pipe_water.step_sediment(&mut self.heights);
+                }
+
                 // Seasonal vegetation decay (winter/autumn)
                 self.vegetation.apply_season(mods.veg_growth_mult);
 
