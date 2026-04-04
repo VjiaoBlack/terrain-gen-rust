@@ -2,6 +2,7 @@ pub mod ecs;
 pub mod game;
 pub mod headless_renderer;
 pub mod pathfinding;
+pub mod pipe_water;
 pub mod renderer;
 #[cfg(feature = "lua")]
 pub mod scripting;
