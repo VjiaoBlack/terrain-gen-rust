@@ -1102,16 +1102,10 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Stage 1: Base height (fBm)
     let (mut map, mut heights) = terrain_gen::generate_terrain(w, h, &config.terrain);
 
-    // Stage 2: Terraces + thermal erosion
+    // Stage 2: Terraces (thermal erosion disabled — creating a better system)
     apply_terraces(&mut heights, w, h, config);
-    thermal_erosion(
-        &mut heights,
-        w,
-        h,
-        config.thermal_threshold,
-        config.thermal_c,
-        config.thermal_iters,
-    );
+    // thermal_erosion disabled: was producing unrealistic results
+    // thermal_erosion(&mut heights, w, h, config.thermal_threshold, config.thermal_c, config.thermal_iters);
 
     // Stage 3: Hydrology
     priority_flood(&mut heights, w, h);
@@ -1128,8 +1122,8 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Stage 4: River carving
     carve_rivers(&mut heights, w, h, &river_mask, &river_width, &accum);
 
-    // Stage 5: Droplet erosion
-    droplet_erosion(&mut heights, w, h, config);
+    // Stage 5: Droplet erosion disabled — was creating weird deep lakes
+    // droplet_erosion(&mut heights, w, h, config);
 
     // Stage 6: Climate + biomes
     let temperature = compute_temperature(&heights, w, h, config.terrain.seed);

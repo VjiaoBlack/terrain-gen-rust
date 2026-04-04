@@ -783,8 +783,8 @@ impl super::Game {
                         } else {
                             // Check for runtime water depth — render as water if flooded
                             // Use raw water depth (not slow average) for responsive visuals
-                            let water_depth = self.water.get(wx as usize, wy as usize);
-                            if water_depth > 0.002
+                            let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                            if water_depth > 0.005
                                 && !matches!(
                                     terrain,
                                     Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
@@ -1192,8 +1192,8 @@ impl super::Game {
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
                         // Water depth override
-                        let water_depth = self.water.get(wx as usize, wy as usize);
-                        if water_depth > 0.002
+                        let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                        if water_depth > 0.005
                             && !matches!(
                                 terrain,
                                 Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
@@ -1389,8 +1389,8 @@ impl super::Game {
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
                         // Check for runtime water depth
-                        let water_depth = self.water.get(wx as usize, wy as usize);
-                        if water_depth > 0.002
+                        let water_depth = self.water.get_avg(wx as usize, wy as usize);
+                        if water_depth > 0.005
                             && !matches!(
                                 terrain,
                                 Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall

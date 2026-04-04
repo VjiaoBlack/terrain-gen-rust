@@ -35,7 +35,7 @@ impl Default for SimConfig {
             evaporation: 0.00001,
             erosion_enabled: false,
             erosion_strength: 1.0,
-            avg_factor: 0.95,
+            avg_factor: 0.8, // faster averaging for responsive water visuals
         }
     }
 }
