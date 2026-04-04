@@ -283,7 +283,8 @@ impl WindField {
     pub fn advect_moisture(
         &mut self,
         heights: &[f64],
-        is_water: &impl Fn(usize, usize) -> bool,
+        ocean_mask: &[bool],
+        soil_moisture: &[f64],
     ) -> (Vec<f64>, Vec<f64>) {
         let w = self.width;
         let h = self.height;
@@ -291,22 +292,21 @@ impl WindField {
         let mut precip = vec![0.0f64; n];
         let mut evaporated = vec![0.0f64; n];
 
-        // Phase 1: Pick up moisture over water, very slow loss over land
-        const PICKUP_RATE: f64 = 0.08;
-        const EVAP_RATE: f64 = 0.0005;
-        for y in 0..h {
-            for x in 0..w {
-                let i = y * w + x;
-                if is_water(x, y) {
-                    // Wind picks up moisture — track how much was taken
-                    let capacity = self.wind_speed[i].min(1.0);
-                    let pickup = PICKUP_RATE * (capacity - self.moisture_carried[i]).max(0.0);
-                    self.moisture_carried[i] += pickup;
-                    evaporated[i] = pickup; // caller removes this from surface water
-                } else {
-                    // Small loss over land
-                    self.moisture_carried[i] *= 1.0 - EVAP_RATE;
-                }
+        // Phase 1: Evaporation (unified hydrology Step 2)
+        // Ocean tiles load moisture proportional to wind speed.
+        // Land tiles with soil moisture evapotranspire at a lower rate.
+        const OCEAN_EVAP_RATE: f64 = 0.005;
+        const LAND_EVAPO_RATE: f64 = 0.001;
+        for i in 0..n {
+            if ocean_mask[i] {
+                let pickup = OCEAN_EVAP_RATE * self.wind_speed[i];
+                self.moisture_carried[i] += pickup;
+                evaporated[i] = pickup;
+            } else {
+                // Evapotranspiration from soil moisture
+                let evapo = LAND_EVAPO_RATE * soil_moisture[i];
+                self.moisture_carried[i] += evapo;
+                evaporated[i] = evapo;
             }
         }
 
@@ -1014,12 +1014,19 @@ mod tests {
         let heights = vec![0.1f64; w * h];
         let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
 
-        // Water body at columns 5..15
-        let is_water = |x: usize, _y: usize| -> bool { x >= 5 && x < 15 };
+        // Water body at columns 5..15 (treated as ocean)
+        let n = w * h;
+        let mut ocean_mask = vec![false; n];
+        for y in 0..h {
+            for x in 5..15 {
+                ocean_mask[y * w + x] = true;
+            }
+        }
+        let soil_moisture = vec![0.0f64; n];
 
-        // Run several advection steps
-        for _ in 0..30 {
-            let (_precip, _evap) = wind.advect_moisture(&heights, &is_water);
+        // Run several advection steps (100 ticks for the lower unified hydrology evap rate)
+        for _ in 0..100 {
+            let (_precip, _evap) = wind.advect_moisture(&heights, &ocean_mask, &soil_moisture);
         }
 
         // Downwind of water (x=20), should have atmospheric moisture
@@ -1041,7 +1048,7 @@ mod tests {
         eprintln!("Upwind avg moisture_carried (x=2): {:.4}", upwind_avg);
 
         assert!(
-            downwind_avg > 0.01,
+            downwind_avg > 0.005,
             "Downwind of water should carry moisture, got {:.4}",
             downwind_avg
         );
@@ -1071,11 +1078,18 @@ mod tests {
 
         let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
 
-        let is_water = |x: usize, _y: usize| -> bool { x >= 5 && x < 15 };
+        let n = w * h;
+        let mut ocean_mask = vec![false; n];
+        for y in 0..h {
+            for x in 5..15 {
+                ocean_mask[y * w + x] = true;
+            }
+        }
+        let soil_moisture = vec![0.0f64; n];
 
-        let mut total_precip = vec![0.0f64; w * h];
+        let mut total_precip = vec![0.0f64; n];
         for _ in 0..50 {
-            let (precip, _evap) = wind.advect_moisture(&heights, &is_water);
+            let (precip, _evap) = wind.advect_moisture(&heights, &ocean_mask, &soil_moisture);
             for i in 0..precip.len() {
                 total_precip[i] += precip[i];
             }
@@ -1107,6 +1121,101 @@ mod tests {
             "Windward ({:.4}) should get more rain than leeward ({:.4})",
             windward_precip,
             leeward_precip
+        );
+    }
+
+    /// Step 2 — Unified Hydrology: Wind evaporation from ocean.
+    /// After 200 ticks with ocean on west edge and eastward wind,
+    /// coastal downwind tiles should have moisture_carried > 0.1
+    /// and value should decrease with distance from ocean.
+    #[test]
+    fn step2_ocean_evaporation_gradient() {
+        let w = 60;
+        let h = 20;
+        let n = w * h;
+        let heights = vec![0.1f64; n];
+        // Eastward wind (dir=0.0 means blowing east)
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        // Ocean on west edge: columns 0..10
+        let mut ocean_mask = vec![false; n];
+        for y in 0..h {
+            for x in 0..10 {
+                ocean_mask[y * w + x] = true;
+            }
+        }
+        let soil_moisture = vec![0.0f64; n]; // dry land, no evapotranspiration
+
+        for _ in 0..200 {
+            wind.advect_moisture(&heights, &ocean_mask, &soil_moisture);
+        }
+
+        // Coastal downwind tiles (x=12..15) should have moisture_carried > 0.1
+        let mut coastal_avg = 0.0;
+        for y in 5..15 {
+            for x in 12..15 {
+                coastal_avg += wind.moisture_carried[y * w + x];
+            }
+        }
+        coastal_avg /= (10 * 3) as f64;
+
+        // Far inland tiles (x=45..50) should have less moisture
+        let mut inland_avg = 0.0;
+        for y in 5..15 {
+            for x in 45..50 {
+                inland_avg += wind.moisture_carried[y * w + x];
+            }
+        }
+        inland_avg /= (10 * 5) as f64;
+
+        eprintln!("=== Step 2: Ocean Evaporation Gradient ===");
+        eprintln!(
+            "Coastal avg moisture_carried (x=12..15): {:.4}",
+            coastal_avg
+        );
+        eprintln!("Inland avg moisture_carried (x=45..50): {:.4}", inland_avg);
+
+        assert!(
+            coastal_avg > 0.1,
+            "Coastal downwind tiles should have moisture_carried > 0.1, got {:.4}",
+            coastal_avg
+        );
+        assert!(
+            coastal_avg > inland_avg,
+            "Moisture should decrease with distance: coastal ({:.4}) > inland ({:.4})",
+            coastal_avg,
+            inland_avg
+        );
+    }
+
+    /// Step 2 — Verify land evapotranspiration adds moisture from soil.
+    #[test]
+    fn step2_land_evapotranspiration() {
+        let w = 40;
+        let h = 20;
+        let n = w * h;
+        let heights = vec![0.1f64; n];
+        let mut wind = WindField::compute_from_terrain(&heights, w, h, 0.0, 0.8, None);
+
+        let ocean_mask = vec![false; n]; // no ocean
+        // Wet soil everywhere
+        let soil_moisture = vec![0.5f64; n];
+
+        // Run 100 ticks
+        for _ in 0..100 {
+            wind.advect_moisture(&heights, &ocean_mask, &soil_moisture);
+        }
+
+        // With evapotranspiration from moist soil, some moisture should be in the air
+        let avg_carried: f64 = wind.moisture_carried.iter().sum::<f64>() / n as f64;
+
+        eprintln!("=== Step 2: Land Evapotranspiration ===");
+        eprintln!("Avg moisture_carried with wet soil: {:.6}", avg_carried);
+
+        assert!(
+            avg_carried > 0.001,
+            "Wet soil should evapotranspire some moisture into air, got {:.6}",
+            avg_carried
         );
     }
 }

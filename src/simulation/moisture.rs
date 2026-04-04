@@ -867,10 +867,8 @@ mod tests {
 
             // 2. Every 3 ticks: wind.advect_moisture (no manual rain)
             if tick % 3 == 0 {
-                let map_ref = &map;
-                let (precip, evaporated) = wind.advect_moisture(&heights, &|x, y| {
-                    pw.get_depth(x, y) > 0.002 || matches!(map_ref.get(x, y), Some(&Terrain::Water))
-                });
+                let (precip, evaporated) =
+                    wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
                 // Apply mass conservation
                 for y in 0..h {
                     for x in 0..w {
@@ -1018,10 +1016,8 @@ mod tests {
                     *v = (*v + 0.01).min(1.0);
                 }
 
-                let map_ref = &map;
-                let (precip, evaporated) = wind.advect_moisture(&heights, &|x, y| {
-                    pw.get_depth(x, y) > 0.002 || matches!(map_ref.get(x, y), Some(&Terrain::Water))
-                });
+                let (precip, evaporated) =
+                    wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
                 for y in 0..h {
                     for x in 0..w {
                         let i = y * w + x;
@@ -1160,10 +1156,8 @@ mod tests {
             mm.update(&mut pw, &mut vm, &map, &wind, &heights);
 
             if tick % 3 == 0 {
-                let map_ref = &map;
-                let (precip, evaporated) = wind.advect_moisture(&heights, &|x, y| {
-                    pw.get_depth(x, y) > 0.002 || matches!(map_ref.get(x, y), Some(&Terrain::Water))
-                });
+                let (precip, evaporated) =
+                    wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
                 for y in 0..h {
                     for x in 0..w {
                         let i = y * w + x;
@@ -1476,7 +1470,7 @@ mod tests {
             if tick % 3 == 0 {
                 let pw_before_adv: f64 = pw.depth.iter().sum();
                 let (precip, evaporated) =
-                    wind.advect_moisture(&heights, &|x, y| pw.get_depth(x, y) > 0.002);
+                    wind.advect_moisture(&heights, &pw.ocean_mask, &mm.moisture);
                 for y in 0..h {
                     for x in 0..w {
                         let i = y * w + x;

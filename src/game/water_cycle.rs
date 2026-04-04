@@ -26,11 +26,11 @@ impl super::Game {
                     *v = (*v + 0.01).min(1.0);
                 }
             }
-            let map_ref = &self.map;
-            let (precip, evaporated) = self.wind.advect_moisture(&self.heights, &|x, y| {
-                self.pipe_water.get_depth(x, y) > 0.002
-                    || matches!(map_ref.get(x, y), Some(&crate::tilemap::Terrain::Water))
-            });
+            let (precip, evaporated) = self.wind.advect_moisture(
+                &self.heights,
+                &self.pipe_water.ocean_mask,
+                &self.moisture.moisture,
+            );
             // Mass-conserving water cycle:
             // - Subtract evaporated water from surface (conservation!)
             // - Add precipitated water back to surface
