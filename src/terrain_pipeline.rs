@@ -1112,15 +1112,18 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Light thermal erosion to smooth spikes (5 iters, conservative)
     thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
 
-    // Stage 3: Droplet erosion BEFORE priority_flood
-    // NOTE: droplets deposit silt in ocean basins, raising the floor.
-    // TODO: skip deposition below water_level to preserve ocean depth.
-    droplet_erosion(&mut heights, w, h, config);
-
-    // Stage 4: Hydrology DISABLED — rivers will form naturally at runtime
-    // from the wind→moisture→precipitation→pipe water cycle.
-    // Keep priority_flood for clean heightmap, but no river extraction.
+    // Stage 3: Priority flood first (SPL needs depression-free heightmap)
     priority_flood(&mut heights, w, h);
+
+    // Stage 3b: Analytical SPL erosion (replaces droplet erosion)
+    // SPL is pure incision — no silt deposition in ocean basins.
+    {
+        let spl_params = crate::analytical_erosion::SplParams {
+            water_level: config.terrain.water_level,
+            ..crate::analytical_erosion::SplParams::default()
+        };
+        crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
+    }
     let river_mask = vec![false; w * h]; // empty — no pre-baked rivers
 
     // Stage 6: Climate + biomes
