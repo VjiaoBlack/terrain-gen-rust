@@ -7,9 +7,12 @@ impl super::Game {
     ///
     /// Extracted from step() — called once per sim tick inside the speed loop.
     pub(super) fn step_water_cycle(&mut self, should_rain: bool, veg_growth_mult: f64) {
-        // Evolve curl noise wind field every 10 ticks (smooth animation, cheap)
+        // Evolve curl noise wind field every 20 ticks.
+        // Synoptic layer (bulk transport) changes very slowly (t * 0.0003),
+        // mesoscale layer changes faster — updating every 20 ticks is enough
+        // to capture local variation without disrupting moisture transport.
         if self.sim_config.wind_model == crate::simulation::WindModel::CurlNoise
-            && self.tick % 10 == 0
+            && self.tick % 20 == 0
         {
             self.wind
                 .evolve_curl_noise(&self.heights, self.tick as f64, self.terrain_config.seed);

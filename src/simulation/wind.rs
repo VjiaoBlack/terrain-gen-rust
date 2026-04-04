@@ -447,7 +447,13 @@ impl WindField {
         let bias_x = prevailing_dir.cos() * prevailing_strength * 0.15;
         let bias_y = prevailing_dir.sin() * prevailing_strength * 0.15;
 
-        let t = time * 0.003; // slow time evolution
+        // Two-layer wind timescales (from weather model research):
+        // - Synoptic (octave 1): large weather systems, changes over ~500 ticks (days)
+        // - Mesoscale (octaves 2-3): local eddies/gusts, changes over ~50-100 ticks (hours)
+        // This lets bulk moisture transport maintain direction long enough to reach
+        // inland while still producing natural-looking local variation.
+        let t_synoptic = time * 0.0003; // 10x slower — stable for hundreds of ticks
+        let t_meso = time * 0.002; // local variation, faster evolution
 
         for y in 0..height {
             for x in 0..width {
@@ -455,23 +461,19 @@ impl WindField {
                 let fx = x as f64;
                 let fy = y as f64;
 
-                // Curl noise: instead of computing finite differences of the
-                // potential (which gives tiny gradients at low spatial frequencies),
-                // sample two INDEPENDENT noise fields for vx and vy with an offset
-                // that makes them approximately divergence-free. This gives full
-                // noise amplitude as wind strength while maintaining swirling structure.
-                //
-                // Using offset seeds (fx vs fx+500) decorrelates the two axes,
-                // and the curl-like structure comes from the smooth noise topology.
-                let o1x = perlin.get([fx * 0.015, fy * 0.015 + 500.0, t]);
-                let o1y = perlin.get([fx * 0.015 + 500.0, fy * 0.015, t]);
-                let o2x = perlin.get([fx * 0.045, fy * 0.045 + 700.0, t * 2.5]);
-                let o2y = perlin.get([fx * 0.045 + 700.0, fy * 0.045, t * 2.5]);
-                let o3x = perlin.get([fx * 0.12, fy * 0.12 + 900.0, t * 6.0]);
-                let o3y = perlin.get([fx * 0.12 + 900.0, fy * 0.12, t * 6.0]);
+                // Two decorrelated Perlin noise fields per axis.
+                // Octave 1 (synoptic): drives bulk transport direction, evolves slowly
+                let o1x = perlin.get([fx * 0.015, fy * 0.015 + 500.0, t_synoptic]);
+                let o1y = perlin.get([fx * 0.015 + 500.0, fy * 0.015, t_synoptic]);
+                // Octave 2 (mesoscale): medium eddies
+                let o2x = perlin.get([fx * 0.045, fy * 0.045 + 700.0, t_meso]);
+                let o2y = perlin.get([fx * 0.045 + 700.0, fy * 0.045, t_meso]);
+                // Octave 3 (gusts): small-scale turbulence
+                let o3x = perlin.get([fx * 0.12, fy * 0.12 + 900.0, t_meso * 3.0]);
+                let o3y = perlin.get([fx * 0.12 + 900.0, fy * 0.12, t_meso * 3.0]);
 
-                let noise_x = o1x * 1.0 + o2x * 0.5 + o3x * 0.2;
-                let noise_y = o1y * 1.0 + o2y * 0.5 + o3y * 0.2;
+                let noise_x = o1x * 1.0 + o2x * 0.35 + o3x * 0.15;
+                let noise_y = o1y * 1.0 + o2y * 0.35 + o3y * 0.15;
 
                 // Scale to desired wind strength
                 let scale = prevailing_strength * 0.8;
