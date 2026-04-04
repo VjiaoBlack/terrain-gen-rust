@@ -188,7 +188,8 @@ pub enum OverlayMode {
     Threats,   // Show wolf positions and danger zones
     Traffic,   // Show foot traffic heatmap
     Territory, // Show settlement influence/culture borders
-    Wind,      // Show wind direction and speed
+    Wind,      // Show wind direction arrows and speed
+    WindFlow,  // Show wind as animated particles (no arrows)
 }
 
 /// Default raid strength for backward-compatible deserialization of old saves.
@@ -1837,7 +1838,8 @@ impl Game {
                     OverlayMode::Threats => OverlayMode::Traffic,
                     OverlayMode::Traffic => OverlayMode::Territory,
                     OverlayMode::Territory => OverlayMode::Wind,
-                    OverlayMode::Wind => OverlayMode::None,
+                    OverlayMode::Wind => OverlayMode::WindFlow,
+                    OverlayMode::WindFlow => OverlayMode::None,
                 };
                 self.dirty.mark_all();
             }
@@ -2428,9 +2430,9 @@ impl Game {
                 }
                 self.particles.retain(|p| p.life > 0);
 
-                // Wind particle viewer: when wind overlay is active, spawn DENSE
-                // particles that drift with the local wind vector — shows flow patterns.
-                if self.overlay == OverlayMode::Wind {
+                // Wind flow particle viewer: animated particles show wind vector field.
+                // Only active in WindFlow overlay (separate from Wind arrows overlay).
+                if self.overlay == OverlayMode::WindFlow {
                     let mut rng = rand::rng();
                     let vw = 80i32;
                     let vh = 50i32;
@@ -3575,6 +3577,9 @@ mod tests {
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::Wind);
+
+        game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+        assert_eq!(game.overlay, OverlayMode::WindFlow);
 
         game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
         assert_eq!(game.overlay, OverlayMode::None);

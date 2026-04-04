@@ -643,6 +643,7 @@ impl super::Game {
             OverlayMode::Traffic => "TRAFFIC",
             OverlayMode::Territory => "TERRITORY",
             OverlayMode::Wind => "WIND",
+            OverlayMode::WindFlow => "WIND FLOW",
         };
         draw_line(
             renderer,
@@ -1144,6 +1145,32 @@ impl super::Game {
             self.draw_wind_overlay(renderer);
         }
 
+        // WindFlow: particles ARE the visualization — draw on top
+        if self.overlay == OverlayMode::WindFlow {
+            for p in &self.particles {
+                let sx = (p.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+                let sy = p.y.round() as i32 - self.camera.y;
+                if sx >= panel_w as i32
+                    && sy >= 0
+                    && (sx as u16) < w
+                    && (sy as u16) < h.saturating_sub(status_h)
+                {
+                    let age = 1.0 - (p.life as f64 / p.max_life.max(1) as f64);
+                    let fade = if age > 0.6 {
+                        1.0 - ((age - 0.6) / 0.4)
+                    } else {
+                        1.0
+                    };
+                    let fg = Color(
+                        (p.fg.0 as f64 * fade) as u8,
+                        (p.fg.1 as f64 * fade) as u8,
+                        (p.fg.2 as f64 * fade) as u8,
+                    );
+                    renderer.draw(sx as u16, sy as u16, p.ch, fg, None);
+                }
+            }
+        }
+
         if self.query_mode {
             self.draw_query_cursor(renderer);
             self.draw_query_panel(renderer);
@@ -1348,6 +1375,32 @@ impl super::Game {
             self.draw_wind_overlay(renderer);
         }
 
+        // WindFlow: particles ARE the visualization — draw on top
+        if self.overlay == OverlayMode::WindFlow {
+            for p in &self.particles {
+                let sx = (p.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+                let sy = p.y.round() as i32 - self.camera.y;
+                if sx >= panel_w as i32
+                    && sy >= 0
+                    && (sx as u16) < w
+                    && (sy as u16) < h.saturating_sub(status_h)
+                {
+                    let age = 1.0 - (p.life as f64 / p.max_life.max(1) as f64);
+                    let fade = if age > 0.6 {
+                        1.0 - ((age - 0.6) / 0.4)
+                    } else {
+                        1.0
+                    };
+                    let fg = Color(
+                        (p.fg.0 as f64 * fade) as u8,
+                        (p.fg.1 as f64 * fade) as u8,
+                        (p.fg.2 as f64 * fade) as u8,
+                    );
+                    renderer.draw(sx as u16, sy as u16, p.ch, fg, None);
+                }
+            }
+        }
+
         if self.query_mode {
             self.draw_query_cursor(renderer);
             self.draw_query_panel(renderer);
@@ -1508,6 +1561,32 @@ impl super::Game {
             self.draw_traffic_overlay(renderer);
         } else if self.overlay == OverlayMode::Wind {
             self.draw_wind_overlay(renderer);
+        }
+
+        // WindFlow: particles ARE the visualization — draw on top
+        if self.overlay == OverlayMode::WindFlow {
+            for p in &self.particles {
+                let sx = (p.x.round() as i32 - self.camera.x) * aspect + panel_w as i32;
+                let sy = p.y.round() as i32 - self.camera.y;
+                if sx >= panel_w as i32
+                    && sy >= 0
+                    && (sx as u16) < w
+                    && (sy as u16) < h.saturating_sub(status_h)
+                {
+                    let age = 1.0 - (p.life as f64 / p.max_life.max(1) as f64);
+                    let fade = if age > 0.6 {
+                        1.0 - ((age - 0.6) / 0.4)
+                    } else {
+                        1.0
+                    };
+                    let fg = Color(
+                        (p.fg.0 as f64 * fade) as u8,
+                        (p.fg.1 as f64 * fade) as u8,
+                        (p.fg.2 as f64 * fade) as u8,
+                    );
+                    renderer.draw(sx as u16, sy as u16, p.ch, fg, None);
+                }
+            }
         }
 
         if self.query_mode {
