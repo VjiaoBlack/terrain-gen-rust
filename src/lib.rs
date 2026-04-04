@@ -1,3 +1,4 @@
+pub mod analytical_erosion;
 pub mod ecs;
 pub mod game;
 pub mod headless_renderer;
