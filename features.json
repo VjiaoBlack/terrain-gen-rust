@@ -5,11 +5,12 @@
       "status": "ok",
       "description": "Noise-based terrain pipeline (fBm -> erosion -> hydrology -> biomes -> soil -> resources)",
       "files": ["src/terrain_gen.rs", "src/terrain_pipeline.rs"],
-      "test_count": 25,
+      "test_count": 23,
       "known_issues": [
-        "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs"
+        "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs",
+        "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -17,7 +18,7 @@
       "files": ["src/analytical_erosion.rs"],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "pipe_water": {
       "status": "ok",
@@ -27,7 +28,7 @@
       "known_issues": [
         "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -37,18 +38,19 @@
       "known_issues": [
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_moisture": {
       "status": "needs_work",
       "description": "MoistureMap — reads from PipeWater + wind, feeds vegetation",
       "files": ["src/simulation/moisture.rs"],
-      "test_count": 17,
+      "test_count": 18,
       "known_issues": [
         "Moisture decay/persistence rules unclear",
-        "Chain: water_surface -> evaporation -> transport -> precipitation -> surface water -> vegetation moisture not fully connected"
+        "Chain: water_surface -> evaporation -> transport -> precipitation -> surface water -> vegetation moisture not fully connected",
+        "moisture.rs is 1867 lines — largest simulation module, candidate for split"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -56,7 +58,7 @@
       "files": ["src/simulation/vegetation.rs"],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -64,7 +66,7 @@
       "files": ["src/simulation/day_night.rs"],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_wind": {
       "status": "ok",
@@ -72,7 +74,7 @@
       "files": ["src/simulation/wind.rs"],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_scent": {
       "status": "ok",
@@ -80,7 +82,7 @@
       "files": ["src/simulation/scent.rs"],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -88,7 +90,7 @@
       "files": ["src/simulation/traffic.rs"],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -96,7 +98,7 @@
       "files": ["src/simulation/soil_fertility.rs"],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "simulation_maps": {
       "status": "ok",
@@ -104,7 +106,7 @@
       "files": ["src/simulation/maps.rs"],
       "test_count": 20,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "ecs_core": {
       "status": "ok",
@@ -114,7 +116,7 @@
       "known_issues": [
         "ecs/tests.rs is 7164 lines in one file — should be split into focused test modules"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -122,7 +124,7 @@
       "files": ["src/ecs/spatial.rs"],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "ecs_groups": {
       "status": "ok",
@@ -130,7 +132,7 @@
       "files": ["src/ecs/groups.rs"],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "pathfinding": {
       "status": "ok",
@@ -138,7 +140,7 @@
       "files": ["src/pathfinding/graph.rs", "src/pathfinding/region.rs", "src/pathfinding/flow_field.rs"],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -146,9 +148,10 @@
       "files": ["src/game/mod.rs", "src/game/input.rs", "src/game/water_cycle.rs", "src/game/fire.rs", "src/game/particles.rs", "src/game/tests.rs"],
       "test_count": 107,
       "known_issues": [
-        "game/mod.rs is 2379 lines — needs splitting into water_cycle, fire, particles, input modules"
+        "game/mod.rs is 2379 lines — file split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
+        "fire.rs (231 lines), water_cycle.rs (204 lines), particles.rs (227 lines) have 0 tests each"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "building_system": {
       "status": "ok",
@@ -157,7 +160,7 @@
       "test_count": 0,
       "test_note": "Tests live in src/game/tests.rs, counted under game_loop",
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "events": {
       "status": "ok",
@@ -165,7 +168,7 @@
       "files": ["src/game/events.rs"],
       "test_count": 13,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "chokepoint": {
       "status": "ok",
@@ -173,17 +176,19 @@
       "files": ["src/game/chokepoint.rs"],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "rendering": {
       "status": "ok",
       "description": "Terminal rendering: 4 modes (Normal, Map, Landscape, Debug) + overlays",
       "files": ["src/renderer.rs", "src/crossterm_renderer.rs", "src/headless_renderer.rs", "src/game/render/"],
-      "test_count": 62,
+      "test_count": 61,
       "known_issues": [
-        "Three color truth sources (Terrain::fg/bg, SoilType::ground_fg, vegetation_color_from_conditions) — should be unified"
+        "Three color truth sources (Terrain::fg/bg, SoilType::ground_fg, vegetation_color_from_conditions) — should be unified",
+        "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
+        "render/mod.rs is still 1300 lines after split; render/shared.rs is 864 lines"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "save_load": {
       "status": "needs_tests",
@@ -193,7 +198,7 @@
       "known_issues": [
         "No dedicated unit tests — only implicit coverage via integration tests"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     },
     "scripting": {
       "status": "stub",
@@ -203,7 +208,7 @@
       "known_issues": [
         "Not fully implemented or tested"
       ],
-      "last_verified": null
+      "last_verified": "2026-04-04"
     }
   },
   "status_legend": {
