@@ -2907,8 +2907,9 @@ mod tests {
             }
         }
 
-        // Run many ticks — 5% chance per adjacent-to-forest bare tile
-        for tick in 0..200 {
+        // Run many ticks — 5% chance per adjacent-to-forest bare tile.
+        // 500 iterations makes failure probability vanishingly small.
+        for tick in 0..500 {
             system_regrowth(&mut world, &mut map, &veg, tick * 400);
         }
 

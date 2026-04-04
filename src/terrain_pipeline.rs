@@ -1102,12 +1102,15 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Stage 1: Base height (fBm)
     let (mut map, mut heights) = terrain_gen::generate_terrain(w, h, &config.terrain);
 
-    // Stage 2: Terraces (thermal erosion disabled — creating a better system)
+    // Stage 2: Terraces + light thermal erosion (5 iters, higher threshold)
     apply_terraces(&mut heights, w, h, config);
-    // thermal_erosion disabled: was producing unrealistic results
-    // thermal_erosion(&mut heights, w, h, config.thermal_threshold, config.thermal_c, config.thermal_iters);
+    thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
 
-    // Stage 3: Hydrology — compute flow for river mask but DON'T carve terrain
+    // Stage 3: Droplet erosion BEFORE priority_flood (research fix —
+    // droplets stalled in flat basins when run after priority_flood)
+    droplet_erosion(&mut heights, w, h, config);
+
+    // Stage 4: Hydrology — compute flow for river mask
     priority_flood(&mut heights, w, h);
     let flow = compute_flow_direction(&heights, w, h);
     let accum = compute_flow_accumulation(&heights, &flow, w, h);
@@ -1119,12 +1122,9 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         config.river_max_width,
     );
 
-    // Stage 4: River carving DISABLED — was creating cliff-like deep channels
-    // Rivers are shown via river_mask + WaterMap seeding, not terrain carving
+    // Stage 5: River carving DISABLED — pipe model water + sediment
+    // transport will handle this at runtime instead
     // carve_rivers(&mut heights, w, h, &river_mask, &river_width, &accum);
-
-    // Stage 5: Droplet erosion disabled — was creating weird deep lakes
-    // droplet_erosion(&mut heights, w, h, config);
 
     // Stage 6: Climate + biomes
     let temperature = compute_temperature(&heights, w, h, config.terrain.seed);
