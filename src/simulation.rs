@@ -1883,13 +1883,14 @@ impl WindField {
 
         const RAY_LENGTH: usize = 30;
         // Height difference threshold for creating wind shadow
-        const SHADOW_HEIGHT_THRESHOLD: f64 = 0.15;
+        const SHADOW_HEIGHT_THRESHOLD: f64 = 0.05; // very sensitive to terrain
         // Maximum shadow attenuation
-        const MAX_SHADOW: f64 = 0.9;
-        // How much terrain gradient deflects wind (0-1)
-        const DEFLECTION_STRENGTH: f64 = 0.6;
+        const MAX_SHADOW: f64 = 0.95;
+        // How much terrain gradient deflects wind — very strong so mountains
+        // visibly redirect airflow
+        const DEFLECTION_STRENGTH: f64 = 3.0;
         // Chokepoint speed boost factor
-        const CHOKEPOINT_BOOST: f64 = 1.8;
+        const CHOKEPOINT_BOOST: f64 = 2.5;
 
         for y in 0..height {
             for x in 0..width {
@@ -1919,7 +1920,7 @@ impl WindField {
 
                 // Wind shadow: 1.0 = fully exposed, 0.0 = fully blocked
                 let shadow = if total_blocking > 0.0 {
-                    let attenuation = (total_blocking * 2.0).min(MAX_SHADOW);
+                    let attenuation = (total_blocking * 6.0).min(MAX_SHADOW);
                     1.0 - attenuation
                 } else {
                     1.0
@@ -1949,7 +1950,7 @@ impl WindField {
                 };
 
                 // Mix base wind with deflection based on gradient magnitude
-                let deflect_factor = (grad_mag * DEFLECTION_STRENGTH).min(0.8);
+                let deflect_factor = (grad_mag * DEFLECTION_STRENGTH).min(0.95);
                 let wx = base_wx * (1.0 - deflect_factor)
                     + deflect_x * prevailing_strength * deflect_factor;
                 let wy = base_wy * (1.0 - deflect_factor)
