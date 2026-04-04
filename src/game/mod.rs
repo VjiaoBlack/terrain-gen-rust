@@ -2716,8 +2716,8 @@ impl Game {
                     tick_config.rain_rate *= 1.5;
                 }
 
-                // Rain only when player toggles it on (no sneaky auto-rain)
-                let should_rain = self.raining;
+                // Seasonal auto-rain + manual toggle
+                let should_rain = self.raining || (self.tick % 40 == 0 && mods.rain_mult > 0.4);
                 if should_rain {
                     self.water.rain(&tick_config);
                 }
