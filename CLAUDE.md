@@ -33,9 +33,11 @@ When working autonomously (user sleeping):
 - **If stuck, write docs/plans instead of guessing at code.**
 
 ## Key Docs
+- `docs/BACKLOG.md` — **START HERE if picking up work.** Prioritized implementation backlog.
+- `features.json` — system registry with status, test counts, known issues. Run `scripts/validate_features.sh` to check.
 - `docs/ARCHITECTURE.md` — file map, system health, data flow issues, refactor plan
 - `docs/game_design.md` — design pillars (ranked), success criteria, anti-goals
-- `docs/workflow.md` — full development pipeline including code review protocol
+- `docs/workflow.md` — full development pipeline including sprint contracts and code review protocol
 - `INDEX.md` — complete doc inventory with links
 
 ## Build & Test

@@ -2,7 +2,60 @@
 
 Prioritized list of terrain/simulation features to implement. Each item references research docs with detailed algorithms.
 
-## Priority 0: Hydrology System (SimpleHydrology → soillib upgrades)
+**NEW AGENTS: Start here.** Read this file, then read the design docs linked below before picking up work.
+
+---
+
+## Priority 0A: Agent Evaluation Infrastructure ⭐ NEW
+
+**Status:** DESIGN COMPLETE — ready for implementation
+**Design doc:** `docs/design/cross_cutting/agent_evaluation_infrastructure.md`
+**Depends on:** `automated_visual_qa.md`, `terrain_test_harness.md`
+
+Build the infrastructure that lets AI agents *see* and *evaluate* the game, enabling autonomous improvement loops.
+
+### Phase 1: Capture Pipeline (NEXT)
+- [ ] `scripts/capture_eval_frames.sh` — render screenshots as PNGs for 3 seeds at 4 timepoints
+- [ ] `--dump-state` CLI flag — JSON state dump (population, resources, terrain stats, simulation health)
+- [ ] `tests/baselines/` — golden seed metric files (seeds 42, 137, 777)
+- [ ] `docs/metrics_history.json` — append-only trend log
+
+### Phase 2: Evaluation Pipeline
+- [ ] `generate_report_card()` in Rust — TITAN-style perception abstraction (narrative status, not raw numbers)
+- [ ] Evaluation prompt template using rubric from design doc
+- [ ] Integrate rubric scoring into daily health check agent
+- [ ] Regression detection against golden seed baselines
+
+### Phase 3: Gamedev Agent Loop
+- [ ] Scheduled gamedev agent that reads health report + eval scores
+- [ ] Agent picks lowest-scoring rubric category, writes sprint contract, implements
+- [ ] Commits to branch only if rubric score improved or held steady
+
+### Phase 4: Self-Improving Evaluation
+- [ ] When human catches something rubric missed → add rubric item
+- [ ] Track rubric scores in metrics_history — evaluation itself improves over time
+
+**Why this matters:** Without this, agents can fix bugs but can't tell if the game is getting *better*. This closes the qualitative feedback loop.
+
+---
+
+## Priority 0B: Terrain Test Harness
+
+**Status:** DESIGN COMPLETE — partially implemented
+**Design doc:** `docs/design/cross_cutting/terrain_test_harness.md`
+**Also see:** `docs/design/cross_cutting/automated_visual_qa.md`
+
+Automated tests that catch what a human catches in 2 seconds of looking at the screen.
+
+- [ ] `pipeline_health` test (biome diversity, river coverage, coastal artifacts, height distribution)
+- [ ] Pre-commit hook blocking broken terrain changes
+- [ ] PostEdit Claude Code hook for terrain/render files
+- [ ] Missing diagnostic overlays (Discharge, Slope, Soil, Biome, Light Map)
+- [ ] Visual snapshot regression test (known-good seed stats)
+
+---
+
+## Priority 0C: Hydrology System (SimpleHydrology → soillib upgrades)
 
 ### Phase 1: SimpleHydrology base port ✅ DONE
 - `src/hydrology.rs` — particle descent, momentum, cascade, discharge tracking
