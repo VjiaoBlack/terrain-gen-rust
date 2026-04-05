@@ -57,7 +57,7 @@ impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
             terrain: TerrainGenConfig {
-                scale: 0.008, // halved from 0.015 — 2x larger terrain features
+                scale: 0.015,
                 ..TerrainGenConfig::default()
             },
             terrace_w: 0.06,
@@ -1292,12 +1292,13 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
                 water_level: config.terrain.water_level,
                 ..crate::hydrology::HydroParams::default()
             };
-            // 5 cycles of 8000 particles for 256x256 (scales with area)
-            let area = w * h;
-            let particles = ((area as f64 * 0.12) as u32).max(1000);
+            // Match Nick's particle density: 512 particles on 512x512 = 1 per 512 tiles.
+            // For 256x256 (65536 tiles): 65536/512 = 128 particles per cycle.
+            // More cycles with fewer particles = better momentum field convergence.
+            let particles = (w * h / 512).max(64) as u32;
             let hydro = crate::hydrology::run_hydrology(
                 &mut heights, w, h, &hydro_params,
-                5,          // cycles
+                20,         // more cycles for convergence (Nick runs erode() many times)
                 particles,
                 config.terrain.seed,
             );
