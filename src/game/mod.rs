@@ -539,13 +539,8 @@ impl Game {
         use crate::terrain_pipeline::{PipelineConfig, run_pipeline};
 
         // Run the full terrain pipeline
-        let pipeline_config = PipelineConfig {
-            terrain: TerrainGenConfig {
-                seed,
-                ..Default::default()
-            },
-            ..PipelineConfig::default()
-        };
+        let mut pipeline_config = PipelineConfig::default();
+        pipeline_config.terrain.seed = seed;
         let result = run_pipeline(map_width, map_height, &pipeline_config);
         let mut map = result.map;
         let heights = result.heights;
