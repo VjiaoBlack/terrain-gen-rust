@@ -91,6 +91,23 @@ if [ $ERRORS -eq 0 ]; then
   echo "OK: All statuses are valid"
 fi
 
+# 5. Large non-test source files (>3000 lines)
+echo ""
+echo "=== Large source file check ==="
+LARGE_FILE_FOUND=0
+while IFS= read -r -d '' f; do
+  name=$(basename "$f")
+  lines=$(wc -l < "$f")
+  if [ "$lines" -gt 3000 ] && [ "$name" != "tests.rs" ]; then
+    echo "WARN: $f is $lines lines (over 3000 — consider splitting)"
+    WARNINGS=$((WARNINGS + 1))
+    LARGE_FILE_FOUND=1
+  fi
+done < <(find src -name "*.rs" -print0 2>/dev/null)
+if [ $LARGE_FILE_FOUND -eq 0 ]; then
+  echo "OK: No non-test source files over 3000 lines"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
