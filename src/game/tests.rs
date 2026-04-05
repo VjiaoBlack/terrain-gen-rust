@@ -1613,7 +1613,7 @@ fn farm_prefers_water_proximity() {
     for y in 0..40usize {
         for x in 0..40usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 40 + x] = 0.3; // flat
+            game.state.heights[y * 40 + x] = 0.3; // flat
         }
     }
     // River along x=30
@@ -1652,21 +1652,21 @@ fn garrison_prefers_high_ground_and_chokepoint() {
     for y in 0..40usize {
         for x in 0..40usize {
             game.map.set(x, y, Terrain::Mountain);
-            game.heights[y * 40 + x] = 0.8;
+            game.state.heights[y * 40 + x] = 0.8;
         }
     }
     // Create a 6-tile-wide walkable pass at y=18..22, x=0..40
     for y in 17..23 {
         for x in 0..40usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 40 + x] = 0.6; // elevated pass
+            game.state.heights[y * 40 + x] = 0.6; // elevated pass
         }
     }
     // Create open area at center for villager
     for y in 15..25 {
         for x in 15..25 {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 40 + x] = 0.4;
+            game.state.heights[y * 40 + x] = 0.4;
         }
     }
     ecs::spawn_villager(&mut game.world, 20.0, 20.0);
@@ -1693,7 +1693,7 @@ fn hut_clusters_near_existing_buildings() {
     for y in 0..40usize {
         for x in 0..40usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 40 + x] = 0.3;
+            game.state.heights[y * 40 + x] = 0.3;
         }
     }
     // Place 3 existing huts around (10, 10) to create a cluster
@@ -1722,7 +1722,7 @@ fn scoring_prefers_fertile_soil_for_farms() {
     for y in 0..30usize {
         for x in 0..30usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 30 + x] = 0.3;
+            game.state.heights[y * 30 + x] = 0.3;
             // Low fertility everywhere
             game.resource_map.get_mut(x, y).fertility = 20;
         }
@@ -1751,7 +1751,7 @@ fn workshop_prefers_forest_proximity() {
     for y in 0..30usize {
         for x in 0..30usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 30 + x] = 0.3;
+            game.state.heights[y * 30 + x] = 0.3;
             game.resource_map.get_mut(x, y).wood = 10; // low wood
         }
     }
@@ -1778,7 +1778,7 @@ fn smithy_prefers_stone_deposits() {
     for y in 0..30usize {
         for x in 0..30usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 30 + x] = 0.3;
+            game.state.heights[y * 30 + x] = 0.3;
             game.resource_map.get_mut(x, y).stone = 10;
         }
     }
@@ -1807,14 +1807,14 @@ fn fallback_finds_spot_on_tiny_map() {
     for y in 0..15usize {
         for x in 0..15usize {
             game.map.set(x, y, Terrain::Mountain);
-            game.heights[y * 15 + x] = 0.9;
+            game.state.heights[y * 15 + x] = 0.9;
         }
     }
     // Small grass patch
     for y in 6..9 {
         for x in 6..9 {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 15 + x] = 0.3;
+            game.state.heights[y * 15 + x] = 0.3;
         }
     }
     ecs::spawn_villager(&mut game.world, 7.0, 7.0);
@@ -1838,7 +1838,7 @@ fn spacing_penalty_distributes_farms() {
     for y in 0..40usize {
         for x in 0..40usize {
             game.map.set(x, y, Terrain::Grass);
-            game.heights[y * 40 + x] = 0.3;
+            game.state.heights[y * 40 + x] = 0.3;
             game.resource_map.get_mut(x, y).fertility = 180; // uniform fertility
         }
     }
@@ -2245,7 +2245,7 @@ fn fire_ignition_only_in_summer() {
     game.day_night.season = Season::Spring;
     // Place a dry forest tile
     game.map.set(50, 50, Terrain::Forest);
-    game.moisture.set(50, 50, 0.0);
+    game.state.moisture.set(50, 50, 0.0);
 
     // Run ignition check many times — should never ignite in spring
     for _ in 0..100 {
@@ -2275,7 +2275,7 @@ fn fire_ignition_requires_low_moisture() {
     for y in 0..game.map.height {
         for x in 0..game.map.width {
             if game.map.get(x, y).is_some_and(|t| t.is_flammable()) {
-                game.moisture.set(x, y, 0.5); // above 0.15 threshold
+                game.state.moisture.set(x, y, 0.5); // above 0.15 threshold
             }
         }
     }
@@ -2327,7 +2327,7 @@ fn fire_does_not_spread_across_water() {
     game.map.set(50, 50, Terrain::Burning);
     game.map.set(51, 50, Terrain::Water);
     game.map.set(52, 50, Terrain::Forest);
-    game.moisture.set(52, 50, 0.0);
+    game.state.moisture.set(52, 50, 0.0);
     game.fire_tiles.push((50, 50, 100));
 
     // Surround with non-flammable to isolate test
@@ -2365,7 +2365,7 @@ fn fire_does_not_spread_across_road() {
     game.map.set(50, 50, Terrain::Burning);
     game.map.set(51, 50, Terrain::Road);
     game.map.set(52, 50, Terrain::Forest);
-    game.moisture.set(52, 50, 0.0);
+    game.state.moisture.set(52, 50, 0.0);
     game.fire_tiles.push((50, 50, 100));
 
     // Surround with non-flammable except road direction
@@ -2408,9 +2408,9 @@ fn fire_spreads_to_adjacent_forest() {
             let nx = (50 + dx) as usize;
             let ny = (50 + dy) as usize;
             game.map.set(nx, ny, Terrain::Forest);
-            game.moisture.set(nx, ny, 0.0); // bone dry
+            game.state.moisture.set(nx, ny, 0.0); // bone dry
             // Set vegetation high for max spread chance
-            if let Some(v) = game.vegetation.get_mut(nx, ny) {
+            if let Some(v) = game.state.vegetation.get_mut(nx, ny) {
                 *v = 1.0;
             }
         }
@@ -2455,7 +2455,7 @@ fn high_moisture_prevents_spread() {
             let nx = (50 + dx) as usize;
             let ny = (50 + dy) as usize;
             game.map.set(nx, ny, Terrain::Forest);
-            game.moisture.set(nx, ny, 0.8);
+            game.state.moisture.set(nx, ny, 0.8);
         }
     }
 

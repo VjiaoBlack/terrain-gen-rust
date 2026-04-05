@@ -191,7 +191,7 @@ impl super::super::Game {
         wy: usize,
     ) -> (char, Color, Color) {
         // Base texture character driven by vegetation density
-        let veg = self.vegetation.get(wx, wy);
+        let veg = self.state.vegetation.get(wx, wy);
         let mut ch = terrain.landscape_ch(wx, wy, veg);
 
         // Blend soil base with landscape vegetation color based on vegetation density.
@@ -210,7 +210,7 @@ impl super::super::Game {
             } else {
                 0.5
             };
-            let moist = self.moisture.get(wx, wy);
+            let moist = self.state.moisture.get(wx, wy);
             let vc = crate::tilemap::vegetation_color_from_conditions(moist, temp);
             blend_vegetation(soil.ground_fg(), vc, veg)
         } else {
@@ -222,7 +222,7 @@ impl super::super::Game {
             } else {
                 0.5
             };
-            let moist = self.moisture.get(wx, wy);
+            let moist = self.state.moisture.get(wx, wy);
             let vc = crate::tilemap::vegetation_color_from_conditions(moist, temp);
             let vc_dark = Color(
                 vc.0.saturating_sub(25),
@@ -239,8 +239,8 @@ impl super::super::Game {
             terrain,
             Terrain::Grass | Terrain::Scrubland | Terrain::Bare | Terrain::Sapling
         ) {
-            if wx < self.vegetation.width && wy < self.vegetation.height {
-                let v = self.vegetation.get(wx, wy);
+            if wx < self.state.vegetation.width && wy < self.state.vegetation.height {
+                let v = self.state.vegetation.get(wx, wy);
                 if v > 0.8 {
                     // Dense canopy
                     let pool: &[char] = &['%', '#', '&', '@'];

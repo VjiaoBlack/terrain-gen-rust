@@ -330,16 +330,16 @@ impl super::super::Game {
                 }
                 let ux = wx as usize;
                 let uy = wy as usize;
-                if ux >= self.wind.width || uy >= self.wind.height {
+                if ux >= self.state.wind.width || uy >= self.state.wind.height {
                     continue;
                 }
                 if !self.exploration.is_revealed(ux, uy) {
                     continue;
                 }
 
-                let (vx, vy) = self.wind.get_wind(ux, uy);
-                let speed = self.wind.get_speed(ux, uy);
-                let shadow = self.wind.get_shadow(ux, uy);
+                let (vx, vy) = self.state.wind.get_wind(ux, uy);
+                let speed = self.state.wind.get_speed(ux, uy);
+                let shadow = self.state.wind.get_shadow(ux, uy);
 
                 // Direction arrow: points where wind is going
                 // In our coordinate system: +x = right, +y = down
@@ -405,8 +405,8 @@ impl super::super::Game {
                 }
 
                 let idx = uy * self.map.width + ux;
-                let height = if idx < self.heights.len() {
-                    self.heights[idx]
+                let height = if idx < self.state.heights.len() {
+                    self.state.heights[idx]
                 } else {
                     0.0
                 };
@@ -415,7 +415,7 @@ impl super::super::Game {
                 // Water gets blue tint. Uses half-block ▄ for 2x vertical density.
                 let water_level = self.terrain_config.water_level;
                 // Also check pipe_water depth for dynamic water
-                let pw_depth = self.pipe_water.get_depth(ux, uy);
+                let pw_depth = self.state.water.get_depth(ux, uy);
                 let is_water = height <= water_level || pw_depth > 0.01;
 
                 let (ch, fg, bg) = if is_water {
@@ -462,8 +462,8 @@ impl super::super::Game {
                 if ux >= self.map.width || uy >= self.map.height { continue; }
 
                 let idx = uy * self.map.width + ux;
-                let d = if idx < self.hydro.discharge.len() {
-                    crate::hydrology::erf_approx(0.4 * self.hydro.discharge[idx])
+                let d = if idx < self.state.hydro.discharge.len() {
+                    crate::hydrology::erf_approx(0.4 * self.state.hydro.discharge[idx])
                 } else {
                     0.0
                 };
@@ -498,7 +498,7 @@ impl super::super::Game {
                 let uy = wy as usize;
                 if ux >= self.map.width || uy >= self.map.height { continue; }
 
-                let m = self.moisture.get(ux, uy);
+                let m = self.state.moisture.get(ux, uy);
                 let v = (m.clamp(0.0, 1.0) * 255.0) as u8;
                 let fg = Color(v / 4, v, v / 3);
                 let bg = Color(v / 8, v / 2, v / 6);

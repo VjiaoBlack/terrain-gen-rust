@@ -61,11 +61,11 @@ impl super::super::Game {
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0
                     && wy >= 0
-                    && (wx as usize) < self.pipe_water.width
-                    && (wy as usize) < self.pipe_water.height
+                    && (wx as usize) < self.state.water.width
+                    && (wy as usize) < self.state.water.height
                     && self.dirty.is_dirty(wx as usize, wy as usize)
                 {
-                    let depth = self.pipe_water.get_depth(wx as usize, wy as usize);
+                    let depth = self.state.water.get_depth(wx as usize, wy as usize);
                     if depth > 0.0005 {
                         let level = ((depth * 1000.0).min(9.0)) as u8;
                         let ch = (b'0' + level) as char;

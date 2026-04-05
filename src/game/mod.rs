@@ -424,10 +424,11 @@ pub struct Game {
     pub target_fps: u32,
     pub tick: u64,
     pub map: TileMap,
-    pub heights: Vec<f64>,
+    /// Canonical simulation state — single source of truth.
+    /// All persistent, causal simulation data lives here.
+    pub state: crate::world_state::WorldState,
+    /// Legacy water map (old system, being phased out)
     pub water: WaterMap,
-    pub moisture: MoistureMap,
-    pub vegetation: VegetationMap,
     pub sim_config: SimConfig,
     pub terrain_config: TerrainGenConfig,
     pub camera: Camera,
@@ -470,11 +471,7 @@ pub struct Game {
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
-    /// Full hydrology state: discharge + momentum fields.
-    /// discharge = where rivers flow (render with erf(0.4 * d)).
-    /// momentum = flow direction (enables meandering).
-    /// Single source of truth for hydrology — no separate discharge copy.
-    pub hydro: crate::hydrology::HydroMap,
+    // hydro moved to state.hydro
     pub pipeline_temperature: Vec<f64>,
     pub pipeline_slope: Vec<f64>,
     pub pipeline_moisture: Vec<f64>,
@@ -521,13 +518,10 @@ pub struct Game {
     pub threat_score: f64,
     /// Tick of the last threat spawn, used to enforce a minimum cooldown between threats.
     pub last_threat_tick: u64,
-    /// Wind vector field: terrain-deflected prevailing wind with curl noise.
-    /// Recomputed on seasonal direction changes.
-    pub wind: WindField,
+    // wind moved to state.wind
     /// Active outposts — satellite settlements near distant resources.
     pub outposts: Vec<Outpost>,
-    /// Pipe-model water simulation: 8-directional flow driven by hydrostatic pressure.
-    pub pipe_water: crate::pipe_water::PipeWater,
+    // pipe_water moved to state.water
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -1222,14 +1216,29 @@ impl Game {
         // Snapshot base terrain before any seasonal effects
         map.init_base_terrain();
 
+        // Build pipe_water for WorldState
+        let mut pipe_water = crate::pipe_water::PipeWater::new(map_width, map_height);
+
         let mut g = Self {
             target_fps,
             tick: 0,
             map,
-            heights,
+            state: crate::world_state::WorldState {
+                width: map_width,
+                height: map_height,
+                heights,
+                water: pipe_water,
+                wind: WindField::new(map_width, map_height), // placeholder, recomputed below
+                moisture,
+                vegetation,
+                hydro: {
+                    let max_d = result.hydro.discharge.iter().cloned().fold(0.0f64, f64::max);
+                    let visible = result.hydro.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+                    eprintln!("[HYDROLOGY] discharge: max={max_d:.4} visible_tiles={visible}/{}", result.hydro.discharge.len());
+                    result.hydro
+                },
+            },
             water,
-            moisture,
-            vegetation,
             sim_config: SimConfig::default(),
             terrain_config,
             camera,
@@ -1277,12 +1286,7 @@ impl Game {
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
-            hydro: {
-                let max_d = result.hydro.discharge.iter().cloned().fold(0.0f64, f64::max);
-                let visible = result.hydro.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
-                eprintln!("[HYDROLOGY] discharge: max={max_d:.4} visible_tiles={visible}/{}", result.hydro.discharge.len());
-                result.hydro
-            },
+            // hydro is in state (initialized above)
             pipeline_temperature: result.temperature,
             pipeline_slope: result.slope,
             pipeline_moisture: result.moisture,
@@ -1308,9 +1312,7 @@ impl Game {
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
-            wind: WindField::new(map_width, map_height), // rebuilt below
             outposts: Vec::new(),
-            pipe_water: crate::pipe_water::PipeWater::new(map_width, map_height),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -1324,14 +1326,14 @@ impl Game {
             for x in 0..map_width {
                 let i = y * map_width + x;
                 if matches!(g.map.get(x, y), Some(Terrain::Water)) {
-                    let depth = (pipeline_wl - g.heights[i]).max(0.01);
-                    g.pipe_water.add_water(x, y, depth);
-                    g.pipe_water.set_ocean_boundary(x, y, depth);
-                } else if i < g.hydro.discharge.len() {
-                    let d = crate::hydrology::erf_approx(0.4 * g.hydro.discharge[i]);
+                    let depth = (pipeline_wl - g.state.heights[i]).max(0.01);
+                    g.state.water.add_water(x, y, depth);
+                    g.state.water.set_ocean_boundary(x, y, depth);
+                } else if i < g.state.hydro.discharge.len() {
+                    let d = crate::hydrology::erf_approx(0.4 * g.state.hydro.discharge[i]);
                     if d > 0.5 {
                         // Strong river channel — thin water layer
-                        g.pipe_water.add_water(x, y, (d - 0.5) * 0.02);
+                        g.state.water.add_water(x, y, (d - 0.5) * 0.02);
                     }
                 }
             }
@@ -1342,9 +1344,9 @@ impl Game {
         g.chokepoints_dirty = false;
         // Compute initial wind field from terrain + chokepoints
         let wind_dir = WindField::seasonal_direction(g.day_night.season);
-        g.wind = match g.sim_config.wind_model {
+        g.state.wind = match g.sim_config.wind_model {
             crate::simulation::WindModel::CurlNoise => WindField::compute_curl_noise_field(
-                &g.heights,
+                &g.state.heights,
                 map_width,
                 map_height,
                 wind_dir,
@@ -1353,7 +1355,7 @@ impl Game {
                 g.terrain_config.seed,
             ),
             crate::simulation::WindModel::Stam => WindField::compute_from_terrain(
-                &g.heights,
+                &g.state.heights,
                 map_width,
                 map_height,
                 wind_dir,
@@ -1981,7 +1983,7 @@ impl Game {
                     &mut self.world,
                     self.day_night.season,
                     farm_mult,
-                    &self.moisture,
+                    &self.state.moisture,
                     &mut self.soil_fertility,
                     &self.soil,
                 );
@@ -2030,7 +2032,7 @@ impl Game {
                 }
 
                 // Resource regrowth (deforestation lifecycle: Stump -> Bare -> Sapling -> Forest)
-                ecs::system_regrowth(&mut self.world, &mut self.map, &self.vegetation, self.tick);
+                ecs::system_regrowth(&mut self.world, &mut self.map, &self.state.vegetation, self.tick);
 
                 // Forest fire system: check ignition ~once per in-game day (1200 ticks)
                 if self.tick.is_multiple_of(1200) {
@@ -2045,8 +2047,8 @@ impl Game {
                         &self.world,
                         &mut self.soil_fertility,
                         &self.soil,
-                        &self.vegetation,
-                        &self.moisture,
+                        &self.state.vegetation,
+                        &self.state.moisture,
                         self.day_night.season,
                         &self.map,
                     );
@@ -2169,7 +2171,7 @@ impl Game {
             }
             if self.day_night.enabled {
                 self.day_night.compute_lighting(
-                    &self.heights,
+                    &self.state.heights,
                     self.map.width,
                     self.map.height,
                     self.camera.x,
@@ -2347,11 +2349,11 @@ impl Game {
                     }
                 }
                 let idx = y * map_w + x;
-                if idx < self.heights.len() {
-                    height_sum += self.heights[idx];
+                if idx < self.state.heights.len() {
+                    height_sum += self.state.heights[idx];
                 }
-                moisture_sum += self.moisture.get(x, y);
-                vegetation_sum += self.vegetation.get(x, y);
+                moisture_sum += self.state.moisture.get(x, y);
+                vegetation_sum += self.state.vegetation.get(x, y);
             }
         }
         let biome_distribution: BTreeMap<String, f64> = biome_counts
@@ -2363,8 +2365,8 @@ impl Game {
         let avg_moisture = round1(moisture_sum / total_tiles);
         let avg_vegetation = round1(vegetation_sum / total_tiles);
         let water_coverage_pct = (water_tiles as f64 / total_tiles * 1000.0).round() / 10.0;
-        let pipe_water_total = round1(self.pipe_water.total_water());
-        let wind_moisture_total = round1(self.wind.moisture_carried.iter().copied().sum::<f64>());
+        let pipe_water_total = round1(self.state.water.total_water());
+        let wind_moisture_total = round1(self.state.wind.moisture_carried.iter().copied().sum::<f64>());
 
         // Settlement metrics (derived from influence map + exploration)
         let mut footprint_tiles = 0u32;
@@ -2392,7 +2394,7 @@ impl Game {
         // Terrain extension: elevation std + slope distribution
         let height_mean = height_sum / total_tiles;
         let height_var_sum: f64 = self
-            .heights
+            .state.heights
             .iter()
             .map(|h| (h - height_mean).powi(2))
             .sum();

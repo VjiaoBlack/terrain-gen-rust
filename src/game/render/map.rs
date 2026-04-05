@@ -45,7 +45,7 @@ impl super::super::Game {
                     let i = uy * self.map.width + ux;
 
                     // Water check: pipe_water depth or Terrain::Water
-                    let water_depth = self.pipe_water.get_depth(ux, uy);
+                    let water_depth = self.state.water.get_depth(ux, uy);
                     let is_ocean = matches!(self.map.get(ux, uy), Some(Terrain::Water));
                     if is_ocean || water_depth > 0.01 {
                         let depth = if is_ocean {
@@ -61,8 +61,8 @@ impl super::super::Game {
                     }
 
                     // Discharge river tint
-                    if i < self.hydro.discharge.len() {
-                        let d = crate::hydrology::erf_approx(0.4 * self.hydro.discharge[i]);
+                    if i < self.state.hydro.discharge.len() {
+                        let d = crate::hydrology::erf_approx(0.4 * self.state.hydro.discharge[i]);
                         if d > 0.2 {
                             let a = d.min(0.9);
                             let terrain_c = self.map.get(ux, uy)
@@ -239,8 +239,8 @@ impl super::super::Game {
 
         // Vegetation overlay on grass/scrubland tiles
         if matches!(terrain, Terrain::Grass | Terrain::Scrubland | Terrain::Bare) {
-            if wx < self.vegetation.width && wy < self.vegetation.height {
-                let v = self.vegetation.get(wx, wy);
+            if wx < self.state.vegetation.width && wy < self.state.vegetation.height {
+                let v = self.state.vegetation.get(wx, wy);
                 if v > 0.8 {
                     ch = '\u{2660}'; // ♠
                     fg = Color(15, 90, 20);

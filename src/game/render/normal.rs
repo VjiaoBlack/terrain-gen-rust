@@ -44,7 +44,7 @@ impl super::super::Game {
                                 let ux = wx as usize;
                                 let uy = wy as usize;
                                 let idx = uy * self.map.width + ux;
-                                let veg = self.vegetation.get(ux, uy);
+                                let veg = self.state.vegetation.get(ux, uy);
                                 // Soil color from actual SoilType, not biome enum
                                 let soil = if idx < self.soil.len() {
                                     self.soil[idx]
@@ -57,7 +57,7 @@ impl super::super::Game {
                                 } else {
                                     0.5
                                 };
-                                let moist = self.moisture.get(ux, uy);
+                                let moist = self.state.moisture.get(ux, uy);
                                 let vc =
                                     crate::tilemap::vegetation_color_from_conditions(moist, temp);
                                 let vc_dark = Color(
@@ -106,8 +106,8 @@ impl super::super::Game {
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0
                     && wy >= 0
-                    && (wx as usize) < self.vegetation.width
-                    && (wy as usize) < self.vegetation.height
+                    && (wx as usize) < self.state.vegetation.width
+                    && (wy as usize) < self.state.vegetation.height
                 {
                     if !self.dirty.is_dirty(wx as usize, wy as usize) {
                         continue;
@@ -115,7 +115,7 @@ impl super::super::Game {
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         continue;
                     }
-                    let v = self.vegetation.get(wx as usize, wy as usize);
+                    let v = self.state.vegetation.get(wx as usize, wy as usize);
                     if v > 0.2 {
                         let (ch, fg) = if v > 0.8 {
                             ('♠', Color(0, 80, 10))
@@ -142,7 +142,7 @@ impl super::super::Game {
                                 } else {
                                     0.5
                                 };
-                                let moist_v = self.moisture.get(ux, uy);
+                                let moist_v = self.state.moisture.get(ux, uy);
                                 let vc = crate::tilemap::vegetation_color_from_conditions(
                                     moist_v, temp_v,
                                 );
@@ -184,7 +184,7 @@ impl super::super::Game {
                     if matches!(self.map.get(wx as usize, wy as usize), Some(Terrain::Water)) {
                         continue;
                     }
-                    let depth = self.pipe_water.get_depth(wx as usize, wy as usize);
+                    let depth = self.state.water.get_depth(wx as usize, wy as usize);
                     if depth > 0.05 {
                         let intensity = (depth * 5.0).min(1.0);
                         let r = (50.0 * (1.0 - intensity)) as u8;

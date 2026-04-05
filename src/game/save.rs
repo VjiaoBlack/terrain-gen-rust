@@ -12,10 +12,10 @@ impl Game {
             skills: self.skills.clone(),
             day_night: serde_json::from_value(serde_json::to_value(&self.day_night)?)?,
             map: serde_json::from_value(serde_json::to_value(&self.map)?)?,
-            heights: self.heights.clone(),
+            heights: self.state.heights.clone(),
             water: serde_json::from_value(serde_json::to_value(&self.water)?)?,
-            moisture: serde_json::from_value(serde_json::to_value(&self.moisture)?)?,
-            vegetation: serde_json::from_value(serde_json::to_value(&self.vegetation)?)?,
+            moisture: serde_json::from_value(serde_json::to_value(&self.state.moisture)?)?,
+            vegetation: serde_json::from_value(serde_json::to_value(&self.state.vegetation)?)?,
             influence: serde_json::from_value(serde_json::to_value(&self.influence)?)?,
             entities: ecs::serialize_world(&self.world),
             last_birth_tick: self.last_birth_tick,
@@ -44,10 +44,17 @@ impl Game {
             target_fps,
             tick: state.tick,
             map: state.map,
-            heights: state.heights,
+            state: crate::world_state::WorldState {
+                width: map_w,
+                height: map_h,
+                heights: state.heights,
+                water: crate::pipe_water::PipeWater::new(map_w, map_h),
+                wind: crate::simulation::WindField::new(map_w, map_h),
+                moisture: state.moisture,
+                vegetation: state.vegetation,
+                hydro: crate::hydrology::HydroMap::new(map_w, map_h),
+            },
             water: state.water,
-            moisture: state.moisture,
-            vegetation: state.vegetation,
             sim_config: state.sim_config,
             terrain_config: state.terrain_config,
             camera: Camera { x: 0, y: 0 },
@@ -94,7 +101,6 @@ impl Game {
             soil_fertility: crate::simulation::SoilFertilityMap::new(map_w, map_h),
             soil: vec![crate::terrain_pipeline::SoilType::Loam; map_w * map_h],
             river_mask: vec![false; map_w * map_h],
-            hydro: crate::hydrology::HydroMap::new(map_w, map_h),
             pipeline_temperature: vec![0.5; map_w * map_h],
             pipeline_slope: vec![0.0; map_w * map_h],
             pipeline_moisture: vec![0.5; map_w * map_h],
@@ -122,9 +128,7 @@ impl Game {
             threat_map: crate::simulation::ThreatMap::new(map_w, map_h),
             threat_score: 0.0,
             last_threat_tick: 0,
-            wind: crate::simulation::WindField::new(map_w, map_h), // rebuilt below
             outposts: Vec::new(),
-            pipe_water: crate::pipe_water::PipeWater::new(map_w, map_h),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
@@ -134,10 +138,10 @@ impl Game {
         game.chokepoints_dirty = false;
         // Recompute wind field from terrain + chokepoints
         let wind_dir = crate::simulation::WindField::seasonal_direction(game.day_night.season);
-        game.wind = match game.sim_config.wind_model {
+        game.state.wind = match game.sim_config.wind_model {
             crate::simulation::WindModel::CurlNoise => {
                 crate::simulation::WindField::compute_curl_noise_field(
-                    &game.heights,
+                    &game.state.heights,
                     map_w,
                     map_h,
                     wind_dir,
@@ -148,7 +152,7 @@ impl Game {
             }
             crate::simulation::WindModel::Stam => {
                 crate::simulation::WindField::compute_from_terrain(
-                    &game.heights,
+                    &game.state.heights,
                     map_w,
                     map_h,
                     wind_dir,
@@ -165,8 +169,8 @@ impl Game {
                 if game.river_mask[i]
                     || matches!(game.map.get(x, y), Some(crate::tilemap::Terrain::Water))
                 {
-                    let depth = (game.terrain_config.water_level - game.heights[i]).max(0.01);
-                    game.pipe_water.add_water(x, y, depth);
+                    let depth = (game.terrain_config.water_level - game.state.heights[i]).max(0.01);
+                    game.state.water.add_water(x, y, depth);
                 }
             }
         }

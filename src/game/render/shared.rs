@@ -878,7 +878,7 @@ impl super::super::Game {
         wy: usize,
         tick: u64,
     ) -> Option<(char, Color, Color)> {
-        let depth = self.pipe_water.get_depth(wx, wy);
+        let depth = self.state.water.get_depth(wx, wy);
         if depth < 0.005 {
             return None;
         }
@@ -887,8 +887,8 @@ impl super::super::Game {
 
         // Discharge tint: high-flow channels get slightly different hue
         let idx = wy * self.map.width + wx;
-        let discharge_alpha = if idx < self.hydro.discharge.len() {
-            crate::hydrology::erf_approx(0.4 * self.hydro.discharge[idx]).min(0.5)
+        let discharge_alpha = if idx < self.state.hydro.discharge.len() {
+            crate::hydrology::erf_approx(0.4 * self.state.hydro.discharge[idx]).min(0.5)
         } else {
             0.0
         };

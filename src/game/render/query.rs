@@ -51,27 +51,27 @@ impl super::super::Game {
             if let Some(terrain) = self.map.get(ux, uy) {
                 lines.push(format!("({},{}) {:?}", wx, wy, terrain));
                 if ux < self.map.width && uy < self.map.height {
-                    let height = self.heights[uy * self.map.width + ux];
+                    let height = self.state.heights[uy * self.map.width + ux];
                     lines.push(format!("height: {:.3}", height));
                 }
-                let water_depth = if ux < self.pipe_water.width && uy < self.pipe_water.height {
-                    self.pipe_water.get_depth(ux, uy)
+                let water_depth = if ux < self.state.water.width && uy < self.state.water.height {
+                    self.state.water.get_depth(ux, uy)
                 } else {
                     0.0
                 };
                 if water_depth > 0.0001 {
                     lines.push(format!("water: {:.4}", water_depth));
                 }
-                let moisture = if ux < self.moisture.width && uy < self.moisture.height {
-                    self.moisture.get(ux, uy)
+                let moisture = if ux < self.state.moisture.width && uy < self.state.moisture.height {
+                    self.state.moisture.get(ux, uy)
                 } else {
                     0.0
                 };
                 if moisture > 0.01 {
                     lines.push(format!("moisture: {:.2}", moisture));
                 }
-                let veg = if ux < self.vegetation.width && uy < self.vegetation.height {
-                    self.vegetation.get(ux, uy)
+                let veg = if ux < self.state.vegetation.width && uy < self.state.vegetation.height {
+                    self.state.vegetation.get(ux, uy)
                 } else {
                     0.0
                 };
@@ -97,12 +97,12 @@ impl super::super::Game {
                 if idx < self.pipeline_moisture.len() {
                     lines.push(format!("p_moist: {:.2}", self.pipeline_moisture[idx]));
                 }
-                let avg_m = self.moisture.get_avg(ux, uy);
+                let avg_m = self.state.moisture.get_avg(ux, uy);
                 lines.push(format!("avg_moist: {:.2}", avg_m));
                 // Show what biome this tile WOULD be if reclassified now
                 if idx < self.pipeline_temperature.len() && idx < self.pipeline_slope.len() {
                     let would_be = crate::terrain_pipeline::classify_biome(
-                        self.heights[idx],
+                        self.state.heights[idx],
                         self.pipeline_temperature[idx],
                         avg_m, // use average moisture instead of frozen pipeline moisture
                         self.pipeline_slope[idx],

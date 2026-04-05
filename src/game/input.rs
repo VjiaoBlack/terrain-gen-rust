@@ -224,7 +224,7 @@ impl super::Game {
             }
             GameInput::Drain => {
                 self.water.drain();
-                self.pipe_water.drain();
+                self.state.water.drain();
             }
             GameInput::ToggleAutoBuild => self.auto_build = !self.auto_build,
             GameInput::CycleOverlay => {
