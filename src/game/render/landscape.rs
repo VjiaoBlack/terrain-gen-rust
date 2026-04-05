@@ -35,28 +35,9 @@ impl super::super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        // Check for runtime water depth (pipe_water)
-                        let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
-                        if water_depth > 0.005
-                            && !matches!(
-                                terrain,
-                                Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
-                            )
-                        {
-                            let intensity = (water_depth * 4.0).min(1.0);
-                            let water_fg = Color(
-                                (30.0 * (1.0 - intensity)) as u8,
-                                (60.0 + 40.0 * intensity) as u8,
-                                (140.0 + 60.0 * intensity) as u8,
-                            );
-                            let water_bg = Color(
-                                (15.0 * (1.0 - intensity)) as u8,
-                                (30.0 + 20.0 * intensity) as u8,
-                                (80.0 + 40.0 * intensity) as u8,
-                            );
-                            let water_chars = ['~', '≈', '∼'];
-                            let anim = ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
-                            renderer.draw(sx, sy, water_chars[anim], water_fg, Some(water_bg));
+                        // UNIFIED water rendering
+                        if let Some((ch, fg, bg)) = self.water_visual(wx as usize, wy as usize, self.tick) {
+                            renderer.draw(sx, sy, ch, fg, Some(bg));
                         } else {
                             let (ch, fg, bg) =
                                 self.landscape_terrain_glyph(terrain, wx as usize, wy as usize);
@@ -279,36 +260,8 @@ impl super::super::Game {
             }
         }
 
-        // River rendering from discharge field (Nick McDonald's approach):
-        // Skip on Terrain::Water — ocean already has its own rendering.
-        // Credit: https://github.com/weigert/SimpleHydrology
-        let idx = wy * self.map.width + wx;
-        let river_alpha = if *terrain == Terrain::Water {
-            0.0 // ocean handles its own rendering
-        } else if idx < self.discharge.len() {
-            crate::hydrology::erf_approx(0.4 * self.discharge[idx])
-        } else {
-            0.0
-        };
-        if river_alpha > 0.1 {
-            let alpha = river_alpha.min(0.9);
-            // Nick's waterColor = (92, 133, 142)
-            fg = Color(
-                (fg.0 as f64 * (1.0 - alpha) + 92.0 * alpha) as u8,
-                (fg.1 as f64 * (1.0 - alpha) + 133.0 * alpha) as u8,
-                (fg.2 as f64 * (1.0 - alpha) + 142.0 * alpha) as u8,
-            );
-            bg = Color(
-                (bg.0 as f64 * (1.0 - alpha) + 60.0 * alpha) as u8,
-                (bg.1 as f64 * (1.0 - alpha) + 90.0 * alpha) as u8,
-                (bg.2 as f64 * (1.0 - alpha) + 100.0 * alpha) as u8,
-            );
-            if alpha > 0.5 {
-                ch = '~';
-            } else if alpha > 0.2 {
-                ch = '·';
-            }
-        }
+        // River rendering removed — handled by unified water_visual() in the
+        // terrain pass. Discharge still influences water color via water_visual().
 
         // Apply seasonal palette shift
         fg = self.landscape_season_tint(fg, terrain);

@@ -32,97 +32,13 @@ impl super::super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        if *terrain == Terrain::Water {
-                            // Water terrain: animated character + blue shimmer
-                            let water_chars = ['~', '≈', '∼'];
-                            let anim_index =
-                                ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
-                            let ch = water_chars[anim_index];
-
-                            let Color(r, g, b) = terrain.fg();
-                            let shimmer =
-                                (((self.tick as f64) * 0.1 + (wx as f64)).sin() * 20.0) as i16;
-                            let b_shimmered = (b as i16 + shimmer).clamp(0, 255) as u8;
-                            let fg = Color(r, g, b_shimmered);
-
-                            let bg = terrain.bg().map(|Color(br, bg_g, bb)| {
-                                let bb_shimmered = (bb as i16 + shimmer).clamp(0, 255) as u8;
-                                Color(br, bg_g, bb_shimmered)
-                            });
-
-                            renderer.draw(sx, sy, ch, fg, bg);
+                        // UNIFIED water rendering: one code path for ocean, rivers,
+                        // rain, flooding. Reads pipe_water.depth as single source of truth.
+                        if let Some((ch, fg, bg)) = self.water_visual(wx as usize, wy as usize, self.tick) {
+                            let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
+                            let bg = self.day_night.apply_lighting(bg, wx as usize, wy as usize);
+                            renderer.draw(sx, sy, ch, fg, Some(bg));
                         } else {
-                            // Check for runtime water depth — render as water if flooded
-                            // Use pipe_water for responsive physics-based depth
-                            let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
-                            if water_depth > 0.005
-                                && !matches!(
-                                    terrain,
-                                    Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
-                                )
-                            {
-                                let intensity = (water_depth * 4.0).min(1.0);
-                                let water_fg = Color(
-                                    (40.0 * (1.0 - intensity)) as u8,
-                                    (80.0 + 60.0 * intensity) as u8,
-                                    (160.0 + 60.0 * intensity) as u8,
-                                );
-                                let water_bg = Color(
-                                    (20.0 * (1.0 - intensity)) as u8,
-                                    (40.0 + 30.0 * intensity) as u8,
-                                    (100.0 + 40.0 * intensity) as u8,
-                                );
-                                let water_chars = ['~', '≈', '∼'];
-                                let anim =
-                                    ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
-                                let fg = self.day_night.apply_lighting(
-                                    water_fg,
-                                    wx as usize,
-                                    wy as usize,
-                                );
-                                let bg = Some(self.day_night.apply_lighting(
-                                    water_bg,
-                                    wx as usize,
-                                    wy as usize,
-                                ));
-                                renderer.draw(sx, sy, water_chars[anim], fg, bg);
-                                continue;
-                            }
-
-                            // River rendering from discharge field (Nick McDonald's approach):
-                            // Blend terrain toward water color based on erf(0.4 * discharge).
-                            let ux = wx as usize;
-                            let uy = wy as usize;
-                            let idx = uy * self.map.width + ux;
-                            let river_alpha = if idx < self.discharge.len() {
-                                crate::hydrology::erf_approx(0.4 * self.discharge[idx])
-                            } else {
-                                0.0
-                            };
-                            if river_alpha > 0.1 {
-                                // River tile: blend toward blue-gray water color
-                                let alpha = river_alpha.min(0.9);
-                                let water_r = 92.0;
-                                let water_g = 133.0;
-                                let water_b = 142.0;
-                                let base_fg = terrain.fg();
-                                let r = (base_fg.0 as f64 * (1.0 - alpha) + water_r * alpha) as u8;
-                                let g = (base_fg.1 as f64 * (1.0 - alpha) + water_g * alpha) as u8;
-                                let b = (base_fg.2 as f64 * (1.0 - alpha) + water_b * alpha) as u8;
-                                let fg = self.day_night.apply_lighting(
-                                    Color(r, g, b), ux, uy,
-                                );
-                                let bg_r = (r as f64 * 0.6) as u8;
-                                let bg_g = (g as f64 * 0.6) as u8;
-                                let bg_b = (b as f64 * 0.6) as u8;
-                                let bg = Some(self.day_night.apply_lighting(
-                                    Color(bg_r, bg_g, bg_b), ux, uy,
-                                ));
-                                let ch = if alpha > 0.5 { '~' } else { '·' };
-                                renderer.draw(sx, sy, ch, fg, bg);
-                                continue;
-                            }
-
                             // Blend soil + vegetation for natural terrain types
                             let (fg, bg) = if terrain.has_vegetation_blending() {
                                 let ux = wx as usize;

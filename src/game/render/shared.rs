@@ -865,4 +865,50 @@ impl super::super::Game {
             }
         }
     }
+
+    /// Unified water check + rendering. Returns Some((ch, fg, bg)) if this tile
+    /// should render as water, None if it's dry land.
+    ///
+    /// ONE code path for ALL water: ocean, rivers, rain puddles, flooding.
+    /// Reads from pipe_water.depth only — the single source of truth for water.
+    /// Discharge field provides a secondary tint for river channels.
+    pub(in super::super) fn water_visual(
+        &self,
+        wx: usize,
+        wy: usize,
+        tick: u64,
+    ) -> Option<(char, Color, Color)> {
+        let depth = self.pipe_water.get_depth(wx, wy);
+        if depth < 0.005 {
+            return None;
+        }
+
+        let intensity = (depth * 4.0).clamp(0.0, 1.0);
+
+        // Discharge tint: high-flow channels get slightly different hue
+        let idx = wy * self.map.width + wx;
+        let discharge_alpha = if idx < self.discharge.len() {
+            crate::hydrology::erf_approx(0.4 * self.discharge[idx]).min(0.5)
+        } else {
+            0.0
+        };
+
+        // Base water color — deeper = darker blue, discharge adds grey-blue tint
+        let r = (20.0 * (1.0 - intensity) + discharge_alpha * 30.0) as u8;
+        let g = (60.0 + 60.0 * intensity + discharge_alpha * 40.0) as u8;
+        let b = (140.0 + 80.0 * intensity) as u8;
+        let fg = Color(r, g, b);
+
+        let bg_r = (10.0 * (1.0 - intensity) + discharge_alpha * 15.0) as u8;
+        let bg_g = (30.0 + 30.0 * intensity + discharge_alpha * 20.0) as u8;
+        let bg_b = (90.0 + 50.0 * intensity) as u8;
+        let bg = Color(bg_r, bg_g, bg_b);
+
+        // Animated water character
+        let water_chars = ['~', '≈', '∼'];
+        let anim = ((tick / 8) as usize + wx + wy) % 3;
+        let ch = water_chars[anim];
+
+        Some((ch, fg, bg))
+    }
 }
