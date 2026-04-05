@@ -238,10 +238,10 @@ impl DayNightCycle {
             heights[cy * width + cx]
         };
 
-        // Central differences, amplified to make slopes visible in lighting.
-        // With terrain scale 0.008 (large features), raw gradients are ~0.002-0.01.
-        // Scale of 15 makes hills/mountains visible without amplifying noise artifacts.
-        let scale = 15.0;
+        // Central differences, amplified heavily.
+        // Raw gradients are ~0.005 (heights 0-1 over 256 cells).
+        // Multiply by 40 so slopes become visible in the lighting.
+        let scale = 40.0;
         let dhdx = (h(x as i32 + 1, y as i32) - h(x as i32 - 1, y as i32)) * 0.5 * scale;
         let dhdy = (h(x as i32, y as i32 + 1) - h(x as i32, y as i32 - 1)) * 0.5 * scale;
 
