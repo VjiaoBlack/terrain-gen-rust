@@ -657,9 +657,8 @@ fn main() -> Result<()> {
         pipeline_config.erosion_model = terrain_gen_rust::terrain_pipeline::ErosionModel::Off;
 
         let mut result = terrain_gen_rust::terrain_pipeline::run_pipeline(map_w, map_h, &pipeline_config);
-        // Overwrite with our eroded heights and discharge
+        // Overwrite with our eroded heights and hydrology state
         result.heights = heights;
-        result.discharge = hydro.discharge.clone();
         result.hydro = hydro;
         // Recompute water level from eroded heights
         let mut sorted_h = result.heights.clone();

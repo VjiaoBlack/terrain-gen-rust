@@ -470,10 +470,10 @@ pub struct Game {
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
-    /// Discharge field from hydrology erosion — used to render rivers.
-    /// Render with erf(0.4 * discharge) as blend toward water color.
-    pub discharge: Vec<f64>,
-    /// Full hydrology state for runtime erosion (momentum fields for meandering).
+    /// Full hydrology state: discharge + momentum fields.
+    /// discharge = where rivers flow (render with erf(0.4 * d)).
+    /// momentum = flow direction (enables meandering).
+    /// Single source of truth for hydrology — no separate discharge copy.
     pub hydro: crate::hydrology::HydroMap,
     pub pipeline_temperature: Vec<f64>,
     pub pipeline_slope: Vec<f64>,
@@ -1277,14 +1277,12 @@ impl Game {
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
-            discharge: {
-                let max_d = result.discharge.iter().cloned().fold(0.0f64, f64::max);
-                let avg_d = result.discharge.iter().sum::<f64>() / result.discharge.len().max(1) as f64;
-                let visible = result.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
-                eprintln!("[HYDROLOGY] discharge: max={max_d:.4} avg={avg_d:.6} visible_tiles={visible}/{}", result.discharge.len());
-                result.discharge
+            hydro: {
+                let max_d = result.hydro.discharge.iter().cloned().fold(0.0f64, f64::max);
+                let visible = result.hydro.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+                eprintln!("[HYDROLOGY] discharge: max={max_d:.4} visible_tiles={visible}/{}", result.hydro.discharge.len());
+                result.hydro
             },
-            hydro: result.hydro,
             pipeline_temperature: result.temperature,
             pipeline_slope: result.slope,
             pipeline_moisture: result.moisture,
@@ -1329,8 +1327,8 @@ impl Game {
                     let depth = (pipeline_wl - g.heights[i]).max(0.01);
                     g.pipe_water.add_water(x, y, depth);
                     g.pipe_water.set_ocean_boundary(x, y, depth);
-                } else if i < g.discharge.len() {
-                    let d = crate::hydrology::erf_approx(0.4 * g.discharge[i]);
+                } else if i < g.hydro.discharge.len() {
+                    let d = crate::hydrology::erf_approx(0.4 * g.hydro.discharge[i]);
                     if d > 0.5 {
                         // Strong river channel — thin water layer
                         g.pipe_water.add_water(x, y, (d - 0.5) * 0.02);

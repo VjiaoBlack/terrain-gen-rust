@@ -126,7 +126,7 @@ impl super::Game {
                 64,
                 self.terrain_config.seed.wrapping_add(self.tick as u32),
             );
-            self.discharge = self.hydro.discharge.clone();
+            // discharge field is updated in-place by erode()
         }
 
         // Seed pipe_water from discharge field — only strong river channels.
@@ -136,8 +136,8 @@ impl super::Game {
             for y in 0..self.map.height {
                 for x in 0..self.map.width {
                     let i = y * self.map.width + x;
-                    if i >= self.discharge.len() { continue; }
-                    let d = crate::hydrology::erf_approx(0.4 * self.discharge[i]);
+                    if i >= self.hydro.discharge.len() { continue; }
+                    let d = crate::hydrology::erf_approx(0.4 * self.hydro.discharge[i]);
                     if d > 0.5 {
                         // Only strong river channels — springs/groundwater source
                         let current = self.pipe_water.get_depth(x, y);

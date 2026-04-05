@@ -462,8 +462,8 @@ impl super::super::Game {
                 if ux >= self.map.width || uy >= self.map.height { continue; }
 
                 let idx = uy * self.map.width + ux;
-                let d = if idx < self.discharge.len() {
-                    crate::hydrology::erf_approx(0.4 * self.discharge[idx])
+                let d = if idx < self.hydro.discharge.len() {
+                    crate::hydrology::erf_approx(0.4 * self.hydro.discharge[idx])
                 } else {
                     0.0
                 };

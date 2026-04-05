@@ -887,8 +887,8 @@ impl super::super::Game {
 
         // Discharge tint: high-flow channels get slightly different hue
         let idx = wy * self.map.width + wx;
-        let discharge_alpha = if idx < self.discharge.len() {
-            crate::hydrology::erf_approx(0.4 * self.discharge[idx]).min(0.5)
+        let discharge_alpha = if idx < self.hydro.discharge.len() {
+            crate::hydrology::erf_approx(0.4 * self.hydro.discharge[idx]).min(0.5)
         } else {
             0.0
         };

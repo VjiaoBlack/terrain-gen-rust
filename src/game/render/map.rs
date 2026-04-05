@@ -61,8 +61,8 @@ impl super::super::Game {
                     }
 
                     // Discharge river tint
-                    if i < self.discharge.len() {
-                        let d = crate::hydrology::erf_approx(0.4 * self.discharge[i]);
+                    if i < self.hydro.discharge.len() {
+                        let d = crate::hydrology::erf_approx(0.4 * self.hydro.discharge[i]);
                         if d > 0.2 {
                             let a = d.min(0.9);
                             let terrain_c = self.map.get(ux, uy)
