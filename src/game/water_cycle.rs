@@ -150,6 +150,41 @@ impl super::Game {
             }
         }
 
+        // Derive Terrain::Water from water depth (state-driven architecture).
+        // Tiles with significant water depth become Water; tiles that dry up revert.
+        // This makes Terrain::Water a DERIVED property, not a static classification.
+        // All existing checks (walkability, pathfinding, ice) then Just Work.
+        if self.tick % 20 == 0 {
+            let wl = self.terrain_config.water_level;
+            for y in 0..self.map.height {
+                for x in 0..self.map.width {
+                    let depth = self.pipe_water.get_depth(x, y);
+                    let i = y * self.map.width + x;
+                    let is_ocean = self.pipe_water.ocean_mask.get(i).copied().unwrap_or(false);
+                    let current = self.map.get(x, y).copied();
+
+                    if (depth > 0.02 || is_ocean)
+                        && !matches!(current, Some(crate::tilemap::Terrain::BuildingFloor | crate::tilemap::Terrain::BuildingWall | crate::tilemap::Terrain::Bridge | crate::tilemap::Terrain::Road))
+                    {
+                        // Enough water → classify as Water
+                        if !matches!(current, Some(crate::tilemap::Terrain::Water)) {
+                            self.map.set(x, y, crate::tilemap::Terrain::Water);
+                        }
+                    } else if matches!(current, Some(crate::tilemap::Terrain::Water)) && !is_ocean && depth < 0.005 {
+                        // Water dried up → reclassify from heightmap
+                        let terrain = crate::terrain_pipeline::classify_biome(
+                            self.heights[i],
+                            if i < self.pipeline_temperature.len() { self.pipeline_temperature[i] } else { 0.5 },
+                            self.moisture.get(x, y),
+                            if i < self.pipeline_slope.len() { self.pipeline_slope[i] } else { 0.0 },
+                            wl,
+                        );
+                        self.map.set(x, y, terrain);
+                    }
+                }
+            }
+        }
+
         // Seasonal vegetation decay (winter/autumn)
         self.vegetation.apply_season(veg_growth_mult);
 
