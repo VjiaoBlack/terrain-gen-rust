@@ -1339,11 +1339,14 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
                 sea_level: 0.0, // erode everything — water_level set after
                 ..crate::hydrology::HydroParams::default()
             };
-            // Scale particles and cycles to map area vs Nick's 512x512 reference
+            // Nick runs erode(512) per frame for hundreds of frames on 512x512.
+            // 500 frames × 512 particles = 256,000 total.
+            // Scale to our map area, targeting ~256k total particles.
             let area = (w * h) as f64;
             let nick_area = 512.0 * 512.0;
             let particles = ((512.0 * area / nick_area).round() as u32).max(32);
-            let cycles = ((500.0 * (area / nick_area).sqrt()).round() as u32).max(20);
+            let target_total = 256_000.0 * area / nick_area;
+            let cycles = ((target_total / particles as f64).round() as u32).max(50);
             let hydro = crate::hydrology::run_hydrology(
                 &mut heights, w, h, &hydro_params,
                 cycles,
