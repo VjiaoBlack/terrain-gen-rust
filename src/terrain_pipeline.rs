@@ -1950,4 +1950,48 @@ mod biome_diagnostics {
             );
         }
     }
+
+    /// Diagnostic: check soil type distribution after full pipeline.
+    #[test]
+    #[ignore] // run with: cargo test --lib diag_soil_distribution -- --nocapture --ignored
+    fn diag_soil_distribution() {
+        let config = PipelineConfig::default();
+        let result = run_pipeline(256, 256, &config);
+        let n = 256 * 256;
+
+        let mut counts = std::collections::HashMap::new();
+        for &s in &result.soil {
+            *counts.entry(format!("{:?}", s)).or_insert(0u32) += 1;
+        }
+
+        eprintln!("=== Soil type distribution (128x128, seed {}) ===", config.terrain.seed);
+        let mut sorted: Vec<_> = counts.iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(a.1));
+        for (name, count) in &sorted {
+            eprintln!("  {:10}: {:5} ({:.1}%)", name, count, **count as f64 / n as f64 * 100.0);
+        }
+
+        // Also check moisture distribution near coast
+        let water_level = config.terrain.water_level;
+        let sz = 256;
+        let mut coastal_moisture = Vec::new();
+        for y in 0..sz {
+            for x in 0..sz {
+                let i = y * sz + x;
+                if result.heights[i] > water_level && result.heights[i] < water_level + 0.1 {
+                    coastal_moisture.push(result.moisture[i]);
+                }
+            }
+        }
+        if !coastal_moisture.is_empty() {
+            let avg: f64 = coastal_moisture.iter().sum::<f64>() / coastal_moisture.len() as f64;
+            let max = coastal_moisture.iter().cloned().fold(0.0f64, f64::max);
+            let above_95 = coastal_moisture.iter().filter(|&&m| m > 0.95).count();
+            eprintln!("\nCoastal tiles (height < water_level + 0.1):");
+            eprintln!("  count: {}", coastal_moisture.len());
+            eprintln!("  avg moisture: {:.3}", avg);
+            eprintln!("  max moisture: {:.3}", max);
+            eprintln!("  above 0.95: {} ({:.1}%)", above_95, above_95 as f64 / coastal_moisture.len() as f64 * 100.0);
+        }
+    }
 }
