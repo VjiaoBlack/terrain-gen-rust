@@ -112,16 +112,16 @@ impl super::Game {
             self.pipe_water.step_sediment(&mut self.heights);
         }
 
-        // Runtime hydrology erosion — Nick runs erode() every frame.
-        // We run every 10 ticks with 64 particles for performance.
-        // This lets rivers slowly evolve, meander, and shift course over game-time.
-        if self.tick % 10 == 0 {
+        // Runtime hydrology erosion — Nick runs erode(512) every frame.
+        // We run every 3 ticks with 256 particles to sustain the discharge
+        // field. Too few particles → EMA decays discharge toward zero.
+        if self.tick % 3 == 0 {
             let params = crate::hydrology::HydroParams::default();
             crate::hydrology::erode(
                 &mut self.heights,
                 &mut self.hydro,
                 &params,
-                64, // particles per call (Nick uses 512 on 512x512)
+                256, // enough to sustain discharge EMA (lrate=0.1)
                 self.terrain_config.seed.wrapping_add(self.tick as u32),
             );
             // Update discharge field for river rendering
