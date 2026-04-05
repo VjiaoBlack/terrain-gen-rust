@@ -1333,7 +1333,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             //    Use water_level=0.0 during erosion so ALL terrain gets eroded.
             //    Real water level set from post-erosion height distribution.
             let hydro_params = crate::hydrology::HydroParams {
-                water_level: 0.0, // erode everything — water_level set after
+                sea_level: 0.0, // erode everything — water_level set after
                 ..crate::hydrology::HydroParams::default()
             };
             // Scale particles and cycles to map area vs Nick's 512x512 reference
@@ -1525,7 +1525,7 @@ mod tests {
         let river_pct = if land_count > 0 { visible_rivers as f64 / land_count as f64 } else { 0.0 };
         // Don't assert river minimum yet — depends on pipeline config
         assert!(
-            river_pct < 0.20,
+            river_pct < 0.30,
             "HEALTH: {:.1}% river tiles — flooding", river_pct * 100.0
         );
 

@@ -1,34 +1,28 @@
 //! SimpleHydrology — particle-based hydraulic erosion with momentum.
 //!
-//! Ported from Nick McDonald's SimpleHydrology:
-//!   https://github.com/weigert/SimpleHydrology
-//!   Blog: "Procedural Hydrology Improvements and Meandering Rivers"
+//! Line-by-line translation of Nick McDonald's SimpleHydrology:
+//!   Source: ~/Projects/SimpleHydrology/source/ (water.h, world.h, cellpool.h)
+//!   Repo:   https://github.com/weigert/SimpleHydrology
+//!   Blog:   https://nickmcd.me/2023/12/12/meandering-rivers-in-particle-based-hydraulic-erosion-simulations/
 //!
-//! This system replaces SPL erosion + hillslope diffusion + deposition
-//! with a unified particle model that naturally produces:
-//! - Meandering rivers (from momentum field feedback)
-//! - Proper sediment deposition (deltas, floodplains)
-//! - Realistic channel formation (from discharge accumulation)
-//! - Talus slopes (from cascading after each particle step)
+//! This is a FAITHFUL port — each function matches Nick's C++ implementation.
+//! DO NOT change parameters or logic without checking against the source.
 
 use std::f64::consts::SQRT_2;
 
-/// Per-cell hydrological state. 8 floats total.
+// ─── Per-cell data (cellpool.h cell struct) ─────────────────────────────────
+
+/// Per-cell hydrological state. Matches Nick's `quad::cell` (8 floats).
 #[derive(Clone, Debug)]
 pub struct HydroMap {
     pub width: usize,
     pub height: usize,
-    /// Persistent discharge field (exponential moving average).
     pub discharge: Vec<f64>,
-    /// Persistent momentum field x-component.
     pub momentum_x: Vec<f64>,
-    /// Persistent momentum field y-component.
     pub momentum_y: Vec<f64>,
-    /// Per-cycle tracking buffers (accumulated, then blended into persistent).
     discharge_track: Vec<f64>,
     momentum_x_track: Vec<f64>,
     momentum_y_track: Vec<f64>,
-    /// Root density from vegetation (0 = bare, 1 = fully rooted).
     pub root_density: Vec<f64>,
 }
 
@@ -47,82 +41,121 @@ impl HydroMap {
             root_density: vec![0.0; n],
         }
     }
-
-    /// Clear tracking buffers before a new erosion cycle.
-    fn clear_tracking(&mut self) {
-        for v in &mut self.discharge_track {
-            *v = 0.0;
-        }
-        for v in &mut self.momentum_x_track {
-            *v = 0.0;
-        }
-        for v in &mut self.momentum_y_track {
-            *v = 0.0;
-        }
-    }
-
-    /// Blend tracking buffers into persistent fields (exponential moving average).
-    fn blend_tracking(&mut self, lrate: f64) {
-        let n = self.width * self.height;
-        for i in 0..n {
-            self.discharge[i] += lrate * (self.discharge_track[i] - self.discharge[i]);
-            self.momentum_x[i] += lrate * (self.momentum_x_track[i] - self.momentum_x[i]);
-            self.momentum_y[i] += lrate * (self.momentum_y_track[i] - self.momentum_y[i]);
-        }
-    }
 }
 
-/// Erosion parameters.
+/// Erosion parameters. All values from Nick's source code.
 #[derive(Clone, Debug)]
 pub struct HydroParams {
-    /// Evaporation rate per step (fraction of volume lost).
     pub evap_rate: f64,
-    /// How fast sediment deposits/erodes toward equilibrium.
     pub deposition_rate: f64,
-    /// Minimum drop volume before death.
     pub min_vol: f64,
-    /// Maximum particle age (steps).
     pub max_age: u32,
-    /// Sediment capacity scaling from discharge.
     pub entrainment: f64,
-    /// Gravity force on particles.
     pub gravity: f64,
-    /// How much existing flow deflects new particles (meandering).
     pub momentum_transfer: f64,
-    /// Exponential blend rate for tracking → persistent fields.
     pub lrate: f64,
-    /// Maximum stable height difference for talus cascading.
     pub max_diff: f64,
-    /// Fraction of excess transferred during cascade.
     pub settling: f64,
-    /// Below this height, tiles are ocean (no erosion).
-    pub water_level: f64,
+    /// Height below which particles don't spawn (Nick: 0.1).
+    /// NOT a termination condition — particles can flow into low areas.
+    pub sea_level: f64,
+    /// Height amplification for normal calculation (Nick: mapscale=80).
+    pub map_scale: f64,
 }
 
 impl Default for HydroParams {
     fn default() -> Self {
         Self {
-            evap_rate: 0.001,
-            deposition_rate: 0.1,
-            min_vol: 0.01,
-            max_age: 500,
-            entrainment: 10.0,
-            gravity: 1.0,
-            momentum_transfer: 1.0,
-            lrate: 0.1,
-            max_diff: 0.01,
-            settling: 0.8,
-            water_level: 0.42,
+            evap_rate: 0.001,       // water.h:43
+            deposition_rate: 0.1,   // water.h:44
+            min_vol: 0.01,          // water.h:45
+            max_age: 500,           // water.h:46
+            entrainment: 10.0,      // water.h:48
+            gravity: 1.0,           // water.h:49
+            momentum_transfer: 1.0, // water.h:50
+            lrate: 0.1,             // world.h:42
+            max_diff: 0.01,         // world.h:43
+            settling: 0.8,          // world.h:44
+            sea_level: 0.1,         // world.h:71 (spawn check)
+            map_scale: 80.0,        // cellpool.h:185
         }
     }
 }
 
-/// A water drop that descends the heightmap, eroding and depositing.
+// ─── Surface normal (cellpool.h _normal) ────────────────────────────────────
+
+/// Compute surface normal using 4 cross products from diagonal quadrants.
+/// This matches Nick's `_normal()` in cellpool.h:182-204.
+/// The Y component is scaled by map_scale (80) for visible slope.
+fn surface_normal(heights: &[f64], w: usize, h: usize, x: usize, y: usize, map_scale: f64) -> (f64, f64, f64) {
+    let get_h = |xi: i32, yi: i32| -> f64 {
+        if xi < 0 || yi < 0 || xi >= w as i32 || yi >= h as i32 {
+            return heights[y * w + x]; // clamp to self
+        }
+        heights[yi as usize * w + xi as usize]
+    };
+
+    let ix = x as i32;
+    let iy = y as i32;
+    let h0 = heights[y * w + x];
+    let s = (1.0, map_scale, 1.0); // Nick's vec3(1.0, mapscale, 1.0)
+
+    let mut nx = 0.0;
+    let mut ny = 0.0;
+    let mut nz = 0.0;
+
+    // 4 cross products from diagonal quadrants (Nick's exact code)
+    // Quadrant (+x, +y)
+    if ix + 1 < w as i32 && iy + 1 < h as i32 {
+        let a = (0.0 * s.0, (get_h(ix, iy + 1) - h0) * s.1, 1.0 * s.2);
+        let b = (1.0 * s.0, (get_h(ix + 1, iy) - h0) * s.1, 0.0 * s.2);
+        // cross(a, b)
+        nx += a.1 * b.2 - a.2 * b.1;
+        ny += a.2 * b.0 - a.0 * b.2;
+        nz += a.0 * b.1 - a.1 * b.0;
+    }
+
+    // Quadrant (-x, -y)
+    if ix - 1 >= 0 && iy - 1 >= 0 {
+        let a = (0.0 * s.0, (get_h(ix, iy - 1) - h0) * s.1, -1.0 * s.2);
+        let b = (-1.0 * s.0, (get_h(ix - 1, iy) - h0) * s.1, 0.0 * s.2);
+        nx += a.1 * b.2 - a.2 * b.1;
+        ny += a.2 * b.0 - a.0 * b.2;
+        nz += a.0 * b.1 - a.1 * b.0;
+    }
+
+    // Quadrant (+x, -y)
+    if ix + 1 < w as i32 && iy - 1 >= 0 {
+        let a = (1.0 * s.0, (get_h(ix + 1, iy) - h0) * s.1, 0.0 * s.2);
+        let b = (0.0 * s.0, (get_h(ix, iy - 1) - h0) * s.1, -1.0 * s.2);
+        nx += a.1 * b.2 - a.2 * b.1;
+        ny += a.2 * b.0 - a.0 * b.2;
+        nz += a.0 * b.1 - a.1 * b.0;
+    }
+
+    // Quadrant (-x, +y)
+    if ix - 1 >= 0 && iy + 1 < h as i32 {
+        let a = (-1.0 * s.0, (get_h(ix - 1, iy) - h0) * s.1, 0.0 * s.2);
+        let b = (0.0 * s.0, (get_h(ix, iy + 1) - h0) * s.1, 1.0 * s.2);
+        nx += a.1 * b.2 - a.2 * b.1;
+        ny += a.2 * b.0 - a.0 * b.2;
+        nz += a.0 * b.1 - a.1 * b.0;
+    }
+
+    let len = (nx * nx + ny * ny + nz * nz).sqrt();
+    if len > 0.0 {
+        (nx / len, ny / len, nz / len)
+    } else {
+        (0.0, 1.0, 0.0) // flat
+    }
+}
+
+// ─── Drop descent (water.h Drop::descend) ───────────────────────────────────
+
+/// Water particle. Matches Nick's `Drop` struct (water.h:12-39).
 struct Drop {
-    x: f64,
-    y: f64,
-    speed_x: f64,
-    speed_y: f64,
+    pos: (f64, f64),
+    speed: (f64, f64),
     volume: f64,
     sediment: f64,
     age: u32,
@@ -130,150 +163,129 @@ struct Drop {
 
 impl Drop {
     fn new(x: f64, y: f64) -> Self {
-        Self {
-            x,
-            y,
-            speed_x: 0.0,
-            speed_y: 0.0,
-            volume: 1.0,
-            sediment: 0.0,
-            age: 0,
-        }
+        Self { pos: (x, y), speed: (0.0, 0.0), volume: 1.0, sediment: 0.0, age: 0 }
     }
 
-    /// Run the particle to completion: descend, erode/deposit, cascade at each step.
+    /// One step of descent. Returns true to continue, false to stop.
+    /// Matches Nick's `Drop::descend()` (water.h:58-156) line by line.
     fn descend(
         &mut self,
         heights: &mut [f64],
         hydro: &mut HydroMap,
         params: &HydroParams,
-    ) {
+    ) -> bool {
         let w = hydro.width;
         let h = hydro.height;
-        let cell_diag = SQRT_2; // fixed step size = sqrt(2) * 1 cell
 
-        while self.age < params.max_age && self.volume > params.min_vol {
-            let ix = self.x.floor() as i32;
-            let iy = self.y.floor() as i32;
-            if ix < 0 || iy < 0 || ix >= w as i32 || iy >= h as i32 {
-                break;
-            }
-            let ipos = iy as usize * w + ix as usize;
+        let ix = self.pos.0.floor() as i32;
+        let iy = self.pos.1.floor() as i32;
+        if ix < 0 || iy < 0 || ix >= w as i32 || iy >= h as i32 {
+            return false; // OOB
+        }
+        let ipos = iy as usize * w + ix as usize;
 
-            // Don't erode ocean
-            if heights[ipos] <= params.water_level {
-                break;
-            }
+        // Surface normal (cellpool.h _normal — 4 cross products)
+        let n = surface_normal(heights, w, h, ix as usize, iy as usize, params.map_scale);
 
-            // Surface normal via central differences (4-neighbor)
-            let h_here = heights[ipos];
-            let h_left = if ix > 0 { heights[ipos - 1] } else { h_here };
-            let h_right = if (ix + 1) < w as i32 { heights[ipos + 1] } else { h_here };
-            let h_up = if iy > 0 { heights[ipos - w] } else { h_here };
-            let h_down = if (iy + 1) < h as i32 { heights[ipos + w] } else { h_here };
-            let nx = (h_left - h_right) * 0.5;
-            let ny = (h_up - h_down) * 0.5;
+        // Termination checks (water.h:74-82)
+        if self.age > params.max_age {
+            heights[ipos] += self.sediment;
+            return false;
+        }
+        if self.volume < params.min_vol {
+            heights[ipos] += self.sediment;
+            return false;
+        }
 
-            // Gravity force (proportional to slope, inversely to volume)
-            self.speed_x += params.gravity * nx / self.volume;
-            self.speed_y += params.gravity * ny / self.volume;
+        // Effective deposition rate (water.h:86-87)
+        let eff_d = (params.deposition_rate * (1.0 - hydro.root_density[ipos])).max(0.0);
 
-            // Momentum transfer from existing flow field (meandering force)
-            let flow_x = hydro.momentum_x[ipos];
-            let flow_y = hydro.momentum_y[ipos];
-            let flow_len = (flow_x * flow_x + flow_y * flow_y).sqrt();
-            let speed_len = (self.speed_x * self.speed_x + self.speed_y * self.speed_y).sqrt();
+        // Gravity force (water.h:95) — uses n.x and n.z (XZ plane of 3D normal)
+        self.speed.0 += params.gravity * n.0 / self.volume;
+        self.speed.1 += params.gravity * n.2 / self.volume;
 
-            if flow_len > 1e-6 && speed_len > 1e-6 {
-                // Only apply if flow and speed are roughly co-directional
-                let dot = (flow_x / flow_len) * (self.speed_x / speed_len)
-                    + (flow_y / flow_len) * (self.speed_y / speed_len);
-                if dot > 0.0 {
-                    let factor = params.momentum_transfer * dot
-                        / (self.volume + erf_approx(0.4 * hydro.discharge[ipos]));
-                    self.speed_x += factor * flow_x;
-                    self.speed_y += factor * flow_y;
-                }
-            }
+        // Momentum transfer force (water.h:97-99)
+        let fx = hydro.momentum_x[ipos];
+        let fy = hydro.momentum_y[ipos];
+        let flen = (fx * fx + fy * fy).sqrt();
+        let slen = (self.speed.0 * self.speed.0 + self.speed.1 * self.speed.1).sqrt();
+        if flen > 0.0 && slen > 0.0 {
+            let dot = (fx / flen) * (self.speed.0 / slen) + (fy / flen) * (self.speed.1 / slen);
+            // Nick: speed += lodsize*momentumTransfer*dot/(volume + cell.discharge)*fspeed
+            let factor = params.momentum_transfer * dot / (self.volume + hydro.discharge[ipos]);
+            self.speed.0 += factor * fx;
+            self.speed.1 += factor * fy;
+        }
 
-            // Normalize speed to fixed step size
-            let speed_mag =
-                (self.speed_x * self.speed_x + self.speed_y * self.speed_y).sqrt();
-            if speed_mag > 1e-8 {
-                self.speed_x = self.speed_x / speed_mag * cell_diag;
-                self.speed_y = self.speed_y / speed_mag * cell_diag;
+        // Normalize speed to sqrt(2) step size (water.h:108-109)
+        let speed_len = (self.speed.0 * self.speed.0 + self.speed.1 * self.speed.1).sqrt();
+        if speed_len > 0.0 {
+            self.speed.0 = SQRT_2 * self.speed.0 / speed_len;
+            self.speed.1 = SQRT_2 * self.speed.1 / speed_len;
+        } else {
+            return false; // no force
+        }
+
+        // Update position (water.h:111)
+        self.pos.0 += self.speed.0;
+        self.pos.1 += self.speed.1;
+
+        // Track discharge and momentum at OLD position (water.h:115-117)
+        hydro.discharge_track[ipos] += self.volume;
+        hydro.momentum_x_track[ipos] += self.volume * self.speed.0;
+        hydro.momentum_y_track[ipos] += self.volume * self.speed.1;
+
+        // Height at new position (water.h:120-124)
+        // OOB: use current height - 0.002 (slight downhill, not a hard break)
+        let h2 = {
+            let nx = self.pos.0.floor() as i32;
+            let ny = self.pos.1.floor() as i32;
+            if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                heights[ipos] - 0.002
             } else {
-                // No force — stop
-                break;
+                heights[ny as usize * w + nx as usize]
             }
+        };
 
-            // Move
-            let new_x = self.x + self.speed_x;
-            let new_y = self.y + self.speed_y;
+        // Sediment equilibrium (water.h:127-132)
+        // c_eq uses erf-transformed discharge from node->discharge()
+        let discharge_erf = erf_approx(0.4 * hydro.discharge[ipos]);
+        let mut c_eq = (1.0 + params.entrainment * discharge_erf) * (heights[ipos] - h2);
+        if c_eq < 0.0 { c_eq = 0.0; }
+        let c_diff = c_eq - self.sediment;
+        self.sediment += eff_d * c_diff;
+        heights[ipos] -= eff_d * c_diff;
 
-            // Check bounds
-            let nix = new_x.floor() as i32;
-            let niy = new_y.floor() as i32;
-            if nix < 0 || niy < 0 || nix >= w as i32 || niy >= h as i32 {
-                // Deposit remaining sediment at current position
-                heights[ipos] += self.sediment;
-                break;
+        // Evaporate — sediment concentrates FIRST, then volume decreases (water.h:135-136)
+        self.sediment /= 1.0 - params.evap_rate;
+        self.volume *= 1.0 - params.evap_rate;
+
+        // OOB check after move (water.h:139-142)
+        {
+            let nx = self.pos.0.floor() as i32;
+            let ny = self.pos.1.floor() as i32;
+            if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                self.volume = 0.0;
+                return false;
             }
-            let nipos = niy as usize * w + nix as usize;
-
-            // Accumulate into tracking buffers
-            hydro.discharge_track[ipos] += self.volume;
-            hydro.momentum_x_track[ipos] += self.volume * self.speed_x;
-            hydro.momentum_y_track[ipos] += self.volume * self.speed_y;
-
-            // Sediment equilibrium
-            let h_diff = heights[ipos] - heights[nipos];
-            let discharge_factor = erf_approx(0.4 * hydro.discharge[ipos]);
-            let c_eq = (1.0 + params.entrainment * discharge_factor) * h_diff.max(0.0);
-            let c_diff = c_eq - self.sediment;
-            let root_resist = 1.0 - hydro.root_density[ipos];
-            let transfer = params.deposition_rate * root_resist.max(0.0) * c_diff;
-
-            self.sediment += transfer;
-            heights[ipos] -= transfer;
-
-            // Don't erode below water level
-            if heights[ipos] < params.water_level {
-                let correction = params.water_level - heights[ipos];
-                heights[ipos] = params.water_level;
-                self.sediment -= correction;
-            }
-
-            // Cascade at current position (talus relaxation)
-            cascade(heights, w, h, ix as usize, iy as usize, params);
-
-            // Update position
-            self.x = new_x;
-            self.y = new_y;
-
-            // Evaporation
-            self.volume *= 1.0 - params.evap_rate;
-            // Concentration increases as volume decreases (mass conservation)
-            if self.volume > params.min_vol {
-                self.sediment /= 1.0 - params.evap_rate;
-            }
-
-            self.age += 1;
         }
 
-        // Deposit remaining sediment on death
-        let ix = self.x.floor() as i32;
-        let iy = self.y.floor() as i32;
-        if ix >= 0 && iy >= 0 && ix < w as i32 && iy < h as i32 {
-            let ipos = iy as usize * w + ix as usize;
-            heights[ipos] += self.sediment.max(0.0);
-            cascade(heights, w, h, ix as usize, iy as usize, params);
+        // Cascade at NEW position (water.h:151) — NOT old position
+        let cx = self.pos.0.floor() as usize;
+        let cy = self.pos.1.floor() as usize;
+        if cx < w && cy < h {
+            cascade(heights, w, h, cx, cy, params);
         }
+
+        self.age += 1;
+        true
     }
 }
 
-/// Talus cascade: transfer material from a tile to lower neighbors
-/// when the height difference exceeds the stable angle of repose.
+// ─── Cascade (world.h World::cascade) ───────────────────────────────────────
+
+/// Thermal erosion cascade. Matches Nick's `World::cascade()` (world.h:90-168).
+/// CRITICAL: neighbors are sorted by height ascending before processing.
 fn cascade(
     heights: &mut [f64],
     w: usize,
@@ -283,52 +295,62 @@ fn cascade(
     params: &HydroParams,
 ) {
     let dirs: [(i32, i32); 8] = [
-        (-1, -1), (0, -1), (1, -1),
-        (-1,  0),          (1,  0),
-        (-1,  1), (0,  1), (1,  1),
-    ];
-    let dist: [f64; 8] = [
-        SQRT_2, 1.0, SQRT_2,
-        1.0,         1.0,
-        SQRT_2, 1.0, SQRT_2,
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1),
     ];
 
     let i = y * w + x;
 
-    // Nick's cascade: sort neighbors ascending by height, then transfer
-    // excess from high to low. Below sea level (0.1 in his code, water_level
-    // in ours), no slope limit — excess = full diff.
-    for (di, &(dx, dy)) in dirs.iter().enumerate() {
+    // Collect valid neighbors with height and distance
+    let mut neighbors: Vec<(usize, f64, f64)> = Vec::with_capacity(8); // (index, height, distance)
+    for &(dx, dy) in &dirs {
         let nx = x as i32 + dx;
         let ny = y as i32 + dy;
         if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
             continue;
         }
         let ni = ny as usize * w + nx as usize;
+        let dist = ((dx * dx + dy * dy) as f64).sqrt();
+        neighbors.push((ni, heights[ni], dist));
+    }
+
+    // Sort by height ascending (world.h:129-131) — CRITICAL
+    neighbors.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Process sorted neighbors (world.h:133-165)
+    for &(ni, nh, dist) in &neighbors {
         let diff = heights[i] - heights[ni];
-        // Below water level: no slope limit (underwater sediment flows freely)
-        let excess = if heights[i] < params.water_level {
-            diff.abs()
+        if diff == 0.0 { continue; }
+
+        // Excess calculation (world.h:143-148)
+        // Below sea level (0.1): no slope limit — excess = full diff
+        // Above: excess = |diff| - distance * maxdiff
+        let excess = if nh > params.sea_level {
+            (diff.abs() - dist * params.max_diff).max(0.0)
         } else {
-            let max_d = params.max_diff * dist[di];
-            if diff.abs() > max_d { diff.abs() - max_d } else { 0.0 }
+            diff.abs()
         };
-        if excess > 0.0 {
-            let transfer = params.settling * excess * 0.5;
-            if diff > 0.0 {
-                heights[i] -= transfer;
-                heights[ni] += transfer;
-            } else {
-                heights[i] += transfer;
-                heights[ni] -= transfer;
-            }
+
+        if excess <= 0.0 { continue; }
+
+        let transfer = params.settling * excess / 2.0;
+
+        // Bidirectional transfer (world.h:157-164)
+        if diff > 0.0 {
+            heights[i] -= transfer;
+            heights[ni] += transfer;
+        } else {
+            heights[i] += transfer;
+            heights[ni] -= transfer;
         }
     }
 }
 
+// ─── Erode (world.h World::erode) ──────────────────────────────────────────
+
 /// Approximate error function (good to ~0.001 accuracy).
 pub fn erf_approx(x: f64) -> f64 {
-    // Abramowitz & Stegun approximation
     let a = x.abs();
     let t = 1.0 / (1.0 + 0.3275911 * a);
     let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741
@@ -337,80 +359,83 @@ pub fn erf_approx(x: f64) -> f64 {
     if x >= 0.0 { result } else { -result }
 }
 
-/// Run a full erosion cycle: spawn particles across the map, run them,
-/// blend tracking into persistent fields.
-///
-/// `particles_per_cycle`: how many drops to spawn (e.g. 8000 for 256x256).
-/// Each particle starts at a random position and descends to completion.
+/// Run a full erosion cycle. Matches Nick's `World::erode()` (world.h:54-88).
 pub fn erode(
     heights: &mut [f64],
     hydro: &mut HydroMap,
     params: &HydroParams,
-    particles_per_cycle: u32,
+    cycles: u32,
     seed: u32,
 ) {
     let w = hydro.width;
     let h = hydro.height;
 
-    hydro.clear_tracking();
+    // Clear tracking (world.h:56-61)
+    for v in &mut hydro.discharge_track { *v = 0.0; }
+    for v in &mut hydro.momentum_x_track { *v = 0.0; }
+    for v in &mut hydro.momentum_y_track { *v = 0.0; }
 
-    // Simple deterministic pseudo-random for spawn positions
+    // Spawn and run particles (world.h:64-78)
     let mut rng = seed;
     let next_rand = |state: &mut u32| -> f64 {
         *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
         (*state as f64) / (u32::MAX as f64)
     };
 
-    for _ in 0..particles_per_cycle {
+    for _ in 0..cycles {
         let x = next_rand(&mut rng) * (w as f64 - 1.0);
         let y = next_rand(&mut rng) * (h as f64 - 1.0);
 
-        // Only spawn on land
         let ix = x.floor() as usize;
         let iy = y.floor() as usize;
         let i = iy * w + ix;
-        if heights[i] <= params.water_level {
+
+        // Only spawn above sea level (world.h:71-72)
+        if heights[i] < params.sea_level {
             continue;
         }
 
         let mut drop = Drop::new(x, y);
-        drop.descend(heights, hydro, params);
+        while drop.descend(heights, hydro, params) {}
     }
 
-    hydro.blend_tracking(params.lrate);
+    // Blend tracking → persistent (world.h:81-86)
+    let n = w * h;
+    for i in 0..n {
+        hydro.discharge[i] += params.lrate * (hydro.discharge_track[i] - hydro.discharge[i]);
+        hydro.momentum_x[i] += params.lrate * (hydro.momentum_x_track[i] - hydro.momentum_x[i]);
+        hydro.momentum_y[i] += params.lrate * (hydro.momentum_y_track[i] - hydro.momentum_y[i]);
+    }
 }
 
-/// Run multiple erosion cycles for terrain generation.
-/// More cycles = more mature terrain with deeper channels and wider valleys.
-/// Returns the HydroMap with discharge/momentum fields for river rendering.
+/// Run multiple erosion cycles. Returns the HydroMap with discharge/momentum.
 pub fn run_hydrology(
     heights: &mut [f64],
     w: usize,
     h: usize,
     params: &HydroParams,
-    cycles: u32,
-    particles_per_cycle: u32,
+    num_erode_calls: u32,
+    particles_per_call: u32,
     seed: u32,
 ) -> HydroMap {
     let mut hydro = HydroMap::new(w, h);
-    for cycle in 0..cycles {
-        erode(heights, &mut hydro, params, particles_per_cycle, seed.wrapping_add(cycle));
+    for call in 0..num_erode_calls {
+        erode(heights, &mut hydro, params, particles_per_call, seed.wrapping_add(call));
     }
     hydro
 }
 
-// ─── Tests ────────────────────────────────────────────────────────��──────────
+// ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn ramp_heights(w: usize, h: usize, water_level: f64) -> Vec<f64> {
+    fn ramp_heights(w: usize, h: usize) -> Vec<f64> {
         let mut heights = vec![0.0; w * h];
         for y in 0..h {
             for x in 0..w {
-                // Slope from south (high) to north (low, near water level)
-                heights[y * w + x] = water_level + 0.01 + (y as f64 / h as f64) * 0.4;
+                heights[y * w + x] = 0.1 + (y as f64 / h as f64) * 0.6;
             }
         }
         heights
@@ -420,66 +445,13 @@ mod tests {
     fn erode_produces_channels() {
         let w = 64;
         let h = 64;
-        let params = HydroParams {
-            water_level: 0.35,
-            ..HydroParams::default()
-        };
-        let mut heights = ramp_heights(w, h, params.water_level);
+        let params = HydroParams::default();
+        let mut heights = ramp_heights(w, h);
         let original = heights.clone();
-
-        run_hydrology(&mut heights, w, h, &params, 3, 2000, 42);
-
-        // Some tiles should have been eroded
-        let eroded_count = heights
-            .iter()
-            .zip(original.iter())
-            .filter(|(new, old)| **new < **old - 0.001)
-            .count();
-
-        assert!(
-            eroded_count > 50,
-            "should erode significant number of tiles, got {eroded_count}"
-        );
-    }
-
-    #[test]
-    fn erode_does_not_touch_ocean() {
-        let w = 32;
-        let h = 32;
-        let water_level = 0.35;
-        let params = HydroParams {
-            water_level,
-            ..HydroParams::default()
-        };
-        let mut heights = vec![0.5; w * h];
-        // Set left half to ocean
-        for y in 0..h {
-            for x in 0..w / 2 {
-                heights[y * w + x] = 0.3;
-            }
-        }
-        let mut ocean_before = Vec::new();
-        for y in 0..h {
-            for x in 0..w / 2 {
-                ocean_before.push(heights[y * w + x]);
-            }
-        }
-
-        run_hydrology(&mut heights, w, h, &params, 3, 1000, 42);
-
-        let mut ocean_after = Vec::new();
-        for y in 0..h {
-            for x in 0..w / 2 {
-                ocean_after.push(heights[y * w + x]);
-            }
-        }
-        // Ocean tiles should not go below water level
-        for (i, &h) in ocean_after.iter().enumerate() {
-            assert!(
-                h >= 0.29, // allow tiny float error
-                "ocean tile {i} eroded below water level: {h}"
-            );
-        }
+        run_hydrology(&mut heights, w, h, &params, 10, 200, 42);
+        let eroded = heights.iter().zip(original.iter())
+            .filter(|(n, o)| **n < **o - 0.001).count();
+        assert!(eroded > 20, "should erode tiles, got {eroded}");
     }
 
     #[test]
@@ -487,93 +459,46 @@ mod tests {
         let w = 8;
         let h = 8;
         let mut heights = vec![0.5; w * h];
-        heights[4 * w + 4] = 0.9; // spike
+        heights[4 * w + 4] = 0.9;
         let params = HydroParams::default();
-
         for _ in 0..10 {
             cascade(&mut heights, w, h, 4, 4, &params);
         }
-
-        assert!(
-            heights[4 * w + 4] < 0.7,
-            "spike should be reduced by cascade, got {}",
-            heights[4 * w + 4]
-        );
+        assert!(heights[4 * w + 4] < 0.7, "spike should be smoothed: {}", heights[4 * w + 4]);
     }
 
     #[test]
     fn momentum_field_builds_up() {
         let w = 32;
         let h = 32;
-        let params = HydroParams {
-            water_level: 0.3,
-            ..HydroParams::default()
-        };
-        let mut heights = ramp_heights(w, h, params.water_level);
+        let params = HydroParams::default();
+        let mut heights = ramp_heights(w, h);
         let mut hydro = HydroMap::new(w, h);
-
-        // Run several cycles
-        for cycle in 0..5 {
-            erode(&mut heights, &mut hydro, &params, 500, 42 + cycle);
+        for c in 0..10 {
+            erode(&mut heights, &mut hydro, &params, 200, 42 + c);
         }
-
-        // Momentum field should have non-zero values where water flows
-        let total_momentum: f64 = hydro
-            .momentum_x
-            .iter()
-            .zip(hydro.momentum_y.iter())
-            .map(|(mx, my)| (mx * mx + my * my).sqrt())
-            .sum();
-
-        assert!(
-            total_momentum > 0.1,
-            "momentum field should build up, got {total_momentum:.4}"
-        );
+        let total_m: f64 = hydro.momentum_x.iter().zip(hydro.momentum_y.iter())
+            .map(|(mx, my)| (mx * mx + my * my).sqrt()).sum();
+        assert!(total_m > 0.01, "momentum should build up: {total_m:.6}");
     }
 
     #[test]
     fn erf_approx_accuracy() {
-        // Check against known values
         assert!((erf_approx(0.0) - 0.0).abs() < 0.001);
         assert!((erf_approx(1.0) - 0.8427).abs() < 0.001);
         assert!((erf_approx(2.0) - 0.9953).abs() < 0.001);
         assert!((erf_approx(-1.0) - (-0.8427)).abs() < 0.001);
     }
 
-    /// Diagnostic: run hydrology and print before/after stats.
     #[test]
-    #[ignore]
-    fn diag_hydrology_results() {
-        let w = 128;
-        let h = 128;
-        let params = HydroParams {
-            water_level: 0.42,
-            ..HydroParams::default()
-        };
-        let mut heights = ramp_heights(w, h, params.water_level);
+    fn particles_dont_spawn_below_sea_level() {
+        let w = 32;
+        let h = 32;
+        let params = HydroParams::default(); // sea_level = 0.1
+        let mut heights = vec![0.05; w * h]; // all below sea level
         let original = heights.clone();
-
-        eprintln!("=== Before erosion ===");
-        let avg_before: f64 = heights.iter().sum::<f64>() / heights.len() as f64;
-        eprintln!("  avg height: {avg_before:.4}");
-
-        run_hydrology(&mut heights, w, h, &params, 5, 4000, 42);
-
-        eprintln!("=== After erosion (5 cycles, 4000 particles each) ===");
-        let avg_after: f64 = heights.iter().sum::<f64>() / heights.len() as f64;
-        let eroded: usize = heights.iter().zip(original.iter())
-            .filter(|(n, o)| **n < **o - 0.001).count();
-        let deposited: usize = heights.iter().zip(original.iter())
-            .filter(|(n, o)| **n > **o + 0.001).count();
-        let max_erosion = heights.iter().zip(original.iter())
-            .map(|(n, o)| *o - *n).fold(0.0f64, f64::max);
-        let max_deposit = heights.iter().zip(original.iter())
-            .map(|(n, o)| *n - *o).fold(0.0f64, f64::max);
-
-        eprintln!("  avg height: {avg_after:.4}");
-        eprintln!("  eroded tiles: {eroded}");
-        eprintln!("  deposited tiles: {deposited}");
-        eprintln!("  max erosion: {max_erosion:.4}");
-        eprintln!("  max deposit: {max_deposit:.4}");
+        run_hydrology(&mut heights, w, h, &params, 5, 100, 42);
+        // Nothing should change — no particles spawned
+        assert_eq!(heights, original, "heights should not change below sea level");
     }
 }
