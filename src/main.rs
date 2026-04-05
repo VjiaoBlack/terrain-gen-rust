@@ -267,6 +267,25 @@ fn main() -> Result<()> {
         }
         eprintln!("  camera: ({}, {})", game.camera.x, game.camera.y);
 
+        // JSON diagnostics / report card output to stdout (suppresses ANSI frame)
+        let json_mode = args.iter().any(|a| a == "--diagnostics")
+            || args.iter().any(|a| a == "--report-card");
+        if args.iter().any(|a| a == "--diagnostics") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&game.collect_diagnostics()).unwrap()
+            );
+        }
+        if args.iter().any(|a| a == "--report-card") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&game.generate_report_card()).unwrap()
+            );
+        }
+        if json_mode {
+            return Ok(());
+        }
+
         if let Some(path) = png_path {
             #[cfg(feature = "png")]
             {
@@ -420,6 +439,14 @@ fn main() -> Result<()> {
                     print!("{}", r.frame_as_ansi());
                     println!("--- tick {} ---", game_obj.tick);
                     last_cmd_was_frame = true;
+                } else if cmd == "dump-state" {
+                    println!("{}", game_obj.collect_diagnostics());
+                } else if cmd == "report-card" {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&game_obj.generate_report_card())
+                            .unwrap()
+                    );
                 }
             }
             // Dump final frame only if the last command wasn't already a frame dump
