@@ -89,6 +89,40 @@ impl super::super::Game {
                                 continue;
                             }
 
+                            // River rendering from discharge field (Nick McDonald's approach):
+                            // Blend terrain toward water color based on erf(0.4 * discharge).
+                            let ux = wx as usize;
+                            let uy = wy as usize;
+                            let idx = uy * self.map.width + ux;
+                            let river_alpha = if idx < self.discharge.len() {
+                                crate::hydrology::erf_approx(0.4 * self.discharge[idx])
+                            } else {
+                                0.0
+                            };
+                            if river_alpha > 0.1 {
+                                // River tile: blend toward blue-gray water color
+                                let alpha = river_alpha.min(0.9);
+                                let water_r = 92.0;
+                                let water_g = 133.0;
+                                let water_b = 142.0;
+                                let base_fg = terrain.fg();
+                                let r = (base_fg.0 as f64 * (1.0 - alpha) + water_r * alpha) as u8;
+                                let g = (base_fg.1 as f64 * (1.0 - alpha) + water_g * alpha) as u8;
+                                let b = (base_fg.2 as f64 * (1.0 - alpha) + water_b * alpha) as u8;
+                                let fg = self.day_night.apply_lighting(
+                                    Color(r, g, b), ux, uy,
+                                );
+                                let bg_r = (r as f64 * 0.6) as u8;
+                                let bg_g = (g as f64 * 0.6) as u8;
+                                let bg_b = (b as f64 * 0.6) as u8;
+                                let bg = Some(self.day_night.apply_lighting(
+                                    Color(bg_r, bg_g, bg_b), ux, uy,
+                                ));
+                                let ch = if alpha > 0.5 { '~' } else { '·' };
+                                renderer.draw(sx, sy, ch, fg, bg);
+                                continue;
+                            }
+
                             // Blend soil + vegetation for natural terrain types
                             let (fg, bg) = if terrain.has_vegetation_blending() {
                                 let ux = wx as usize;

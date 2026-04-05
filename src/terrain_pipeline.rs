@@ -207,6 +207,9 @@ pub struct PipelineResult {
     pub river_mask: Vec<bool>,
     pub slope: Vec<f64>,
     pub resources: ResourceMap,
+    /// Discharge field from hydrology erosion — used to render rivers.
+    /// Values are raw accumulated discharge; render with erf(0.4 * discharge).
+    pub discharge: Vec<f64>,
 }
 
 // ─── Stage 2: Terrace + Thermal Erosion ──────────────────────────────────────
@@ -1268,6 +1271,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     priority_flood(&mut heights, w, h);
 
     // Stage 3b: Erosion — model selected by config
+    let mut discharge = vec![0.0f64; w * h];
     match config.erosion_model {
         ErosionModel::Spl => {
             // Analytical SPL erosion — incision-only, no deposition.
@@ -1291,12 +1295,13 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             // 5 cycles of 8000 particles for 256x256 (scales with area)
             let area = w * h;
             let particles = ((area as f64 * 0.12) as u32).max(1000);
-            crate::hydrology::run_hydrology(
+            let hydro = crate::hydrology::run_hydrology(
                 &mut heights, w, h, &hydro_params,
                 5,          // cycles
                 particles,
                 config.terrain.seed,
             );
+            discharge = hydro.discharge;
         }
         ErosionModel::Off => {
             // No erosion
@@ -1375,6 +1380,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         river_mask,
         slope,
         resources,
+        discharge,
     }
 }
 

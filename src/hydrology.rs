@@ -314,7 +314,7 @@ fn cascade(
 }
 
 /// Approximate error function (good to ~0.001 accuracy).
-fn erf_approx(x: f64) -> f64 {
+pub fn erf_approx(x: f64) -> f64 {
     // Abramowitz & Stegun approximation
     let a = x.abs();
     let t = 1.0 / (1.0 + 0.3275911 * a);
@@ -369,6 +369,7 @@ pub fn erode(
 
 /// Run multiple erosion cycles for terrain generation.
 /// More cycles = more mature terrain with deeper channels and wider valleys.
+/// Returns the HydroMap with discharge/momentum fields for river rendering.
 pub fn run_hydrology(
     heights: &mut [f64],
     w: usize,
@@ -377,11 +378,12 @@ pub fn run_hydrology(
     cycles: u32,
     particles_per_cycle: u32,
     seed: u32,
-) {
+) -> HydroMap {
     let mut hydro = HydroMap::new(w, h);
     for cycle in 0..cycles {
         erode(heights, &mut hydro, params, particles_per_cycle, seed.wrapping_add(cycle));
     }
+    hydro
 }
 
 // ─── Tests ────────────────────────────────────────────────────────��──────────

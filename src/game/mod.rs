@@ -467,6 +467,9 @@ pub struct Game {
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
+    /// Discharge field from hydrology erosion — used to render rivers.
+    /// Render with erf(0.4 * discharge) as blend toward water color.
+    pub discharge: Vec<f64>,
     pub pipeline_temperature: Vec<f64>,
     pub pipeline_slope: Vec<f64>,
     pub pipeline_moisture: Vec<f64>,
@@ -1251,6 +1254,7 @@ impl Game {
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
+            discharge: result.discharge,
             pipeline_temperature: result.temperature,
             pipeline_slope: result.slope,
             pipeline_moisture: result.moisture,
