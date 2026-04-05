@@ -10,6 +10,24 @@ use crate::tilemap::{Terrain, TileMap};
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
+/// Which erosion model to use in the terrain pipeline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ErosionModel {
+    /// Analytical Stream Power Law — fast, incision-only, no deposition.
+    Spl,
+    /// SimpleHydrology particle-based — slower but produces meandering rivers,
+    /// proper deposition, and realistic channel formation.
+    SimpleHydrology,
+    /// No erosion at all.
+    Off,
+}
+
+impl Default for ErosionModel {
+    fn default() -> Self {
+        ErosionModel::SimpleHydrology
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PipelineConfig {
     pub terrain: TerrainGenConfig,
@@ -32,7 +50,7 @@ pub struct PipelineConfig {
     pub shadow_strength: f64,
     pub water_dist_falloff: f64,
     // Pipeline toggles
-    pub spl_erosion_enabled: bool,
+    pub erosion_model: ErosionModel,
 }
 
 impl Default for PipelineConfig {
@@ -55,7 +73,7 @@ impl Default for PipelineConfig {
             droplet_inertia: 0.05,
             shadow_strength: 0.5,
             water_dist_falloff: 12.0,
-            spl_erosion_enabled: true,
+            erosion_model: ErosionModel::default(),
         }
     }
 }
@@ -1249,27 +1267,40 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Stage 3: Priority flood first (SPL needs depression-free heightmap)
     priority_flood(&mut heights, w, h);
 
-    // Stage 3b: Analytical SPL erosion (replaces droplet erosion)
-    // SPL is pure incision — no silt deposition in ocean basins.
-    if config.spl_erosion_enabled {
-        let spl_params = crate::analytical_erosion::SplParams {
-            water_level: config.terrain.water_level,
-            k: 0.0003, // reduced from 0.001 — prevents over-incision near coast
-            ..crate::analytical_erosion::SplParams::default()
-        };
-        crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
-
-        // Stage 3c: Hillslope diffusion (soil creep)
-        // Laplacian smoothing after SPL — fills narrow gullies, rounds sharp ridges.
-        // Per Tzathas 2024 paper: separate diffusion pass simulates hillslope processes
-        // that SPL (which only models channel incision) cannot capture.
-        hillslope_diffusion(&mut heights, w, h, config.terrain.water_level, 0.1, 8);
-
-        // Stage 3d: Sediment deposition at river mouths and low-slope areas
-        // SPL is incision-only — eroded material must go somewhere. This pass
-        // deposits sediment where slope drops below threshold, creating deltas
-        // and floodplains instead of leaving sharp coastal cutoffs.
-        deposit_sediment(&mut heights, w, h, config.terrain.water_level);
+    // Stage 3b: Erosion — model selected by config
+    match config.erosion_model {
+        ErosionModel::Spl => {
+            // Analytical SPL erosion — incision-only, no deposition.
+            let spl_params = crate::analytical_erosion::SplParams {
+                water_level: config.terrain.water_level,
+                k: 0.0003,
+                ..crate::analytical_erosion::SplParams::default()
+            };
+            crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
+            // Hillslope diffusion + deposition to compensate for SPL's limitations
+            hillslope_diffusion(&mut heights, w, h, config.terrain.water_level, 0.1, 8);
+            deposit_sediment(&mut heights, w, h, config.terrain.water_level);
+        }
+        ErosionModel::SimpleHydrology => {
+            // Nick McDonald's particle-based erosion — handles incision, deposition,
+            // talus cascading, and momentum-driven meandering in one system.
+            let hydro_params = crate::hydrology::HydroParams {
+                water_level: config.terrain.water_level,
+                ..crate::hydrology::HydroParams::default()
+            };
+            // 5 cycles of 8000 particles for 256x256 (scales with area)
+            let area = w * h;
+            let particles = ((area as f64 * 0.12) as u32).max(1000);
+            crate::hydrology::run_hydrology(
+                &mut heights, w, h, &hydro_params,
+                5,          // cycles
+                particles,
+                config.terrain.seed,
+            );
+        }
+        ErosionModel::Off => {
+            // No erosion
+        }
     }
     let river_mask = vec![false; w * h]; // empty — no pre-baked rivers
 

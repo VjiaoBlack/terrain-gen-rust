@@ -2,6 +2,7 @@ pub mod analytical_erosion;
 pub mod ecs;
 pub mod game;
 pub mod headless_renderer;
+pub mod hydrology;
 pub mod pathfinding;
 pub mod pipe_water;
 pub mod renderer;

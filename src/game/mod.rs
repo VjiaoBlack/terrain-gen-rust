@@ -1010,14 +1010,16 @@ impl Game {
             hsw as usize,
             hsh as usize,
         );
-        for (dx, dy, terrain) in BuildingType::Hut.tiles() {
-            map.set(
-                hx as usize + dx as usize,
-                hy as usize + dy as usize,
-                terrain,
-            );
+        if (hx as usize) < map_width && (hy as usize) < map_height {
+            for (dx, dy, terrain) in BuildingType::Hut.tiles() {
+                let tx = hx as i32 + dx;
+                let ty = hy as i32 + dy;
+                if tx >= 0 && ty >= 0 && (tx as usize) < map_width && (ty as usize) < map_height {
+                    map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
         }
-        ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
 
         // Pre-built farm — search opposite side of stockpile
         let (fsw, fsh) = BuildingType::Farm.size();
@@ -1028,32 +1030,36 @@ impl Game {
             fsw as usize,
             fsh as usize,
         );
-        for (dx, dy, terrain) in BuildingType::Farm.tiles() {
-            map.set(
-                fx as usize + dx as usize,
-                fy as usize + dy as usize,
-                terrain,
-            );
+        if (fx as usize) < map_width && (fy as usize) < map_height {
+            for (dx, dy, terrain) in BuildingType::Farm.tiles() {
+                let tx = fx as i32 + dx;
+                let ty = fy as i32 + dy;
+                if tx >= 0 && ty >= 0 && (tx as usize) < map_width && (ty as usize) < map_height {
+                    map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
         }
-        ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Pre-built Granary — converts food to grain which is preserved through Winter.
         // Without this, winter food decay (2%/30 ticks) kills all settlements before Year 2.
         let (gsw, gsh) = BuildingType::Granary.size();
         let (gx, gy) = find_building_spot(&map, scx + 5, scy + 4, gsw as usize, gsh as usize);
-        for (dx, dy, terrain) in BuildingType::Granary.tiles() {
-            map.set(
-                gx as usize + dx as usize,
-                gy as usize + dy as usize,
-                terrain,
+        if (gx as usize) < map_width && (gy as usize) < map_height {
+            for (dx, dy, terrain) in BuildingType::Granary.tiles() {
+                let tx = gx as i32 + dx;
+                let ty = gy as i32 + dy;
+                if tx >= 0 && ty >= 0 && (tx as usize) < map_width && (ty as usize) < map_height {
+                    map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            ecs::spawn_processing_building(
+                &mut world,
+                gx + gsw as f64 / 2.0,
+                gy + gsh as f64 / 2.0,
+                Recipe::FoodToGrain,
             );
         }
-        ecs::spawn_processing_building(
-            &mut world,
-            gx + gsw as f64 / 2.0,
-            gy + gsh as f64 / 2.0,
-            Recipe::FoodToGrain,
-        );
 
         // Spawn berry bushes from ResourceMap: pick the 2 best (fertility / distance)
         // tiles within 8 tiles of settlement that are walkable.
