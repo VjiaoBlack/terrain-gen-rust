@@ -238,10 +238,12 @@ impl DayNightCycle {
             heights[cy * width + cx]
         };
 
-        // Central differences, amplified heavily.
-        // Raw gradients are ~0.005 (heights 0-1 over 256 cells).
-        // Multiply by 40 so slopes become visible in the lighting.
-        let scale = 40.0;
+        // Central differences, amplified to make slopes visible in lighting.
+        // At scale=40, a slope of 0.05 creates a 63° tilt (nearly black
+        // when facing away from sun). At scale=20, the same slope gives
+        // 45° (dim but visible). Scale=20 gives good hill/mountain contrast
+        // without turning gentle slopes into black patches.
+        let scale = 20.0;
         let dhdx = (h(x as i32 + 1, y as i32) - h(x as i32 - 1, y as i32)) * 0.5 * scale;
         let dhdy = (h(x as i32, y as i32 + 1) - h(x as i32, y as i32 - 1)) * 0.5 * scale;
 

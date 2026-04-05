@@ -1987,7 +1987,8 @@ mod biome_diagnostics {
     #[test]
     #[ignore] // run with: cargo test --lib diag_soil_distribution -- --nocapture --ignored
     fn diag_soil_distribution() {
-        let config = PipelineConfig::default();
+        let mut config = PipelineConfig::default();
+        config.terrain.seed = 100; // match the game seed
         let result = run_pipeline(256, 256, &config);
         let n = 256 * 256;
 
@@ -2024,6 +2025,24 @@ mod biome_diagnostics {
             eprintln!("  avg moisture: {:.3}", avg);
             eprintln!("  max moisture: {:.3}", max);
             eprintln!("  above 0.95: {} ({:.1}%)", above_95, above_95 as f64 / coastal_moisture.len() as f64 * 100.0);
+        }
+
+        // Inspect specific tiles
+        let inspect = [(55, 70), (56, 70), (54, 70), (55, 69), (55, 71)];
+        eprintln!("\n=== Tile inspection ===");
+        for &(x, y) in &inspect {
+            if x < 256 && y < 256 {
+                let i = y * 256 + x;
+                eprintln!(
+                    "  ({x},{y}): height={:.4} terrain={:?} soil={:?} moisture={:.3} temp={:.3} slope={:.4}",
+                    result.heights[i],
+                    result.map.get(x, y).unwrap_or(&crate::tilemap::Terrain::Grass),
+                    result.soil[i],
+                    result.moisture[i],
+                    result.temperature[i],
+                    compute_slope(&result.heights, 256, 256)[i],
+                );
+            }
         }
     }
 }
