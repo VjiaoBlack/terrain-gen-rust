@@ -1290,16 +1290,24 @@ impl Game {
             script_engine: None,
         };
 
-        // Seed pipe_water from actual Water terrain tiles only.
-        // River_mask disabled — river carving is off, so river_mask tiles
-        // are dry land that shouldn't have water dumped on them.
+        // Seed pipe_water from two sources:
+        // 1. Ocean tiles (Terrain::Water) — boundary condition, constant depth
+        // 2. Discharge field — high-discharge channels get actual water depth
+        //    so rivers are visible from tick 0 via the pipe_water renderer.
+        let pipeline_wl = result.water_level;
         for y in 0..map_height {
             for x in 0..map_width {
+                let i = y * map_width + x;
                 if matches!(g.map.get(x, y), Some(Terrain::Water)) {
-                    let i = y * map_width + x;
-                    let depth = (g.terrain_config.water_level - g.heights[i]).max(0.01);
+                    let depth = (pipeline_wl - g.heights[i]).max(0.01);
                     g.pipe_water.add_water(x, y, depth);
                     g.pipe_water.set_ocean_boundary(x, y, depth);
+                } else if i < g.discharge.len() {
+                    let d = crate::hydrology::erf_approx(0.4 * g.discharge[i]);
+                    if d > 0.5 {
+                        // Strong river channel — thin water layer
+                        g.pipe_water.add_water(x, y, (d - 0.5) * 0.02);
+                    }
                 }
             }
         }

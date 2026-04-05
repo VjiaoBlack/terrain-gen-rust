@@ -1345,7 +1345,10 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             let area = (w * h) as f64;
             let nick_area = 512.0 * 512.0;
             let particles = ((512.0 * area / nick_area).round() as u32).max(32);
-            let target_total = 256_000.0 * area / nick_area;
+            // 10x Nick's total — we front-load all the erosion at worldgen
+            // since we can't run hundreds of frames interactively.
+            // More cycles = deeper valleys, more defined meandering.
+            let target_total = 2_560_000.0 * area / nick_area;
             let cycles = ((target_total / particles as f64).round() as u32).max(50);
             let hydro = crate::hydrology::run_hydrology(
                 &mut heights, w, h, &hydro_params,

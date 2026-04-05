@@ -126,8 +126,28 @@ impl super::Game {
                 64,
                 self.terrain_config.seed.wrapping_add(self.tick as u32),
             );
-            // Update discharge field for river rendering
             self.discharge = self.hydro.discharge.clone();
+        }
+
+        // Seed pipe_water from discharge field — only strong river channels.
+        // High threshold so only the main rivers get actual water, not every
+        // tile that a particle ever touched.
+        if self.tick % 50 == 0 {
+            for y in 0..self.map.height {
+                for x in 0..self.map.width {
+                    let i = y * self.map.width + x;
+                    if i >= self.discharge.len() { continue; }
+                    let d = crate::hydrology::erf_approx(0.4 * self.discharge[i]);
+                    if d > 0.5 {
+                        // Only strong river channels — springs/groundwater source
+                        let current = self.pipe_water.get_depth(x, y);
+                        let target = (d - 0.5) * 0.02; // very thin water layer
+                        if current < target {
+                            self.pipe_water.add_water(x, y, (target - current) * 0.1);
+                        }
+                    }
+                }
+            }
         }
 
         // Seasonal vegetation decay (winter/autumn)
