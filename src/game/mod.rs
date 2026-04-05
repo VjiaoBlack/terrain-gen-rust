@@ -542,7 +542,6 @@ impl Game {
         let pipeline_config = PipelineConfig {
             terrain: TerrainGenConfig {
                 seed,
-                scale: 0.015,
                 ..Default::default()
             },
             ..PipelineConfig::default()

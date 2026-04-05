@@ -2033,6 +2033,17 @@ mod biome_diagnostics {
             eprintln!("  above 0.95: {} ({:.1}%)", above_95, above_95 as f64 / coastal_moisture.len() as f64 * 100.0);
         }
 
+        // Discharge field stats
+        let max_discharge = result.discharge.iter().cloned().fold(0.0f64, f64::max);
+        let avg_discharge = result.discharge.iter().sum::<f64>() / n as f64;
+        let nonzero_discharge = result.discharge.iter().filter(|&&d| d > 0.01).count();
+        let visible_discharge = result.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+        eprintln!("\nDischarge field:");
+        eprintln!("  max: {:.4}", max_discharge);
+        eprintln!("  avg: {:.6}", avg_discharge);
+        eprintln!("  nonzero (>0.01): {}", nonzero_discharge);
+        eprintln!("  visible (erf>0.1): {}", visible_discharge);
+
         // Inspect specific tiles
         let inspect = [(55, 70), (56, 70), (54, 70), (55, 69), (55, 71)];
         eprintln!("\n=== Tile inspection ===");
