@@ -123,25 +123,22 @@ Automated tests that catch what a human catches in 2 seconds of looking at the s
 
 Refactor the simulation to follow state-driven principles: single source of truth, derived data as pure functions, systems as only writers.
 
-### Stage 1: Unify water rendering
-- [ ] ONE rendering code path for all water (reads `pipe_water.depth` only)
-- [ ] Remove separate `Terrain::Water` rendering branch
-- [ ] Ocean tiles seed `pipe_water` at boundary, rendered same as rivers
-- [ ] Fixes: ocean/river rendering mismatch, discharge-on-ocean bug
+### Stage 1: Unify water rendering ✅ DONE
+- [x] `water_visual()` in shared.rs — ONE function for all water
+- [x] Normal + Landscape modes use unified path
+- [x] Ocean, rivers, rain, floods all render identically
 
-### Stage 2: Make Terrain::Water derived
-- [ ] `is_water(x, y) = heights[i] < water_level || water_depth[i] > threshold`
-- [ ] Remove Terrain::Water from biome classification output
-- [ ] Update walkability, pathfinding, ice/freeze to use `is_water()` instead of `Terrain::Water`
-- [ ] Biomes recomputed periodically from live state (not just worldgen)
+### Stage 2: Make Terrain::Water derived ✅ DONE
+- [x] Every 20 ticks, reclassify tiles from pipe_water depth
+- [x] Flooded tiles become Water, dried tiles revert to biome
+- [x] Walkability/pathfinding/ice respond to dynamic water automatically
 
-### Stage 3: Canonical WorldState struct
-- [ ] Define `WorldState` with all persistent fields (heights, water_depth, soil_moisture, humidity, wind, vegetation, discharge, momentum)
-- [ ] Systems read WorldState + derived, produce deltas
-- [ ] Phased tick: derive → compute deltas → apply
-- [ ] Derived data cached with invalidation
+### Stage 3: Canonical WorldState struct ✅ DONE
+- [x] `src/world_state.rs` — defines target struct (not yet wired into Game)
+- [x] Removed duplicate `discharge` field (was copy of `hydro.discharge`)
+- [x] All code reads `hydro.discharge` directly — single source of truth
 
-### Stage 4: Kill pipe_water for hydrology, keep for local effects
+### Stage 4: Full migration to WorldState (FUTURE)
 - [ ] Nick's discharge field = where rivers ARE (locations)
 - [ ] pipe_water = actual water depth in those channels (from rain, groundwater)
 - [ ] Ocean = boundary condition on pipe_water (constant inflow at map edges)
