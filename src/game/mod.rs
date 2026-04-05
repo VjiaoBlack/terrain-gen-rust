@@ -2365,8 +2365,55 @@ impl Game {
         let pipe_water_total = round1(self.pipe_water.total_water());
         let wind_moisture_total = round1(self.wind.moisture_carried.iter().copied().sum::<f64>());
 
+        // Settlement metrics (derived from influence map + exploration)
+        let mut footprint_tiles = 0u32;
+        for y in 0..map_h {
+            for x in 0..map_w {
+                if self.influence.get(x, y) > 0.1 {
+                    footprint_tiles += 1;
+                }
+            }
+        }
+        let explored = self.exploration.revealed.iter().filter(|&&r| r).count();
+        let exploration_pct = round1(explored as f64 / total_tiles * 100.0);
+        let outpost_count = self.outposts.len() as u32;
+
+        // Housing metrics
+        let mut hut_capacity = 0u32;
+        for h in self.world.query::<&HutBuilding>().iter() {
+            hut_capacity += h.capacity;
+        }
+
+        // Threat metrics
+        let fire_tile_count = self.fire_tiles.len() as u32;
+        let active_event_count = self.events.active_events.len() as u32;
+
+        // Terrain extension: elevation std + slope distribution
+        let height_mean = height_sum / total_tiles;
+        let height_var_sum: f64 = self
+            .heights
+            .iter()
+            .map(|h| (h - height_mean).powi(2))
+            .sum();
+        let elevation_std = round1((height_var_sum / total_tiles).sqrt());
+
+        let (mut slope_flat, mut slope_gentle, mut slope_steep, mut slope_cliff) =
+            (0u32, 0u32, 0u32, 0u32);
+        for &s in &self.pipeline_slope {
+            if s < 0.05 {
+                slope_flat += 1;
+            } else if s < 0.15 {
+                slope_gentle += 1;
+            } else if s < 0.3 {
+                slope_steep += 1;
+            } else {
+                slope_cliff += 1;
+            }
+        }
+
         serde_json::json!({
             "tick": self.tick,
+            "seed": self.terrain_config.seed,
             "population": villager_count,
             "resources": {
                 "food": self.resources.food,
@@ -2400,6 +2447,28 @@ impl Game {
                 "water_coverage_pct": water_coverage_pct,
                 "pipe_water_total": pipe_water_total,
                 "wind_moisture_total": wind_moisture_total,
+                "elevation_std": elevation_std,
+                "slope_distribution": {
+                    "flat_pct": round1(slope_flat as f64 / total_tiles * 100.0),
+                    "gentle_pct": round1(slope_gentle as f64 / total_tiles * 100.0),
+                    "steep_pct": round1(slope_steep as f64 / total_tiles * 100.0),
+                    "cliff_pct": round1(slope_cliff as f64 / total_tiles * 100.0),
+                },
+            },
+            "settlement": {
+                "footprint_tiles": footprint_tiles,
+                "exploration_pct": exploration_pct,
+                "outpost_count": outpost_count,
+            },
+            "housing": {
+                "hut_capacity": hut_capacity,
+                "population": villager_count,
+                "growth_potential": hut_capacity.saturating_sub(villager_count),
+            },
+            "threats": {
+                "fire_tiles": fire_tile_count,
+                "active_events": active_event_count,
+                "threat_score": round1(self.threat_score),
             },
         })
     }
