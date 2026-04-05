@@ -294,8 +294,10 @@ fn cascade(
     ];
 
     let i = y * w + x;
-    let h_here = heights[i];
 
+    // Nick's cascade: sort neighbors ascending by height, then transfer
+    // excess from high to low. Below sea level (0.1 in his code, water_level
+    // in ours), no slope limit — excess = full diff.
     for (di, &(dx, dy)) in dirs.iter().enumerate() {
         let nx = x as i32 + dx;
         let ny = y as i32 + dy;
@@ -304,11 +306,22 @@ fn cascade(
         }
         let ni = ny as usize * w + nx as usize;
         let diff = heights[i] - heights[ni];
-        let max_diff = params.max_diff * dist[di];
-        if diff > max_diff {
-            let transfer = params.settling * (diff - max_diff) * 0.5;
-            heights[i] -= transfer;
-            heights[ni] += transfer;
+        // Below water level: no slope limit (underwater sediment flows freely)
+        let excess = if heights[i] < params.water_level {
+            diff.abs()
+        } else {
+            let max_d = params.max_diff * dist[di];
+            if diff.abs() > max_d { diff.abs() - max_d } else { 0.0 }
+        };
+        if excess > 0.0 {
+            let transfer = params.settling * excess * 0.5;
+            if diff > 0.0 {
+                heights[i] -= transfer;
+                heights[ni] += transfer;
+            } else {
+                heights[i] += transfer;
+                heights[ni] -= transfer;
+            }
         }
     }
 }

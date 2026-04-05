@@ -1292,13 +1292,17 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
                 water_level: config.terrain.water_level,
                 ..crate::hydrology::HydroParams::default()
             };
-            // Match Nick's particle density: 512 particles on 512x512 = 1 per 512 tiles.
-            // For 256x256 (65536 tiles): 65536/512 = 128 particles per cycle.
-            // More cycles with fewer particles = better momentum field convergence.
-            let particles = (w * h / 512).max(64) as u32;
+            // Nick spawns 512 drops per erode() call on a 512x512 grid (262144 tiles),
+            // and runs erode() every frame for hundreds of frames.
+            // Scale particles proportional to map area vs his 512x512 reference,
+            // and use enough cycles for the momentum field to converge.
+            let area = (w * h) as f64;
+            let nick_area = (512.0 * 512.0) as f64;
+            let particles = ((512.0 * area / nick_area).round() as u32).max(32);
+            let cycles = 100u32;
             let hydro = crate::hydrology::run_hydrology(
                 &mut heights, w, h, &hydro_params,
-                20,         // more cycles for convergence (Nick runs erode() many times)
+                cycles,
                 particles,
                 config.terrain.seed,
             );
