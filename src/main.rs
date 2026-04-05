@@ -617,15 +617,64 @@ fn main() -> Result<()> {
             }
         }
 
-        // Fall through to --showcase to start the game with the same seed.
-        // The erosion visualization is done; now we create the full game.
-        // (Game::new will re-run the pipeline — the live-gen was just a preview.)
+        // Pass heights + hydro to the game instead of re-running the pipeline.
+        // Drop the live-gen renderer first so showcase can create its own.
+        drop(renderer);
+
+        // Run the rest of the pipeline (biome classification, soil, etc.)
+        // on the already-eroded heightmap.
+        use terrain_gen_rust::terrain_pipeline::PipelineConfig;
+        let mut pipeline_config = PipelineConfig::default();
+        pipeline_config.terrain.seed = seed;
+        // Skip erosion in the pipeline — we already did it
+        pipeline_config.erosion_model = terrain_gen_rust::terrain_pipeline::ErosionModel::Off;
+
+        let mut result = terrain_gen_rust::terrain_pipeline::run_pipeline(map_w, map_h, &pipeline_config);
+        // Overwrite with our eroded heights and discharge
+        result.heights = heights;
+        result.discharge = hydro.discharge.clone();
+        result.hydro = hydro;
+        // Recompute water level from eroded heights
+        let mut sorted_h = result.heights.clone();
+        sorted_h.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        result.water_level = sorted_h[sorted_h.len() * 10 / 100];
+
+        // Reclassify biomes from eroded heightmap
+        let slope = terrain_gen_rust::terrain_pipeline::compute_slope(&result.heights, map_w, map_h);
+        let temperature = terrain_gen_rust::terrain_pipeline::compute_temperature(&result.heights, map_w, map_h, seed);
+        for y in 0..map_h {
+            for x in 0..map_w {
+                let i = y * map_w + x;
+                let terrain = terrain_gen_rust::terrain_pipeline::classify_biome(
+                    result.heights[i], temperature[i], result.moisture[i],
+                    slope[i], result.water_level,
+                );
+                result.map.set(x, y, terrain);
+            }
+        }
+        result.slope = slope;
+        result.temperature = temperature;
+
+        let mut renderer = CrosstermRenderer::new()?;
+        let mut game = Game::new_from_pipeline(60, seed, result);
+
+        game.half_speed_base = true;
+        game.world.clear();
+        let (mw, mh) = (game.map.width, game.map.height);
+        for y in 0..mh {
+            for x in 0..mw {
+                game.exploration.reveal(x, y, 1);
+            }
+        }
+        game.raining = false;
+        game.render_mode = terrain_gen_rust::game::RenderMode::Landscape;
+        run_interactive(&mut game, &mut renderer)?;
+        return Ok(());
     }
 
     // --showcase: terrain-only mode. No entities, no fog of war, just
     // terrain + lighting + day/night + seasons + weather. For tuning visuals.
-    let is_live_gen = args.iter().any(|a| a == "--live-gen");
-    if args.iter().any(|a| a == "--showcase") || is_live_gen {
+    if args.iter().any(|a| a == "--showcase") {
         let seed: u32 = args
             .iter()
             .position(|a| a == "--seed")

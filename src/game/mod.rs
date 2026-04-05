@@ -544,9 +544,33 @@ impl Game {
         let mut pipeline_config = PipelineConfig::default();
         pipeline_config.terrain.seed = seed;
         let result = run_pipeline(map_width, map_height, &pipeline_config);
+        Self::from_pipeline_result(target_fps, seed, result)
+    }
+
+    /// Create a game from a pre-built pipeline result (e.g. from --live-gen).
+    /// Skips running the pipeline — uses the provided heights, discharge, etc.
+    pub fn new_from_pipeline(
+        target_fps: u32,
+        seed: u32,
+        result: crate::terrain_pipeline::PipelineResult,
+    ) -> Self {
+        Self::from_pipeline_result(target_fps, seed, result)
+    }
+
+    fn from_pipeline_result(
+        target_fps: u32,
+        seed: u32,
+        result: crate::terrain_pipeline::PipelineResult,
+    ) -> Self {
+        let map_width = result.map.width;
+        let map_height = result.map.height;
+        let terrain_config = crate::terrain_gen::TerrainGenConfig {
+            seed,
+            ..Default::default()
+        };
+
         let mut map = result.map;
         let heights = result.heights;
-        let terrain_config = pipeline_config.terrain;
 
         // Seed water from pipeline rivers + water tiles
         let mut water = WaterMap::new(map_width, map_height);
