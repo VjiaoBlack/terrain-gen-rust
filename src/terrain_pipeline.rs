@@ -58,6 +58,7 @@ impl Default for PipelineConfig {
         Self {
             terrain: TerrainGenConfig {
                 scale: 0.015,
+                octaves: 8, // match Nick's 8 octaves for terrain detail
                 ..TerrainGenConfig::default()
             },
             terrace_w: 0.06,
@@ -1261,16 +1262,23 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
     // Stage 1: Base height (fBm)
     let (mut map, mut heights) = terrain_gen::generate_terrain(w, h, &config.terrain);
 
-    // Stage 2: Terracing DISABLED — creates unnatural step patterns
-    // apply_terraces(&mut heights, w, h, config);
+    // Stage 2: Pre-erosion processing depends on erosion model
+    match config.erosion_model {
+        ErosionModel::Spl => {
+            // SPL needs depression-free heightmap — priority flood required
+            thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
+            priority_flood(&mut heights, w, h);
+        }
+        ErosionModel::SimpleHydrology => {
+            // SimpleHydrology handles its own cascading — skip priority flood
+            // which would destroy the valleys that rivers need to flow through.
+            // Light thermal erosion only to remove noise spikes.
+            thermal_erosion(&mut heights, w, h, 0.03, 0.5, 3);
+        }
+        ErosionModel::Off => {}
+    }
 
-    // Light thermal erosion to smooth spikes (5 iters, conservative)
-    thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
-
-    // Stage 3: Priority flood first (SPL needs depression-free heightmap)
-    priority_flood(&mut heights, w, h);
-
-    // Stage 3b: Erosion — model selected by config
+    // Stage 3: Erosion — model selected by config
     let mut discharge = vec![0.0f64; w * h];
     match config.erosion_model {
         ErosionModel::Spl => {
@@ -1299,7 +1307,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             let area = (w * h) as f64;
             let nick_area = (512.0 * 512.0) as f64;
             let particles = ((512.0 * area / nick_area).round() as u32).max(32);
-            let cycles = 100u32;
+            let cycles = 200u32;
             let hydro = crate::hydrology::run_hydrology(
                 &mut heights, w, h, &hydro_params,
                 cycles,
