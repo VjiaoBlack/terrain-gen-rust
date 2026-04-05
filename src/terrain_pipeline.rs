@@ -1012,13 +1012,14 @@ pub fn assign_soil(
         if heights[i] < water_level {
             continue; // water
         }
-        // Priority order
-        if moisture[i] > 0.85 && slope[i] < 0.02 {
-            soil[i] = SoilType::Peat;
-        } else if slope[i] > 0.12 {
+        // Priority order: terrain-specific conditions first, then moisture-based
+        if slope[i] > 0.12 {
             soil[i] = SoilType::Rocky;
         } else if heights[i] < water_level + 0.06 && moisture[i] > 0.3 {
+            // Coastal low-elevation tiles are always sand — no peat on beaches
             soil[i] = SoilType::Sand;
+        } else if moisture[i] > 0.85 && slope[i] < 0.02 {
+            soil[i] = SoilType::Peat;
         } else if dist_to_river[i] < 4 && slope[i] < 0.05 {
             soil[i] = SoilType::Alluvial;
         } else if slope[i] < 0.04 && heights[i] < 0.5 {
