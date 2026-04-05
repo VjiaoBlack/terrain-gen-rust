@@ -2473,6 +2473,101 @@ impl Game {
         })
     }
 
+    /// Generate a TITAN-style report card: narrative status categories as JSON.
+    /// Pure derived data — view = f(state), never stored.
+    pub fn generate_report_card(&self) -> serde_json::Value {
+        let diag = self.collect_diagnostics();
+
+        let pop = diag["population"].as_u64().unwrap_or(0);
+        let food = diag["resources"]["food"].as_u64().unwrap_or(0);
+        let hut_cap = diag["housing"]["hut_capacity"].as_u64().unwrap_or(0);
+        let fire_tiles = diag["threats"]["fire_tiles"].as_u64().unwrap_or(0);
+        let threat_score = diag["threats"]["threat_score"].as_f64().unwrap_or(0.0);
+        let exploration = diag["settlement"]["exploration_pct"].as_f64().unwrap_or(0.0);
+
+        // Population assessment
+        let (pop_status, pop_detail) = match pop {
+            0 => ("DEAD", "settlement extinct"),
+            1..=3 => ("Critical", "near extinction"),
+            4..=8 => ("Fragile", "one bad winter away"),
+            9..=15 => ("Healthy", "growing"),
+            _ => ("Thriving", "expanding"),
+        };
+
+        // Food assessment (per capita)
+        let food_per_cap = if pop > 0 {
+            food as f64 / pop as f64
+        } else {
+            0.0
+        };
+        let (food_status, food_detail) = if pop == 0 {
+            ("N/A", "no population")
+        } else if food_per_cap < 2.0 {
+            ("Critical", "starvation imminent")
+        } else if food_per_cap < 5.0 {
+            ("Tight", "no buffer")
+        } else if food_per_cap < 15.0 {
+            ("Adequate", "stable supply")
+        } else {
+            ("Surplus", "well stocked")
+        };
+
+        // Housing assessment
+        let (housing_status, housing_detail) = if pop == 0 {
+            ("N/A", "no population")
+        } else if hut_cap <= pop {
+            ("Overcrowded", "need more huts")
+        } else if hut_cap < pop + 4 {
+            ("Tight", "limited growth room")
+        } else {
+            ("Adequate", "room to grow")
+        };
+
+        // Terrain assessment
+        let biome_count = diag["terrain"]["biome_distribution"]
+            .as_object()
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let (terrain_status, terrain_detail) = match biome_count {
+            0..=1 => ("Monotonous", "single biome"),
+            2..=3 => ("Limited", "low variety"),
+            4..=5 => ("Varied", "good mix"),
+            _ => ("Diverse", "rich landscape"),
+        };
+
+        // Threat assessment
+        let (threat_status, threat_detail): (&str, String) = if fire_tiles > 0 {
+            ("Fire", format!("{} tiles burning", fire_tiles))
+        } else if threat_score > 50.0 {
+            ("High", "prosperous target".to_string())
+        } else if threat_score > 15.0 {
+            ("Growing", "attracting attention".to_string())
+        } else {
+            ("Low", "quiet settlement".to_string())
+        };
+
+        let summary = format!(
+            "Population: {} ({}) | Food: {} ({}) | Housing: {} ({}) | Terrain: {} ({}) | Threats: {} ({})",
+            pop_status, pop_detail, food_status, food_detail,
+            housing_status, housing_detail, terrain_status, terrain_detail,
+            threat_status, threat_detail
+        );
+
+        serde_json::json!({
+            "tick": diag["tick"],
+            "seed": diag["seed"],
+            "categories": {
+                "population": {"status": pop_status, "detail": pop_detail, "value": pop},
+                "food": {"status": food_status, "detail": food_detail, "per_capita": ((food_per_cap * 10.0).round() / 10.0)},
+                "housing": {"status": housing_status, "detail": housing_detail, "capacity": hut_cap, "population": pop},
+                "terrain": {"status": terrain_status, "detail": terrain_detail, "biome_count": biome_count},
+                "threats": {"status": threat_status, "detail": threat_detail, "score": threat_score},
+                "exploration": {"pct": exploration},
+            },
+            "summary": summary,
+        })
+    }
+
     fn snapshot(&self, renderer: &HeadlessRenderer) -> FrameSnapshot {
         let (w, h) = renderer.size();
         let mut cells = Vec::with_capacity(h as usize);
