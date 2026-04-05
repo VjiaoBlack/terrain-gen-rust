@@ -2,14 +2,31 @@
 
 Prioritized list of terrain/simulation features to implement. Each item references research docs with detailed algorithms.
 
-## Priority 0: SimpleHydrology Port (REPLACES Priority 1 + 2)
+## Priority 0: Hydrology System (SimpleHydrology → soillib upgrades)
 
-### Port Nick McDonald's SimpleHydrology particle erosion system
-- **Status**: IN PROGRESS
-- **Why**: Replaces SPL erosion + hillslope diffusion + deposit sediment + river meandering with ONE unified system. Produces meandering rivers, proper deposition (deltas/floodplains), and realistic channel formation. The best terrain we've seen from any reference.
-- **Source**: https://github.com/weigert/SimpleHydrology
-- **Blog**: "Procedural Hydrology Improvements and Meandering Rivers" by Nick McDonald
-- **Research**: `docs/research/soilmachine_deep_dive.md` (sections 3a-3d), `docs/research/nickmcd_meandering.md`
+### Phase 1: SimpleHydrology base port ✅ DONE
+- `src/hydrology.rs` — particle descent, momentum, cascade, discharge tracking
+- Default erosion model in pipeline (ErosionModel::SimpleHydrology)
+
+### Phase 2: Render rivers from discharge field (NEXT — QUICK WIN)
+- **Status**: NOT STARTED
+- **Why**: We have the discharge data but don't render it. Nick's system renders rivers as `erf(0.4 * discharge)` blended onto terrain color — no water tiles needed.
+- **Approach**: In tile rendering, blend terrain color toward blue-gray `(92, 133, 142)` based on `erf(0.4 * discharge)`. Add specular boost for water look.
+- **Research**: `docs/research/meandering_rivers_2023.md` (River Rendering section)
+
+### Phase 3: Upgrade to soillib algorithms
+- **Status**: NOT STARTED
+- **Why**: soillib (2023) has significant improvements over SimpleHydrology that produce better meandering and more physical results.
+- **Research**: `docs/research/meandering_rivers_2023.md`
+- **Source**: https://github.com/erosiv/soillib
+
+**Upgrades in priority order:**
+1. **Viscosity-based implicit Euler** — replace dot-product momentum transfer with `speed = 1/(1+ds*(bedShear+viscosity)) * speed + ds*viscosity/(1+ds*(bedShear+viscosity)) * avg_speed`. Key to meandering quality.
+2. **Stream power law sediment** — `suspend = ks * vol * slope * discharge^0.4` with separate suspend/deposit rates. Replaces linear `c_eq`.
+3. **Separate sediment buffer** — bedrock vs loose sediment. Erosion removes sediment first.
+4. **5-point gradient stencil** — 4th-order accurate: `(f[-2] - 8*f[-1] + 8*f[+1] - f[+2]) / 12`
+5. **Dynamic timestep** — `ds = cell_distance / speed` per step (not fixed sqrt(2))
+6. **Debris flow** — path-integral thermal erosion replacing 8-neighbor cascade
 
 **What to implement (~350 lines in `src/hydrology.rs`):**
 1. `HydroCell` — 8 floats: height, discharge, momentum_x/y, tracking buffers, root_density
