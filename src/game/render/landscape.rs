@@ -274,10 +274,12 @@ impl super::super::Game {
         }
 
         // River rendering from discharge field (Nick McDonald's approach):
-        // Blend terrain toward water color based on erf(0.4 * discharge).
+        // Skip on Terrain::Water — ocean already has its own rendering.
         // Credit: https://github.com/weigert/SimpleHydrology
         let idx = wy * self.map.width + wx;
-        let river_alpha = if idx < self.discharge.len() {
+        let river_alpha = if *terrain == Terrain::Water {
+            0.0 // ocean handles its own rendering
+        } else if idx < self.discharge.len() {
             crate::hydrology::erf_approx(0.4 * self.discharge[idx])
         } else {
             0.0
