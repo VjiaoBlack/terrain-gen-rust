@@ -617,23 +617,15 @@ fn main() -> Result<()> {
             }
         }
 
-        // Wait for keypress then clean up terminal
-        crossterm::event::read()?;
-        drop(renderer);
-        // Explicitly disable raw mode and mouse capture in case Drop missed it
-        let _ = crossterm::terminal::disable_raw_mode();
-        let _ = crossterm::execute!(
-            std::io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            crossterm::terminal::LeaveAlternateScreen,
-            crossterm::cursor::Show
-        );
-        return Ok(());
+        // Fall through to --showcase to start the game with the same seed.
+        // The erosion visualization is done; now we create the full game.
+        // (Game::new will re-run the pipeline — the live-gen was just a preview.)
     }
 
     // --showcase: terrain-only mode. No entities, no fog of war, just
     // terrain + lighting + day/night + seasons + weather. For tuning visuals.
-    if args.iter().any(|a| a == "--showcase") {
+    let is_live_gen = args.iter().any(|a| a == "--live-gen");
+    if args.iter().any(|a| a == "--showcase") || is_live_gen {
         let seed: u32 = args
             .iter()
             .position(|a| a == "--seed")
