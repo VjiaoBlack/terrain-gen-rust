@@ -149,14 +149,17 @@ impl RenderMode {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OverlayMode {
     None,
-    Tasks,     // Color-code villagers by current activity
-    Resources, // Show resource locations with color markers
-    Threats,   // Show wolf positions and danger zones
-    Traffic,   // Show foot traffic heatmap
-    Territory, // Show settlement influence/culture borders
-    Wind,      // Show wind direction arrows and speed
-    WindFlow,  // Show wind as animated particles (no arrows)
-    Height,    // Show raw height values as grayscale
+    Tasks,      // Color-code villagers by current activity
+    Resources,  // Show resource locations with color markers
+    Threats,    // Show wolf positions and danger zones
+    Traffic,    // Show foot traffic heatmap
+    Territory,  // Show settlement influence/culture borders
+    Wind,       // Show wind direction arrows and speed
+    WindFlow,   // Show wind as animated particles (no arrows)
+    Height,     // Raw height values as grayscale
+    Discharge,  // River discharge field (blue = high flow)
+    Moisture,   // Soil moisture (green = wet)
+    Slope,      // Terrain slope (white = steep)
 }
 
 /// Default raid strength for backward-compatible deserialization of old saves.

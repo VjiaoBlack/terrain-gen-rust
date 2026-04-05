@@ -152,6 +152,12 @@ impl super::super::Game {
             self.draw_wind_overlay(renderer);
         } else if self.overlay == OverlayMode::Height {
             self.draw_height_overlay(renderer);
+        } else if self.overlay == OverlayMode::Discharge {
+            self.draw_discharge_overlay(renderer);
+        } else if self.overlay == OverlayMode::Moisture {
+            self.draw_moisture_overlay(renderer);
+        } else if self.overlay == OverlayMode::Slope {
+            self.draw_slope_overlay(renderer);
         }
 
         // WindFlow: particles ARE the visualization — draw on top

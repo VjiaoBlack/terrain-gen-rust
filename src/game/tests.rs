@@ -447,6 +447,15 @@ fn overlay_cycles_through_all_modes() {
     assert_eq!(game.overlay, OverlayMode::Height);
 
     game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+    assert_eq!(game.overlay, OverlayMode::Discharge);
+
+    game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+    assert_eq!(game.overlay, OverlayMode::Moisture);
+
+    game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
+    assert_eq!(game.overlay, OverlayMode::Slope);
+
+    game.step(GameInput::CycleOverlay, &mut renderer).unwrap();
     assert_eq!(game.overlay, OverlayMode::None);
 }
 

@@ -296,6 +296,9 @@ impl super::super::Game {
             OverlayMode::Wind => "WIND",
             OverlayMode::WindFlow => "WIND FLOW",
             OverlayMode::Height => "HEIGHT",
+            OverlayMode::Discharge => "DISCHARGE",
+            OverlayMode::Moisture => "MOISTURE",
+            OverlayMode::Slope => "SLOPE",
         };
         draw_line(
             renderer,

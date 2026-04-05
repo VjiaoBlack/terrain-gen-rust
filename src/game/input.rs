@@ -237,7 +237,10 @@ impl super::Game {
                     OverlayMode::Territory => OverlayMode::Wind,
                     OverlayMode::Wind => OverlayMode::WindFlow,
                     OverlayMode::WindFlow => OverlayMode::Height,
-                    OverlayMode::Height => OverlayMode::None,
+                    OverlayMode::Height => OverlayMode::Discharge,
+                    OverlayMode::Discharge => OverlayMode::Moisture,
+                    OverlayMode::Moisture => OverlayMode::Slope,
+                    OverlayMode::Slope => OverlayMode::None,
                 };
                 self.dirty.mark_all();
             }
