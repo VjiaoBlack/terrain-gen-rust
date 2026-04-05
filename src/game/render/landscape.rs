@@ -273,6 +273,35 @@ impl super::super::Game {
             }
         }
 
+        // River rendering from discharge field (Nick McDonald's approach):
+        // Blend terrain toward water color based on erf(0.4 * discharge).
+        // Credit: https://github.com/weigert/SimpleHydrology
+        let idx = wy * self.map.width + wx;
+        let river_alpha = if idx < self.discharge.len() {
+            crate::hydrology::erf_approx(0.4 * self.discharge[idx])
+        } else {
+            0.0
+        };
+        if river_alpha > 0.1 {
+            let alpha = river_alpha.min(0.9);
+            // Nick's waterColor = (92, 133, 142)
+            fg = Color(
+                (fg.0 as f64 * (1.0 - alpha) + 92.0 * alpha) as u8,
+                (fg.1 as f64 * (1.0 - alpha) + 133.0 * alpha) as u8,
+                (fg.2 as f64 * (1.0 - alpha) + 142.0 * alpha) as u8,
+            );
+            bg = Color(
+                (bg.0 as f64 * (1.0 - alpha) + 60.0 * alpha) as u8,
+                (bg.1 as f64 * (1.0 - alpha) + 90.0 * alpha) as u8,
+                (bg.2 as f64 * (1.0 - alpha) + 100.0 * alpha) as u8,
+            );
+            if alpha > 0.5 {
+                ch = '~';
+            } else if alpha > 0.2 {
+                ch = '·';
+            }
+        }
+
         // Apply seasonal palette shift
         fg = self.landscape_season_tint(fg, terrain);
         bg = self.landscape_season_tint(bg, terrain);
