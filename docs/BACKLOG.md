@@ -58,14 +58,21 @@ Automated tests that catch what a human catches in 2 seconds of looking at the s
 ## Priority 0C: Hydrology System (SimpleHydrology → soillib upgrades)
 
 ### Phase 1: SimpleHydrology base port ✅ DONE
-- `src/hydrology.rs` — particle descent, momentum, cascade, discharge tracking
-- Default erosion model in pipeline (ErosionModel::SimpleHydrology)
+- `src/hydrology.rs` — faithful line-by-line port of Nick's C++ (water.h, world.h)
+- Erosion-first pipeline: normalized [0,1] terrain → erosion shapes it → biomes after
+- Runtime erosion every 100 ticks (geological pace)
+- `--live-gen` mode shows erosion in real time, passes heightmap to game
 
-### Phase 2: Render rivers from discharge field (NEXT — QUICK WIN)
-- **Status**: NOT STARTED
-- **Why**: We have the discharge data but don't render it. Nick's system renders rivers as `erf(0.4 * discharge)` blended onto terrain color — no water tiles needed.
-- **Approach**: In tile rendering, blend terrain color toward blue-gray `(92, 133, 142)` based on `erf(0.4 * discharge)`. Add specular boost for water look.
-- **Research**: `docs/research/meandering_rivers_2023.md` (River Rendering section)
+### Phase 2: Render rivers from discharge field ✅ DONE
+- Discharge → `erf(0.4 * d)` → water color blend in both Normal and Landscape modes
+- Discharge seeds pipe_water depth in strong channels (erf > 0.5)
+- River rendering skipped on Terrain::Water tiles
+
+### Phase 2.5: Water System Unification ⭐ BLOCKED (do after 0D)
+- **Status**: DESIGNED — waiting for state-driven architecture refactor
+- **Design doc**: `docs/design/cross_cutting/state_driven_architecture.md`
+- **Why**: 3 water systems (Terrain::Water, pipe_water, discharge) don't talk to each other
+- **Plan**: See Priority 0D below
 
 ### Phase 3: Upgrade to soillib algorithms
 - **Status**: NOT STARTED
@@ -108,12 +115,46 @@ Automated tests that catch what a human catches in 2 seconds of looking at the s
 
 **Integration**: New `ErosionModel` enum in PipelineConfig (SPL vs SimpleHydrology), default to SimpleHydrology. Wire into `run_pipeline()`.
 
+## Priority 0D: State-Driven Architecture Refactor ⭐ AFTER EVAL INFRA
+
+**Status:** DESIGNED — do after Priority 0A (eval infra) and 0B (test harness) so we can verify the refactor doesn't break things.
+**Design doc:** `docs/design/cross_cutting/state_driven_architecture.md`
+**Depends on:** 0A (eval infra), 0B (test harness)
+
+Refactor the simulation to follow state-driven principles: single source of truth, derived data as pure functions, systems as only writers.
+
+### Stage 1: Unify water rendering
+- [ ] ONE rendering code path for all water (reads `pipe_water.depth` only)
+- [ ] Remove separate `Terrain::Water` rendering branch
+- [ ] Ocean tiles seed `pipe_water` at boundary, rendered same as rivers
+- [ ] Fixes: ocean/river rendering mismatch, discharge-on-ocean bug
+
+### Stage 2: Make Terrain::Water derived
+- [ ] `is_water(x, y) = heights[i] < water_level || water_depth[i] > threshold`
+- [ ] Remove Terrain::Water from biome classification output
+- [ ] Update walkability, pathfinding, ice/freeze to use `is_water()` instead of `Terrain::Water`
+- [ ] Biomes recomputed periodically from live state (not just worldgen)
+
+### Stage 3: Canonical WorldState struct
+- [ ] Define `WorldState` with all persistent fields (heights, water_depth, soil_moisture, humidity, wind, vegetation, discharge, momentum)
+- [ ] Systems read WorldState + derived, produce deltas
+- [ ] Phased tick: derive → compute deltas → apply
+- [ ] Derived data cached with invalidation
+
+### Stage 4: Kill pipe_water for hydrology, keep for local effects
+- [ ] Nick's discharge field = where rivers ARE (locations)
+- [ ] pipe_water = actual water depth in those channels (from rain, groundwater)
+- [ ] Ocean = boundary condition on pipe_water (constant inflow at map edges)
+- [ ] Remove Terrain::Water enum variant entirely
+
+### Why wait for eval infra first:
+This refactor touches rendering, walkability, pathfinding, ice, floods, biome classification — basically everything. Without the test harness and eval pipeline catching regressions, we'll ship broken terrain and not notice (like we've been doing).
+
+---
+
 ## Priority 1: Bug Fixes
 
-### Ocean vs pipe_water rendering mismatch
-- **Status**: NOT FIXED
-- **Why**: Static `Terrain::Water` tiles and dynamic `pipe_water` depth tiles render differently in the ocean. Visible as odd single tiles with different lighting.
-- **Approach**: Unify the water rendering path — both should use the same color/lighting logic.
+(Ocean rendering mismatch moved to Priority 0D Stage 1)
 
 ## Priority 2: Vegetation-Erosion Coupling
 
