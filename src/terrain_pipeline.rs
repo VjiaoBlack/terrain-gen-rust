@@ -1265,7 +1265,7 @@ pub fn place_fords(
 /// This gives the full height range for erosion to work with.
 ///
 /// Credit: https://github.com/weigert/SimpleHydrology (cellpool.h map::init)
-fn generate_normalized_terrain(w: usize, h: usize, seed: u32) -> Vec<f64> {
+pub fn generate_normalized_terrain(w: usize, h: usize, seed: u32) -> Vec<f64> {
     use noise::{NoiseFn, Perlin};
     let perlin = Perlin::new(seed);
     let mut heights = vec![0.0f64; w * h];
@@ -1360,10 +1360,10 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
             hydro_map = hydro;
 
             // 4. Set water level from post-erosion height distribution.
-            //    15th percentile → ~15% ocean coverage.
+            //    10th percentile → ~10% ocean coverage (Nick uses 0.1 on [0,1]).
             let mut sorted_h = heights.clone();
             sorted_h.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            water_level = sorted_h[sorted_h.len() * 15 / 100];
+            water_level = sorted_h[sorted_h.len() * 10 / 100];
 
             // 5. Create map — biomes classified from the ERODED heightmap
             map = TileMap::new(w, h, Terrain::Grass);

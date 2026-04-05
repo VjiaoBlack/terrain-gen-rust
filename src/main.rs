@@ -513,6 +513,116 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // --live-gen: show terrain generation in real time.
+    // Renders the heightmap as grayscale while erosion runs, ~30fps.
+    if args.iter().any(|a| a == "--live-gen") {
+        let seed: u32 = args
+            .iter()
+            .position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(42);
+        let mut renderer = CrosstermRenderer::new()?;
+        let (w, h) = renderer.size();
+        let map_w = 256usize;
+        let map_h = 256usize;
+
+        // Generate normalized terrain (Nick's approach)
+        let mut heights = terrain_gen_rust::terrain_pipeline::generate_normalized_terrain(
+            map_w, map_h, seed,
+        );
+
+        // Set up hydrology
+        let params = terrain_gen_rust::hydrology::HydroParams {
+            sea_level: 0.0,
+            ..Default::default()
+        };
+        let mut hydro = terrain_gen_rust::hydrology::HydroMap::new(map_w, map_h);
+
+        let area = (map_w * map_h) as f64;
+        let nick_area = 512.0 * 512.0;
+        let particles = ((512.0 * area / nick_area).round() as u32).max(32);
+        let target_total = 2_560_000.0 * area / nick_area;
+        let total_cycles = ((target_total / particles as f64).round() as u32).max(50);
+        let render_interval = (total_cycles / 100).max(1); // ~100 frames
+
+        use terrain_gen_rust::renderer::{Color, Renderer};
+
+        for cycle in 0..total_cycles {
+            terrain_gen_rust::hydrology::erode(
+                &mut heights, &mut hydro, &params,
+                particles, seed.wrapping_add(cycle),
+            );
+
+            // Render every N cycles
+            if cycle % render_interval == 0 || cycle == total_cycles - 1 {
+                let pct = (cycle + 1) as f64 / total_cycles as f64 * 100.0;
+                let min_h = heights.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max_h = heights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let range = (max_h - min_h).max(1e-10);
+
+                // Render heightmap using half-blocks for 2x vertical density
+                for sy in 0..(h.saturating_sub(2)) {
+                    for sx in 0..w {
+                        // Map screen coords to terrain coords
+                        let mx = (sx as f64 / w as f64 * map_w as f64) as usize;
+                        let my_top = (sy as f64 * 2.0 / (h as f64 * 2.0) * map_h as f64) as usize;
+                        let my_bot = ((sy as f64 * 2.0 + 1.0) / (h as f64 * 2.0) * map_h as f64) as usize;
+
+                        let to_gray = |mx: usize, my: usize| -> Color {
+                            if mx >= map_w || my >= map_h {
+                                return Color(0, 0, 0);
+                            }
+                            let i = my * map_w + mx;
+                            let v = ((heights[i] - min_h) / range * 255.0) as u8;
+                            // Discharge tint
+                            let d = terrain_gen_rust::hydrology::erf_approx(
+                                0.4 * hydro.discharge[i],
+                            );
+                            if d > 0.1 {
+                                let a = d.min(0.9);
+                                Color(
+                                    (v as f64 * (1.0 - a)) as u8,
+                                    (v as f64 * (1.0 - a) + 50.0 * a) as u8,
+                                    (v as f64 * (1.0 - a) + 200.0 * a) as u8,
+                                )
+                            } else {
+                                Color(v, v, v)
+                            }
+                        };
+
+                        let top = to_gray(mx, my_top);
+                        let bot = to_gray(mx, my_bot);
+                        renderer.draw(sx, sy, '▄', bot, Some(top));
+                    }
+                }
+
+                // Status line
+                let status = format!(
+                    " Erosion: {:.0}% ({}/{} cycles) particles={} min={:.3} max={:.3}",
+                    pct, cycle + 1, total_cycles, particles, min_h, max_h
+                );
+                for (i, ch) in status.chars().enumerate() {
+                    if i < w as usize {
+                        renderer.draw(
+                            i as u16,
+                            h - 1,
+                            ch,
+                            Color(255, 220, 100),
+                            Some(Color(25, 25, 40)),
+                        );
+                    }
+                }
+                renderer.flush()?;
+            }
+        }
+
+        // Wait for keypress then exit
+        crossterm::event::read()?;
+        drop(renderer);
+        return Ok(());
+    }
+
     // --showcase: terrain-only mode. No entities, no fog of war, just
     // terrain + lighting + day/night + seasons + weather. For tuning visuals.
     if args.iter().any(|a| a == "--showcase") {

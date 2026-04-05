@@ -411,30 +411,26 @@ impl super::super::Game {
                     0.0
                 };
 
-                // Map height to grayscale: 0.0=black, 1.0=white
-                // Water level gets blue tint
+                // Pure 0-255 grayscale: height maps directly to brightness.
+                // Water gets blue tint. Uses half-block ▄ for 2x vertical density.
                 let water_level = self.terrain_config.water_level;
-                let (ch, fg, bg) = if height <= water_level {
-                    // Water: blue, darker = deeper
-                    let depth = (water_level - height) / water_level;
-                    let b = (80.0 + 120.0 * (1.0 - depth)) as u8;
-                    ('~', Color(20, 40, b), Color(10, 20, b / 2))
-                } else {
-                    // Land: grayscale, with value shown as character
-                    let t = ((height - water_level) / (1.0 - water_level)).clamp(0.0, 1.0);
-                    let v = (t * 255.0) as u8;
-                    // Use block characters for density visualization
-                    let ch = match (t * 8.0) as u32 {
-                        0 => '.',
-                        1 => ':',
-                        2 => '-',
-                        3 => '=',
-                        4 => '+',
-                        5 => '#',
-                        6 => '%',
-                        _ => '@',
+                // Also check pipe_water depth for dynamic water
+                let pw_depth = self.pipe_water.get_depth(ux, uy);
+                let is_water = height <= water_level || pw_depth > 0.01;
+
+                let (ch, fg, bg) = if is_water {
+                    // Water: blue brightness by depth
+                    let depth = if height <= water_level {
+                        ((water_level - height) / water_level.max(0.01)).clamp(0.0, 1.0)
+                    } else {
+                        (pw_depth * 5.0).clamp(0.0, 1.0)
                     };
-                    (ch, Color(v, v, v), Color(v / 4, v / 4, v / 4))
+                    let v = (255.0 * (1.0 - depth * 0.7)) as u8;
+                    (' ', Color(0, 0, v), Color(0, 0, v))
+                } else {
+                    // Land: pure grayscale 0-255
+                    let v = (height.clamp(0.0, 1.0) * 255.0) as u8;
+                    (' ', Color(v, v, v), Color(v, v, v))
                 };
 
                 renderer.draw(sx_raw as u16, sy, ch, fg, Some(bg));
