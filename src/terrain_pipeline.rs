@@ -211,6 +211,8 @@ pub struct PipelineResult {
     /// Discharge field from hydrology erosion — used to render rivers.
     /// Values are raw accumulated discharge; render with erf(0.4 * discharge).
     pub discharge: Vec<f64>,
+    /// Full hydrology state for runtime erosion continuation.
+    pub hydro: crate::hydrology::HydroMap,
     /// Effective water level used during generation (0.1 for SimpleHydrology, 0.42 for SPL).
     pub water_level: f64,
 }
@@ -1304,6 +1306,7 @@ fn generate_normalized_terrain(w: usize, h: usize, seed: u32) -> Vec<f64> {
 
 pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResult {
     let mut discharge = vec![0.0f64; w * h];
+    let mut hydro_map = crate::hydrology::HydroMap::new(w, h);
     let water_level;
 
     // SimpleHydrology uses a completely different pipeline:
@@ -1347,7 +1350,8 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
                 particles,
                 config.terrain.seed,
             );
-            discharge = hydro.discharge;
+            discharge = hydro.discharge.clone();
+            hydro_map = hydro;
 
             // 4. Set water level from post-erosion height distribution.
             //    15th percentile → ~15% ocean coverage.
@@ -1454,6 +1458,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         resources,
         discharge,
         water_level,
+        hydro: hydro_map,
     }
 }
 

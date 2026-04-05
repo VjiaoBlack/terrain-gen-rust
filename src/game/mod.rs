@@ -470,6 +470,8 @@ pub struct Game {
     /// Discharge field from hydrology erosion — used to render rivers.
     /// Render with erf(0.4 * discharge) as blend toward water color.
     pub discharge: Vec<f64>,
+    /// Full hydrology state for runtime erosion (momentum fields for meandering).
+    pub hydro: crate::hydrology::HydroMap,
     pub pipeline_temperature: Vec<f64>,
     pub pipeline_slope: Vec<f64>,
     pub pipeline_moisture: Vec<f64>,
@@ -1255,6 +1257,7 @@ impl Game {
                 eprintln!("[HYDROLOGY] discharge: max={max_d:.4} avg={avg_d:.6} visible_tiles={visible}/{}", result.discharge.len());
                 result.discharge
             },
+            hydro: result.hydro,
             pipeline_temperature: result.temperature,
             pipeline_slope: result.slope,
             pipeline_moisture: result.moisture,
