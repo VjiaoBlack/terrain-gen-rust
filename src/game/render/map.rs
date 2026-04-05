@@ -194,6 +194,8 @@ impl super::super::Game {
             self.draw_traffic_overlay(renderer);
         } else if self.overlay == OverlayMode::Wind {
             self.draw_wind_overlay(renderer);
+        } else if self.overlay == OverlayMode::Height {
+            self.draw_height_overlay(renderer);
         }
 
         // WindFlow: particles ARE the visualization — draw on top

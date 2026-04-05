@@ -381,4 +381,71 @@ impl super::super::Game {
             }
         }
     }
+
+    /// Draw height overlay: grayscale showing raw heightmap values.
+    /// Black = water_level (0.0), white = max height (1.0).
+    /// Useful for diagnosing erosion artifacts.
+    pub(in super::super) fn draw_height_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 {
+                    continue;
+                }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.map.width || uy >= self.map.height {
+                    continue;
+                }
+
+                let idx = uy * self.map.width + ux;
+                let height = if idx < self.heights.len() {
+                    self.heights[idx]
+                } else {
+                    0.0
+                };
+
+                // Map height to grayscale: 0.0=black, 1.0=white
+                // Water level gets blue tint
+                let water_level = self.terrain_config.water_level;
+                let (ch, fg, bg) = if height <= water_level {
+                    // Water: blue, darker = deeper
+                    let depth = (water_level - height) / water_level;
+                    let b = (80.0 + 120.0 * (1.0 - depth)) as u8;
+                    ('~', Color(20, 40, b), Color(10, 20, b / 2))
+                } else {
+                    // Land: grayscale, with value shown as character
+                    let t = ((height - water_level) / (1.0 - water_level)).clamp(0.0, 1.0);
+                    let v = (t * 255.0) as u8;
+                    // Use block characters for density visualization
+                    let ch = match (t * 8.0) as u32 {
+                        0 => '.',
+                        1 => ':',
+                        2 => '-',
+                        3 => '=',
+                        4 => '+',
+                        5 => '#',
+                        6 => '%',
+                        _ => '@',
+                    };
+                    (ch, Color(v, v, v), Color(v / 4, v / 4, v / 4))
+                };
+
+                renderer.draw(sx_raw as u16, sy, ch, fg, Some(bg));
+                // Fill aspect ratio gap
+                for dx in 1..aspect {
+                    let fill_x = sx_raw + dx as i32;
+                    if fill_x >= 0 && (fill_x as u16) < w {
+                        renderer.draw(fill_x as u16, sy, ' ', fg, Some(bg));
+                    }
+                }
+            }
+        }
+    }
 }

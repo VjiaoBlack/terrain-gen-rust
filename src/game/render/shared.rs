@@ -295,6 +295,7 @@ impl super::super::Game {
             OverlayMode::Territory => "TERRITORY",
             OverlayMode::Wind => "WIND",
             OverlayMode::WindFlow => "WIND FLOW",
+            OverlayMode::Height => "HEIGHT",
         };
         draw_line(
             renderer,

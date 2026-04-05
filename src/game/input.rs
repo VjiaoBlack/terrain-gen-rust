@@ -236,7 +236,8 @@ impl super::Game {
                     OverlayMode::Traffic => OverlayMode::Territory,
                     OverlayMode::Territory => OverlayMode::Wind,
                     OverlayMode::Wind => OverlayMode::WindFlow,
-                    OverlayMode::WindFlow => OverlayMode::None,
+                    OverlayMode::WindFlow => OverlayMode::Height,
+                    OverlayMode::Height => OverlayMode::None,
                 };
                 self.dirty.mark_all();
             }

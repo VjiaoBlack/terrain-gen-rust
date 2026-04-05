@@ -156,6 +156,7 @@ pub enum OverlayMode {
     Territory, // Show settlement influence/culture borders
     Wind,      // Show wind direction arrows and speed
     WindFlow,  // Show wind as animated particles (no arrows)
+    Height,    // Show raw height values as grayscale
 }
 
 /// Default raid strength for backward-compatible deserialization of old saves.
