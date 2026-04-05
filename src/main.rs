@@ -617,9 +617,17 @@ fn main() -> Result<()> {
             }
         }
 
-        // Wait for keypress then exit
+        // Wait for keypress then clean up terminal
         crossterm::event::read()?;
         drop(renderer);
+        // Explicitly disable raw mode and mouse capture in case Drop missed it
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::event::DisableMouseCapture,
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::cursor::Show
+        );
         return Ok(());
     }
 
