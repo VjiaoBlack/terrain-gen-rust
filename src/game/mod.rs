@@ -1248,7 +1248,13 @@ impl Game {
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
-            discharge: result.discharge,
+            discharge: {
+                let max_d = result.discharge.iter().cloned().fold(0.0f64, f64::max);
+                let avg_d = result.discharge.iter().sum::<f64>() / result.discharge.len().max(1) as f64;
+                let visible = result.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+                eprintln!("[HYDROLOGY] discharge: max={max_d:.4} avg={avg_d:.6} visible_tiles={visible}/{}", result.discharge.len());
+                result.discharge
+            },
             pipeline_temperature: result.temperature,
             pipeline_slope: result.slope,
             pipeline_moisture: result.moisture,
