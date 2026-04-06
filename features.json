@@ -10,7 +10,7 @@
         "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs",
         "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -18,7 +18,7 @@
       "files": ["src/analytical_erosion.rs"],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "pipe_water": {
       "status": "ok",
@@ -28,7 +28,7 @@
       "known_issues": [
         "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -36,9 +36,10 @@
       "files": ["src/simulation/water_map.rs"],
       "test_count": 9,
       "known_issues": [
-        "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)"
+        "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)",
+        "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -51,7 +52,7 @@
         "moisture.rs is 1867 lines — largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests — only 9 are regular passing tests"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -59,7 +60,7 @@
       "files": ["src/simulation/vegetation.rs"],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -67,7 +68,7 @@
       "files": ["src/simulation/day_night.rs"],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_wind": {
       "status": "ok",
@@ -75,7 +76,7 @@
       "files": ["src/simulation/wind.rs"],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_scent": {
       "status": "ok",
@@ -83,7 +84,7 @@
       "files": ["src/simulation/scent.rs"],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -91,7 +92,7 @@
       "files": ["src/simulation/traffic.rs"],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -99,7 +100,7 @@
       "files": ["src/simulation/soil_fertility.rs"],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "simulation_maps": {
       "status": "ok",
@@ -107,7 +108,7 @@
       "files": ["src/simulation/maps.rs"],
       "test_count": 20,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "ecs_core": {
       "status": "ok",
@@ -118,7 +119,7 @@
         "ecs/tests.rs is 7164 lines in one file — should be split into focused test modules",
         "VillagerMemory is written (DangerZone, ThreatReport) in systems.rs but never read in ai.rs for decisions — Phase 2 (memory-driven AI) not started; AI still reads global stockpile counts (15 occurrences in ai.rs)"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -126,7 +127,7 @@
       "files": ["src/ecs/spatial.rs"],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "ecs_groups": {
       "status": "ok",
@@ -134,7 +135,7 @@
       "files": ["src/ecs/groups.rs"],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "pathfinding": {
       "status": "ok",
@@ -142,7 +143,7 @@
       "files": ["src/pathfinding/graph.rs", "src/pathfinding/region.rs", "src/pathfinding/flow_field.rs"],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -150,10 +151,10 @@
       "files": ["src/game/mod.rs", "src/game/input.rs", "src/game/water_cycle.rs", "src/game/fire.rs", "src/game/particles.rs", "src/game/tests.rs"],
       "test_count": 107,
       "known_issues": [
-        "game/mod.rs is 2393 lines — file split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
+        "game/mod.rs is 2592 lines — grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
         "fire.rs, water_cycle.rs, particles.rs have 0 tests each"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "building_system": {
       "status": "ok",
@@ -162,7 +163,7 @@
       "test_count": 0,
       "test_note": "Tests live in src/game/tests.rs, counted under game_loop",
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "events": {
       "status": "ok",
@@ -170,7 +171,7 @@
       "files": ["src/game/events.rs"],
       "test_count": 13,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "chokepoint": {
       "status": "ok",
@@ -178,7 +179,7 @@
       "files": ["src/game/chokepoint.rs"],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "rendering": {
       "status": "ok",
@@ -190,7 +191,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "save_load": {
       "status": "needs_tests",
@@ -200,7 +201,7 @@
       "known_issues": [
         "No dedicated unit tests — only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "scripting": {
       "status": "stub",
@@ -210,7 +211,7 @@
       "known_issues": [
         "Not fully implemented or tested"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
     },
     "hydrology": {
       "status": "ok",
@@ -221,7 +222,20 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear — standalone research module"
       ],
-      "last_verified": "2026-04-05"
+      "last_verified": "2026-04-06"
+    },
+    "world_state": {
+      "status": "needs_work",
+      "description": "WorldState struct — canonical simulation state (heights, water, moisture, vegetation, wind). Introduced in 0D architecture refactor Stages 1-4.",
+      "files": ["src/world_state.rs"],
+      "test_count": 0,
+      "known_issues": [
+        "Not documented in ARCHITECTURE.md or design docs",
+        "WaterMap still coexists in Game struct — WorldState.water (PipeWater) should eventually be the only water source",
+        "No unit tests — all coverage is indirect through integration tests",
+        "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
+      ],
+      "last_verified": "2026-04-06"
     }
   },
   "status_legend": {

@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "date": "2026-04-06",
+    "commit": "adb700a",
+    "seeds": {
+      "42": {"population": 4, "food": 12, "food_per_cap": 3.0, "buildings": 5, "water_pct": 30.7, "biomes": 13, "survived": true},
+      "137": {"population": 11, "food": 18, "food_per_cap": 1.1, "buildings": 10, "water_pct": 17.9, "biomes": 14, "survived": true},
+      "777": {"population": 11, "food": 14, "food_per_cap": 1.4, "buildings": 12, "water_pct": 38.0, "biomes": 15, "survived": true}
+    },
+    "rubric_avg": 3.0,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 3,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "0D architecture refactor (WorldState) Stages 1-4 complete. Terrain 98%+ flat (elevation_std 0.09-0.12). Food Critical on 2/3 seeds at tick 6000. All baselines PASS. No active events/wolves on any seed at tick 6000."
+  }
+]

@@ -108,6 +108,24 @@ if [ $LARGE_FILE_FOUND -eq 0 ]; then
   echo "OK: No non-test source files over 3000 lines"
 fi
 
+# 6. Systems marked 'ok' with test_count=0 and no test_note
+echo ""
+echo "=== Zero-test ok systems ==="
+ZERO_TEST_FOUND=0
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  status=$(jq -r ".systems[\"$system\"].status" "$FEATURES")
+  count=$(jq -r ".systems[\"$system\"].test_count" "$FEATURES")
+  test_note=$(jq -r ".systems[\"$system\"].test_note // empty" "$FEATURES")
+  if [ "$status" = "ok" ] && [ "$count" = "0" ] && [ -z "$test_note" ]; then
+    echo "WARN: $system has status='ok' but test_count=0 with no test_note — untested?"
+    WARNINGS=$((WARNINGS + 1))
+    ZERO_TEST_FOUND=1
+  fi
+done
+if [ $ZERO_TEST_FOUND -eq 0 ]; then
+  echo "OK: All 'ok' systems with test_count=0 have a test_note explaining why"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
