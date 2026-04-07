@@ -1,0 +1,138 @@
+{
+  "schema_version": "1",
+  "last_updated": "2026-04-07",
+  "systems": [
+    {
+      "name": "terrain_generation",
+      "description": "7-stage pipeline: fBm noise → erosion → hydrology → biomes → soil → resources",
+      "status": "stable",
+      "files": ["src/terrain_pipeline.rs", "src/terrain_gen.rs", "src/tilemap.rs"],
+      "test_count": 0,
+      "needs_tests": true,
+      "known_issues": [
+        "Desert biome dominates (40-55%) across all seeds — may indicate tuning needed",
+        "tilemap.rs at 2515 lines needs data-driven TerrainDef refactor (see ARCHITECTURE.md)"
+      ]
+    },
+    {
+      "name": "ecs_villager_ai",
+      "description": "Villager behavior: hunger, farming, gathering, building, sleeping, fleeing",
+      "status": "stable",
+      "files": ["src/ecs/ai.rs", "src/ecs/systems.rs", "src/ecs/components.rs"],
+      "test_count": 230,
+      "needs_tests": false,
+      "known_issues": [
+        "Villagers are omniscient (see Pillar 2 design gap in game_design.md)",
+        "Per-villager memory not implemented — design docs exist in docs/design/pillar2_emergence/"
+      ]
+    },
+    {
+      "name": "building_autobuild",
+      "description": "Auto-build: placement scoring, construction, demolish, outposts",
+      "status": "stable",
+      "files": ["src/game/build.rs"],
+      "test_count": 107,
+      "needs_tests": false,
+      "known_issues": [
+        "game/build.rs at 2306 lines approaching split threshold"
+      ]
+    },
+    {
+      "name": "event_system",
+      "description": "Random events: drought, wolf surge, bountiful harvest, plague, migration",
+      "status": "partial",
+      "files": ["src/game/events.rs"],
+      "test_count": 20,
+      "needs_tests": true,
+      "known_issues": [
+        "Wolf events require Spring season multiplier (0.5x) + low threat_score → rarely fire in 12K ticks",
+        "Drought requires grain >= villagers*5 buffer in Summer — this threshold is never met at 12K ticks",
+        "events:[] in all 3 evaluation seeds at tick 12000 (possible but concerning — 84% chance of no wolves)",
+        "No diagnostics JSON field for threat_score — hard to observe event readiness"
+      ]
+    },
+    {
+      "name": "pipe_water",
+      "description": "8-directional flux water simulation",
+      "status": "stable",
+      "files": ["src/pipe_water.rs"],
+      "test_count": 5,
+      "needs_tests": false,
+      "known_issues": [
+        "THREE water systems still coexist: WaterMap (legacy), PipeWater (new), Terrain::Water (biome). Consolidation pending."
+      ]
+    },
+    {
+      "name": "simulation_atmosphere",
+      "description": "Wind, moisture, vegetation, day/night, seasons, soil fertility",
+      "status": "stable",
+      "files": [
+        "src/simulation/wind.rs",
+        "src/simulation/moisture.rs",
+        "src/simulation/vegetation.rs",
+        "src/simulation/day_night.rs",
+        "src/simulation/soil_fertility.rs",
+        "src/simulation/maps.rs",
+        "src/simulation/scent.rs",
+        "src/simulation/traffic.rs",
+        "src/simulation/water_map.rs"
+      ],
+      "test_count": 15,
+      "needs_tests": true,
+      "known_issues": [
+        "simulation.rs split completed — ARCHITECTURE.md refactor priority 1 is DONE",
+        "Moisture chain: water_surface → evaporation → transport → precipitation is underverified"
+      ]
+    },
+    {
+      "name": "pathfinding",
+      "description": "A* per-villager, NavGraph hierarchical, FlowField shared destinations",
+      "status": "stable",
+      "files": [
+        "src/pathfinding/graph.rs",
+        "src/pathfinding/region.rs",
+        "src/pathfinding/flow_field.rs"
+      ],
+      "test_count": 10,
+      "needs_tests": false,
+      "known_issues": []
+    },
+    {
+      "name": "particle_system",
+      "description": "Construction dust, mining sparkle, wind flow, weather particles",
+      "status": "broken",
+      "files": ["src/game/particles.rs"],
+      "test_count": 3,
+      "needs_tests": true,
+      "known_issues": [
+        "FAILING TEST: construction_dust_particles_spawn — test expects yellow-brown dust (Color 220,200,100) but none spawn in 20 ticks with seeded game",
+        "Particle spawn is gated on rng.random_range(0..4)==0 (25% per tick); test may need more ticks or deterministic RNG"
+      ]
+    },
+    {
+      "name": "rendering",
+      "description": "Normal/Map/Landscape/Debug modes, overlays, query panel",
+      "status": "stable",
+      "files": [
+        "src/game/render/mod.rs",
+        "src/game/render/shared.rs"
+      ],
+      "test_count": 0,
+      "needs_tests": true,
+      "known_issues": [
+        "game/render.rs split completed — ARCHITECTURE.md refactor priority 4 is DONE (partially)",
+        "render/mod.rs at 1300 lines, shared.rs at 864 — further splitting may be needed"
+      ]
+    }
+  ],
+  "harness": {
+    "validate_features_sh": "scripts/validate_features.sh",
+    "check_baselines_sh": "scripts/check_baselines.sh",
+    "baseline_seed_42_pop": 8,
+    "baseline_seed_137_pop": 12,
+    "baseline_seed_777_pop": 8,
+    "baseline_seed_42_water_pct": 17.0,
+    "baseline_seed_137_water_pct": 30.3,
+    "baseline_seed_777_water_pct": 13.6
+  }
+}
