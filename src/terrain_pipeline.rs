@@ -10,6 +10,24 @@ use crate::tilemap::{Terrain, TileMap};
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
+/// Which erosion model to use in the terrain pipeline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ErosionModel {
+    /// Analytical Stream Power Law — fast, incision-only, no deposition.
+    Spl,
+    /// SimpleHydrology particle-based — slower but produces meandering rivers,
+    /// proper deposition, and realistic channel formation.
+    SimpleHydrology,
+    /// No erosion at all.
+    Off,
+}
+
+impl Default for ErosionModel {
+    fn default() -> Self {
+        ErosionModel::SimpleHydrology
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PipelineConfig {
     pub terrain: TerrainGenConfig,
@@ -31,6 +49,8 @@ pub struct PipelineConfig {
     // Biome
     pub shadow_strength: f64,
     pub water_dist_falloff: f64,
+    // Pipeline toggles
+    pub erosion_model: ErosionModel,
 }
 
 impl Default for PipelineConfig {
@@ -38,6 +58,7 @@ impl Default for PipelineConfig {
         Self {
             terrain: TerrainGenConfig {
                 scale: 0.015,
+                octaves: 8, // match Nick's 8 octaves for terrain detail
                 ..TerrainGenConfig::default()
             },
             terrace_w: 0.06,
@@ -53,6 +74,7 @@ impl Default for PipelineConfig {
             droplet_inertia: 0.05,
             shadow_strength: 0.5,
             water_dist_falloff: 12.0,
+            erosion_model: ErosionModel::default(),
         }
     }
 }
@@ -186,6 +208,11 @@ pub struct PipelineResult {
     pub river_mask: Vec<bool>,
     pub slope: Vec<f64>,
     pub resources: ResourceMap,
+    /// Full hydrology state: discharge + momentum.
+    /// discharge = river locations, momentum = flow direction for meandering.
+    pub hydro: crate::hydrology::HydroMap,
+    /// Effective water level used during generation (0.1 for SimpleHydrology, 0.42 for SPL).
+    pub water_level: f64,
 }
 
 // ─── Stage 2: Terrace + Thermal Erosion ──────────────────────────────────────
@@ -330,6 +357,136 @@ pub fn priority_flood(heights: &mut [f64], w: usize, h: usize) {
                 heights[ni] = elev; // fill depression
             }
             pq.push(Reverse(Cell(heights[ni], ni)));
+        }
+    }
+}
+
+/// Hillslope diffusion: Laplacian smoothing that simulates soil creep.
+/// Each land tile moves toward the average of its 4-connected neighbors.
+/// Runs multiple iterations with a given diffusion rate per iteration.
+/// Only modifies tiles above water_level (ocean floor stays flat).
+///
+/// This is the standard companion to SPL erosion — SPL handles channel
+/// incision (rivers cutting into rock), hillslope diffusion handles
+/// everything else (soil sliding downhill, ridges rounding, gullies filling).
+pub fn hillslope_diffusion(
+    heights: &mut [f64],
+    w: usize,
+    h: usize,
+    water_level: f64,
+    rate: f64,
+    iterations: u32,
+) {
+    let n = w * h;
+    let mut buf = vec![0.0f64; n];
+
+    for _ in 0..iterations {
+        buf.copy_from_slice(heights);
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                if heights[i] <= water_level {
+                    continue;
+                }
+                let mut sum = 0.0;
+                let mut count = 0.0;
+                if x > 0 {
+                    sum += buf[i - 1];
+                    count += 1.0;
+                }
+                if x + 1 < w {
+                    sum += buf[i + 1];
+                    count += 1.0;
+                }
+                if y > 0 {
+                    sum += buf[i - w];
+                    count += 1.0;
+                }
+                if y + 1 < h {
+                    sum += buf[i + w];
+                    count += 1.0;
+                }
+                if count > 0.0 {
+                    let avg = sum / count;
+                    heights[i] += rate * (avg - heights[i]);
+                    // Don't smooth below water level
+                    if heights[i] < water_level {
+                        heights[i] = water_level;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Sediment deposition: redistribute eroded material to low-slope areas.
+///
+/// SPL erosion removes material but doesn't deposit it anywhere. In nature,
+/// eroded sediment accumulates at river mouths (deltas), in valleys (alluvial
+/// plains), and wherever water slows down. This pass:
+///
+/// 1. Computes how much material SPL removed (needs pre-erosion heights)
+/// 2. Distributes that material to nearby low-slope tiles
+///
+/// Simplified approach: find tiles adjacent to ocean with steep inland slopes
+/// (these are the eroded river mouths) and build them up slightly, creating
+/// a gentle transition instead of a cliff. Also fills narrow gullies by
+/// averaging tiles that are much lower than their neighbors.
+pub fn deposit_sediment(heights: &mut [f64], w: usize, h: usize, water_level: f64) {
+    let n = w * h;
+    let original = heights.to_vec();
+
+    // Pass 1: Fill narrow gullies — tiles significantly lower than all neighbors
+    // are likely erosion artifacts. Raise them toward the neighbor average.
+    for y in 1..h.saturating_sub(1) {
+        for x in 1..w.saturating_sub(1) {
+            let i = y * w + x;
+            if heights[i] <= water_level {
+                continue;
+            }
+            let neighbors = [
+                original[i - 1],
+                original[i + 1],
+                original[i - w],
+                original[i + w],
+            ];
+            let min_neighbor = neighbors.iter().cloned().fold(f64::INFINITY, f64::min);
+            let avg_neighbor = neighbors.iter().sum::<f64>() / 4.0;
+
+            // If this tile is a narrow gully (lower than ALL neighbors by > threshold),
+            // fill it partway toward the average
+            let depth_below_min = min_neighbor - heights[i];
+            if depth_below_min > 0.01 {
+                // Fill 60% of the way to the minimum neighbor
+                heights[i] += depth_below_min * 0.6;
+            }
+            // Also smooth tiles that are much lower than average
+            let depth_below_avg = avg_neighbor - heights[i];
+            if depth_below_avg > 0.02 {
+                heights[i] += depth_below_avg * 0.3;
+            }
+        }
+    }
+
+    // Pass 2: Build gentle coastal transition — tiles just above water that
+    // have very steep slopes toward ocean get a small deposit (delta formation)
+    for y in 1..h.saturating_sub(1) {
+        for x in 1..w.saturating_sub(1) {
+            let i = y * w + x;
+            if heights[i] <= water_level || heights[i] > water_level + 0.1 {
+                continue; // only affect near-coast tiles
+            }
+            let neighbors = [i - 1, i + 1, i - w, i + w];
+            let has_ocean_neighbor = neighbors
+                .iter()
+                .any(|&ni| original[ni] <= water_level);
+            if has_ocean_neighbor {
+                // Gentle deposit: raise slightly to smooth the land-ocean transition
+                let target = water_level + 0.03;
+                if heights[i] < target {
+                    heights[i] = target;
+                }
+            }
         }
     }
 }
@@ -879,13 +1036,14 @@ pub fn assign_soil(
         if heights[i] < water_level {
             continue; // water
         }
-        // Priority order
-        if moisture[i] > 0.85 && slope[i] < 0.02 {
-            soil[i] = SoilType::Peat;
-        } else if slope[i] > 0.12 {
+        // Priority order: terrain-specific conditions first, then moisture-based
+        if slope[i] > 0.12 {
             soil[i] = SoilType::Rocky;
         } else if heights[i] < water_level + 0.06 && moisture[i] > 0.3 {
+            // Coastal low-elevation tiles are always sand — no peat on beaches
             soil[i] = SoilType::Sand;
+        } else if moisture[i] > 0.85 && slope[i] < 0.02 {
+            soil[i] = SoilType::Peat;
         } else if dist_to_river[i] < 4 && slope[i] < 0.05 {
             soil[i] = SoilType::Alluvial;
         } else if slope[i] < 0.04 && heights[i] < 0.5 {
@@ -1100,34 +1258,137 @@ pub fn place_fords(
     ford_count
 }
 
+/// Generate terrain matching Nick McDonald's SimpleHydrology initialization:
+/// 8 octaves of FBm noise, normalized to [0,1] range.
+/// This gives the full height range for erosion to work with.
+///
+/// Credit: https://github.com/weigert/SimpleHydrology (cellpool.h map::init)
+pub fn generate_normalized_terrain(w: usize, h: usize, seed: u32) -> Vec<f64> {
+    use noise::{NoiseFn, Perlin};
+    let perlin = Perlin::new(seed);
+    let mut heights = vec![0.0f64; w * h];
+
+    // Nick uses mapscale=80 on a 512 grid → effective frequency = 80/512 ≈ 0.156
+    // For our grid, scale proportionally
+    let base_freq = 80.0 / 512.0;
+
+    for y in 0..h {
+        for x in 0..w {
+            let mut freq = 1.0;
+            let mut amp = 1.0;
+            let mut val = 0.0;
+            // 8 octaves, lacunarity=2.0, gain=0.6 (Nick's exact params)
+            for _ in 0..8 {
+                val += amp * perlin.get([
+                    x as f64 * base_freq * freq,
+                    y as f64 * base_freq * freq,
+                ]);
+                freq *= 2.0;
+                amp *= 0.6;
+            }
+            heights[y * w + x] = val;
+        }
+    }
+
+    // Normalize to [0,1] (Nick's exact approach: min/max normalization)
+    let min_h = heights.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_h = heights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let range = (max_h - min_h).max(1e-10);
+    for h in &mut heights {
+        *h = (*h - min_h) / range;
+    }
+    heights
+}
+
 // ─── Orchestrator ────────────────────────────────────────────────────────────
 
 pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResult {
-    // Stage 1: Base height (fBm)
-    let (mut map, mut heights) = terrain_gen::generate_terrain(w, h, &config.terrain);
+    let mut hydro_map = crate::hydrology::HydroMap::new(w, h);
+    let water_level;
 
-    // Stage 2: Terracing DISABLED — creates unnatural step patterns
-    // apply_terraces(&mut heights, w, h, config);
+    // SimpleHydrology uses a completely different pipeline:
+    // normalized noise → erosion (primary shaper) → biomes from result
+    // This matches Nick McDonald's actual system where erosion IS the terrain.
+    //
+    // SPL and Off use the old pipeline: noise → pre-process → erosion → biomes
+    let mut heights;
+    let mut map;
 
-    // Light thermal erosion to smooth spikes (5 iters, conservative)
-    thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
+    match config.erosion_model {
+        ErosionModel::SimpleHydrology => {
+            // ── Nick's pipeline: erosion shapes the terrain ──
+            // Credit: https://github.com/weigert/SimpleHydrology
 
-    // Stage 3: Priority flood first (SPL needs depression-free heightmap)
-    priority_flood(&mut heights, w, h);
+            // 1. Normalized [0,1] terrain — 8 octaves FBm (Nick's exact params)
+            heights = generate_normalized_terrain(w, h, config.terrain.seed);
 
-    // Stage 3b: Analytical SPL erosion (replaces droplet erosion)
-    // SPL is pure incision — no silt deposition in ocean basins.
-    {
-        let spl_params = crate::analytical_erosion::SplParams {
-            water_level: config.terrain.water_level,
-            k: 0.0003, // reduced from 0.001 — prevents over-incision near coast
-            ..crate::analytical_erosion::SplParams::default()
-        };
-        crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
+            // 2. Water level: set AFTER erosion based on height distribution.
+            // Nick uses 0.1 as a fixed threshold, but his terrain evolves live.
+            // For our batch worldgen, we set water_level to the 15th percentile
+            // of post-erosion heights so ~15% of the map is ocean.
+            // (Placeholder — will be computed after erosion below)
+
+            // 3. Erosion as THE primary terrain shaper
+            //    No priority flood. No thermal pre-pass. Erosion handles everything.
+            //    Use water_level=0.0 during erosion so ALL terrain gets eroded.
+            //    Real water level set from post-erosion height distribution.
+            let hydro_params = crate::hydrology::HydroParams {
+                sea_level: 0.0, // erode everything — water_level set after
+                ..crate::hydrology::HydroParams::default()
+            };
+            // Nick runs erode(512) per frame for hundreds of frames on 512x512.
+            // 500 frames × 512 particles = 256,000 total.
+            // Scale to our map area, targeting ~256k total particles.
+            let area = (w * h) as f64;
+            let nick_area = 512.0 * 512.0;
+            let particles = ((512.0 * area / nick_area).round() as u32).max(32);
+            // 10x Nick's total — we front-load all the erosion at worldgen
+            // since we can't run hundreds of frames interactively.
+            // More cycles = deeper valleys, more defined meandering.
+            // 5x Nick's total — front-loaded at worldgen. Halved from 10x for faster init.
+            let target_total = 1_280_000.0 * area / nick_area;
+            let cycles = ((target_total / particles as f64).round() as u32).max(50);
+            let hydro = crate::hydrology::run_hydrology(
+                &mut heights, w, h, &hydro_params,
+                cycles,
+                particles,
+                config.terrain.seed,
+            );
+            hydro_map = hydro;
+
+            // 4. Set water level from post-erosion height distribution.
+            //    10th percentile → ~10% ocean coverage (Nick uses 0.1 on [0,1]).
+            let mut sorted_h = heights.clone();
+            sorted_h.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            water_level = sorted_h[sorted_h.len() * 10 / 100];
+
+            // 5. Create map — biomes classified from the ERODED heightmap
+            map = TileMap::new(w, h, Terrain::Grass);
+        }
+        _ => {
+            // ── Old pipeline: SPL or Off ──
+            let gen_result = terrain_gen::generate_terrain(w, h, &config.terrain);
+            map = gen_result.0;
+            heights = gen_result.1;
+            water_level = config.terrain.water_level;
+
+            if config.erosion_model == ErosionModel::Spl {
+                thermal_erosion(&mut heights, w, h, 0.05, 0.5, 5);
+                priority_flood(&mut heights, w, h);
+                let spl_params = crate::analytical_erosion::SplParams {
+                    water_level,
+                    k: 0.0003,
+                    ..crate::analytical_erosion::SplParams::default()
+                };
+                crate::analytical_erosion::run_spl_erosion(&mut heights, w, h, &spl_params);
+                hillslope_diffusion(&mut heights, w, h, water_level, 0.1, 8);
+                deposit_sediment(&mut heights, w, h, water_level);
+            }
+        }
     }
-    let river_mask = vec![false; w * h]; // empty — no pre-baked rivers
+    let river_mask = vec![false; w * h];
 
-    // Stage 6: Climate + biomes
+    // Climate + biomes — classified from the (possibly eroded) heightmap
     let temperature = compute_temperature(&heights, w, h, config.terrain.seed);
     let rainfall = compute_rainfall(&heights, w, h, config, config.terrain.seed);
     let moisture = compute_moisture(
@@ -1136,7 +1397,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         &heights,
         w,
         h,
-        config.terrain.water_level,
+        water_level,
         config,
     );
     let slope = compute_slope(&heights, w, h);
@@ -1150,7 +1411,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
                 temperature[i],
                 moisture[i],
                 slope[i],
-                config.terrain.water_level,
+                water_level,
             );
             // Rivers override to Water
             let terrain = if river_mask[i] {
@@ -1173,7 +1434,7 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         &river_mask,
         w,
         h,
-        config.terrain.water_level,
+        water_level,
     );
 
     // Stage 8: Resource map
@@ -1198,6 +1459,8 @@ pub fn run_pipeline(w: usize, h: usize, config: &PipelineConfig) -> PipelineResu
         river_mask,
         slope,
         resources,
+        water_level,
+        hydro: hydro_map,
     }
 }
 
@@ -1216,6 +1479,93 @@ mod tests {
         assert_eq!(result.heights.len(), 64 * 64);
         assert_eq!(result.soil.len(), 64 * 64);
         assert_eq!(result.river_mask.len(), 64 * 64);
+    }
+
+    /// Pipeline health check — catches the visual bugs we keep shipping.
+    /// Run this after ANY terrain/erosion/render change.
+    #[test]
+    fn pipeline_health() {
+        let mut config = PipelineConfig::default();
+        config.terrain.seed = 100;
+        let result = run_pipeline(128, 128, &config);
+        let n = 128 * 128;
+        let wl = result.water_level;
+        let min_h = result.heights.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_h = result.heights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let avg_h = result.heights.iter().sum::<f64>() / n as f64;
+        eprintln!("DEBUG: water_level={wl} min_h={min_h:.4} max_h={max_h:.4} avg_h={avg_h:.4}");
+
+        // 1. Height distribution
+        let water_count = result.heights.iter().filter(|&&h| h <= wl).count();
+        let water_pct = water_count as f64 / n as f64;
+        assert!(
+            water_pct > 0.03 && water_pct < 0.50,
+            "HEALTH: water={:.1}% (expected 3-50%)", water_pct * 100.0
+        );
+
+        // 2. Biome diversity — no single biome > 60% of land
+        let mut biome_counts = std::collections::HashMap::new();
+        for y in 0..128 {
+            for x in 0..128 {
+                if let Some(t) = result.map.get(x, y) {
+                    *biome_counts.entry(format!("{:?}", t)).or_insert(0u32) += 1;
+                }
+            }
+        }
+        let land_count = n - water_count;
+        if land_count > 0 {
+            for (biome, count) in &biome_counts {
+                if biome == "Water" { continue; }
+                let pct = *count as f64 / land_count as f64;
+                assert!(
+                    pct < 0.65,
+                    "HEALTH: {:?} is {:.1}% of land — too dominant", biome, pct * 100.0
+                );
+            }
+            let land_types = biome_counts.keys().filter(|k| k.as_str() != "Water").count();
+            assert!(land_types >= 2, "HEALTH: only {} land biome types", land_types);
+        }
+
+        // 3. Discharge / rivers
+        let visible_rivers = result.hydro.discharge.iter()
+            .filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+        let river_pct = if land_count > 0 { visible_rivers as f64 / land_count as f64 } else { 0.0 };
+        // Don't assert river minimum yet — depends on pipeline config
+        assert!(
+            river_pct < 0.30,
+            "HEALTH: {:.1}% river tiles — flooding", river_pct * 100.0
+        );
+
+        // 4. No extreme coastal height spikes
+        let mut coastal_spikes = 0;
+        let mut coastal_total = 0;
+        let w = 128;
+        for y in 1..127 {
+            for x in 1..127 {
+                let i = y * w + x;
+                if result.heights[i] <= wl { continue; }
+                let neighbors = [i - 1, i + 1, i - w, i + w];
+                let has_ocean = neighbors.iter().any(|&ni| result.heights[ni] <= wl);
+                if !has_ocean { continue; }
+                coastal_total += 1;
+                let land_n: Vec<f64> = neighbors.iter()
+                    .filter(|&&ni| result.heights[ni] > wl)
+                    .map(|&ni| result.heights[ni])
+                    .collect();
+                if land_n.is_empty() { continue; }
+                let avg = land_n.iter().sum::<f64>() / land_n.len() as f64;
+                if (result.heights[i] - avg).abs() > 0.08 {
+                    coastal_spikes += 1;
+                }
+            }
+        }
+        if coastal_total > 0 {
+            let spike_pct = coastal_spikes as f64 / coastal_total as f64;
+            assert!(
+                spike_pct < 0.15,
+                "HEALTH: {:.1}% coastal spikes ({}/{})", spike_pct * 100.0, coastal_spikes, coastal_total
+            );
+        }
     }
 
     #[test]
@@ -1590,7 +1940,7 @@ mod height_diagnostics {
         let config = PipelineConfig::default();
         let result = run_pipeline(256, 256, &config);
         let n = result.heights.len();
-        let water_level = config.terrain.water_level;
+        let water_level = result.water_level;
 
         let min_h = result.heights.iter().cloned().fold(f64::MAX, f64::min);
         let max_h = result.heights.iter().cloned().fold(f64::MIN, f64::max);
@@ -1702,5 +2052,181 @@ mod biome_diagnostics {
             "zero moisture tiles: {zero_moist} ({:.1}%)",
             zero_moist as f64 / 65536.0 * 100.0
         );
+    }
+
+    #[test]
+    fn hillslope_diffusion_smooths_spike() {
+        let w = 8;
+        let h = 8;
+        let mut heights = vec![0.5f64; w * h];
+        // Single spike in the middle
+        heights[4 * w + 4] = 0.9;
+        let original_spike = heights[4 * w + 4];
+
+        hillslope_diffusion(&mut heights, w, h, 0.3, 0.2, 10);
+
+        // Spike should be reduced
+        assert!(
+            heights[4 * w + 4] < original_spike,
+            "spike should be smoothed: was {original_spike}, now {}",
+            heights[4 * w + 4]
+        );
+        // Neighbors should have risen slightly
+        assert!(
+            heights[4 * w + 5] > 0.5,
+            "neighbor should rise from diffusion"
+        );
+    }
+
+    #[test]
+    fn hillslope_diffusion_preserves_ocean() {
+        let w = 8;
+        let h = 8;
+        let water_level = 0.35;
+        let mut heights = vec![0.5f64; w * h];
+        // Set ocean tiles
+        for x in 0..3 {
+            for y in 0..h {
+                heights[y * w + x] = 0.3;
+            }
+        }
+        let mut ocean_before = Vec::new();
+        for y in 0..h {
+            for x in 0..3 {
+                ocean_before.push(heights[y * w + x]);
+            }
+        }
+
+        hillslope_diffusion(&mut heights, w, h, water_level, 0.3, 20);
+
+        let mut ocean_after = Vec::new();
+        for y in 0..h {
+            for x in 0..3 {
+                ocean_after.push(heights[y * w + x]);
+            }
+        }
+        assert_eq!(ocean_before, ocean_after, "ocean tiles should not change");
+    }
+
+    #[test]
+    fn deposit_sediment_fills_narrow_gully() {
+        let w = 8;
+        let h = 8;
+        let water_level = 0.3;
+        let mut heights = vec![0.5f64; w * h];
+        // Create a narrow gully: one tile much lower than neighbors
+        heights[4 * w + 4] = 0.38;
+
+        let before = heights[4 * w + 4];
+        deposit_sediment(&mut heights, w, h, water_level);
+
+        assert!(
+            heights[4 * w + 4] > before,
+            "gully should be partially filled: was {before}, now {}",
+            heights[4 * w + 4]
+        );
+    }
+
+    #[test]
+    fn deposit_sediment_smooths_coastal_transition() {
+        let w = 16;
+        let h = 8;
+        let water_level = 0.35;
+        let mut heights = vec![0.5f64; w * h];
+        // Ocean on left
+        for y in 0..h {
+            for x in 0..4 {
+                heights[y * w + x] = 0.3;
+            }
+        }
+        // Tile just above ocean (x=4) at barely above water level
+        for y in 1..h - 1 {
+            heights[y * w + 4] = 0.36;
+        }
+
+        deposit_sediment(&mut heights, w, h, water_level);
+
+        // Coastal tile should be raised to at least water_level + 0.03
+        for y in 1..h - 1 {
+            assert!(
+                heights[y * w + 4] >= water_level + 0.02,
+                "coastal tile at y={y} should be raised, got {}",
+                heights[y * w + 4]
+            );
+        }
+    }
+
+    /// Diagnostic: check soil type distribution after full pipeline.
+    #[test]
+    #[ignore] // run with: cargo test --lib diag_soil_distribution -- --nocapture --ignored
+    fn diag_soil_distribution() {
+        let mut config = PipelineConfig::default();
+        config.terrain.seed = 100; // match the game seed
+        let result = run_pipeline(256, 256, &config);
+        let n = 256 * 256;
+
+        let mut counts = std::collections::HashMap::new();
+        for &s in &result.soil {
+            *counts.entry(format!("{:?}", s)).or_insert(0u32) += 1;
+        }
+
+        eprintln!("=== Soil type distribution (128x128, seed {}) ===", config.terrain.seed);
+        let mut sorted: Vec<_> = counts.iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(a.1));
+        for (name, count) in &sorted {
+            eprintln!("  {:10}: {:5} ({:.1}%)", name, count, **count as f64 / n as f64 * 100.0);
+        }
+
+        // Also check moisture distribution near coast
+        let water_level = config.terrain.water_level;
+        let sz = 256;
+        let mut coastal_moisture = Vec::new();
+        for y in 0..sz {
+            for x in 0..sz {
+                let i = y * sz + x;
+                if result.heights[i] > water_level && result.heights[i] < water_level + 0.1 {
+                    coastal_moisture.push(result.moisture[i]);
+                }
+            }
+        }
+        if !coastal_moisture.is_empty() {
+            let avg: f64 = coastal_moisture.iter().sum::<f64>() / coastal_moisture.len() as f64;
+            let max = coastal_moisture.iter().cloned().fold(0.0f64, f64::max);
+            let above_95 = coastal_moisture.iter().filter(|&&m| m > 0.95).count();
+            eprintln!("\nCoastal tiles (height < water_level + 0.1):");
+            eprintln!("  count: {}", coastal_moisture.len());
+            eprintln!("  avg moisture: {:.3}", avg);
+            eprintln!("  max moisture: {:.3}", max);
+            eprintln!("  above 0.95: {} ({:.1}%)", above_95, above_95 as f64 / coastal_moisture.len() as f64 * 100.0);
+        }
+
+        // Discharge field stats
+        let max_discharge = result.hydro.discharge.iter().cloned().fold(0.0f64, f64::max);
+        let avg_discharge = result.hydro.discharge.iter().sum::<f64>() / n as f64;
+        let nonzero_discharge = result.hydro.discharge.iter().filter(|&&d| d > 0.01).count();
+        let visible_discharge = result.hydro.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+        eprintln!("\nDischarge field:");
+        eprintln!("  max: {:.4}", max_discharge);
+        eprintln!("  avg: {:.6}", avg_discharge);
+        eprintln!("  nonzero (>0.01): {}", nonzero_discharge);
+        eprintln!("  visible (erf>0.1): {}", visible_discharge);
+
+        // Inspect specific tiles
+        let inspect = [(55, 70), (56, 70), (54, 70), (55, 69), (55, 71)];
+        eprintln!("\n=== Tile inspection ===");
+        for &(x, y) in &inspect {
+            if x < 256 && y < 256 {
+                let i = y * 256 + x;
+                eprintln!(
+                    "  ({x},{y}): height={:.4} terrain={:?} soil={:?} moisture={:.3} temp={:.3} slope={:.4}",
+                    result.heights[i],
+                    result.map.get(x, y).unwrap_or(&crate::tilemap::Terrain::Grass),
+                    result.soil[i],
+                    result.moisture[i],
+                    result.temperature[i],
+                    compute_slope(&result.heights, 256, 256)[i],
+                );
+            }
+        }
     }
 }

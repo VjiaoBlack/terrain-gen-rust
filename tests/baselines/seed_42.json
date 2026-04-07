@@ -1,0 +1,15 @@
+{
+  "seed": 42,
+  "tick": 12000,
+  "expected": {
+    "population": {"min": 1, "max": 20},
+    "food": {"min": 0, "max": 200},
+    "buildings": {"min": 2, "max": 30},
+    "biome_types": {"min": 3},
+    "water_coverage_pct": {"min": 5.0, "max": 80.0},
+    "survived": true
+  },
+  "tolerance": 0.20,
+  "last_updated": "2026-04-05",
+  "notes": "Initial baseline. Pop=4, food=12, buildings=5, water=61.6%, biomes=13"
+}

@@ -1,138 +1,319 @@
 {
-  "schema_version": "1",
-  "last_updated": "2026-04-07",
-  "systems": [
-    {
-      "name": "terrain_generation",
-      "description": "7-stage pipeline: fBm noise → erosion → hydrology → biomes → soil → resources",
-      "status": "stable",
-      "files": ["src/terrain_pipeline.rs", "src/terrain_gen.rs", "src/tilemap.rs"],
-      "test_count": 0,
-      "needs_tests": true,
-      "known_issues": [
-        "Desert biome dominates (40-55%) across all seeds — may indicate tuning needed",
-        "tilemap.rs at 2515 lines needs data-driven TerrainDef refactor (see ARCHITECTURE.md)"
-      ]
-    },
-    {
-      "name": "ecs_villager_ai",
-      "description": "Villager behavior: hunger, farming, gathering, building, sleeping, fleeing",
-      "status": "stable",
-      "files": ["src/ecs/ai.rs", "src/ecs/systems.rs", "src/ecs/components.rs"],
-      "test_count": 230,
-      "needs_tests": false,
-      "known_issues": [
-        "Villagers are omniscient (see Pillar 2 design gap in game_design.md)",
-        "Per-villager memory not implemented — design docs exist in docs/design/pillar2_emergence/"
-      ]
-    },
-    {
-      "name": "building_autobuild",
-      "description": "Auto-build: placement scoring, construction, demolish, outposts",
-      "status": "stable",
-      "files": ["src/game/build.rs"],
-      "test_count": 107,
-      "needs_tests": false,
-      "known_issues": [
-        "game/build.rs at 2306 lines approaching split threshold"
-      ]
-    },
-    {
-      "name": "event_system",
-      "description": "Random events: drought, wolf surge, bountiful harvest, plague, migration",
-      "status": "partial",
-      "files": ["src/game/events.rs"],
-      "test_count": 20,
-      "needs_tests": true,
-      "known_issues": [
-        "Wolf events require Spring season multiplier (0.5x) + low threat_score → rarely fire in 12K ticks",
-        "Drought requires grain >= villagers*5 buffer in Summer — this threshold is never met at 12K ticks",
-        "events:[] in all 3 evaluation seeds at tick 12000 (possible but concerning — 84% chance of no wolves)",
-        "No diagnostics JSON field for threat_score — hard to observe event readiness"
-      ]
-    },
-    {
-      "name": "pipe_water",
-      "description": "8-directional flux water simulation",
-      "status": "stable",
-      "files": ["src/pipe_water.rs"],
-      "test_count": 5,
-      "needs_tests": false,
-      "known_issues": [
-        "THREE water systems still coexist: WaterMap (legacy), PipeWater (new), Terrain::Water (biome). Consolidation pending."
-      ]
-    },
-    {
-      "name": "simulation_atmosphere",
-      "description": "Wind, moisture, vegetation, day/night, seasons, soil fertility",
-      "status": "stable",
+  "$schema": "Features registry for terrain-gen-rust. Agents MUST NOT mark a feature 'passing' without cargo test --lib succeeding. Update 'last_verified' with date and seed when checking.",
+  "systems": {
+    "terrain_generation": {
+      "status": "ok",
+      "description": "Noise-based terrain pipeline (fBm -> erosion -> hydrology -> biomes -> soil -> resources)",
       "files": [
-        "src/simulation/wind.rs",
-        "src/simulation/moisture.rs",
-        "src/simulation/vegetation.rs",
-        "src/simulation/day_night.rs",
-        "src/simulation/soil_fertility.rs",
-        "src/simulation/maps.rs",
-        "src/simulation/scent.rs",
-        "src/simulation/traffic.rs",
+        "src/terrain_gen.rs",
+        "src/terrain_pipeline.rs"
+      ],
+      "test_count": 23,
+      "known_issues": [
+        "Terrain enum has 26 variants with 10+ match blocks \u2014 should use data-driven TerrainDef structs",
+        "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "analytical_erosion": {
+      "status": "ok",
+      "description": "Stream Power Law (SPL) closed-form erosion: K * A^m * S^n",
+      "files": [
+        "src/analytical_erosion.rs"
+      ],
+      "test_count": 6,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "pipe_water": {
+      "status": "ok",
+      "description": "Pipe model water simulation (O'Brien 1995 / Stam GDC 2008), 8-directional flux with sediment transport",
+      "files": [
+        "src/pipe_water.rs"
+      ],
+      "test_count": 21,
+      "known_issues": [
+        "Research prototype \u2014 volume conservation not extensively tested"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_water": {
+      "status": "needs_cleanup",
+      "description": "Legacy WaterMap heightfield model \u2014 still runs for moisture but should be replaced by PipeWater",
+      "files": [
         "src/simulation/water_map.rs"
       ],
-      "test_count": 15,
-      "needs_tests": true,
+      "test_count": 9,
       "known_issues": [
-        "simulation.rs split completed — ARCHITECTURE.md refactor priority 1 is DONE",
-        "Moisture chain: water_surface → evaporation → transport → precipitation is underverified"
-      ]
+        "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) \u2014 should be ONE (PipeWater)",
+        "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
+      ],
+      "last_verified": "2026-04-06"
     },
-    {
-      "name": "pathfinding",
-      "description": "A* per-villager, NavGraph hierarchical, FlowField shared destinations",
-      "status": "stable",
+    "simulation_moisture": {
+      "status": "needs_work",
+      "description": "MoistureMap \u2014 reads from PipeWater + wind, feeds vegetation",
+      "files": [
+        "src/simulation/moisture.rs"
+      ],
+      "test_count": 18,
+      "known_issues": [
+        "Moisture decay/persistence rules unclear",
+        "Chain: water_surface -> evaporation -> transport -> precipitation -> surface water -> vegetation moisture not fully connected",
+        "moisture.rs is 1867 lines \u2014 largest simulation module, candidate for split",
+        "9 of 18 tests are #[ignore] diagnostic tests \u2014 only 9 are regular passing tests"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_vegetation": {
+      "status": "ok",
+      "description": "VegetationMap \u2014 growth/decay based on moisture, soil, season",
+      "files": [
+        "src/simulation/vegetation.rs"
+      ],
+      "test_count": 6,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_day_night": {
+      "status": "ok",
+      "description": "DayNightCycle, seasons, lighting",
+      "files": [
+        "src/simulation/day_night.rs"
+      ],
+      "test_count": 21,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_wind": {
+      "status": "ok",
+      "description": "WindField \u2014 Stam fluid solver + curl noise",
+      "files": [
+        "src/simulation/wind.rs"
+      ],
+      "test_count": 22,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_scent": {
+      "status": "ok",
+      "description": "ScentMap \u2014 danger/home scent for creature AI",
+      "files": [
+        "src/simulation/scent.rs"
+      ],
+      "test_count": 11,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_traffic": {
+      "status": "ok",
+      "description": "TrafficMap \u2014 tracks entity movement for auto-road building",
+      "files": [
+        "src/simulation/traffic.rs"
+      ],
+      "test_count": 14,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_soil_fertility": {
+      "status": "ok",
+      "description": "SoilFertilityMap \u2014 fertility based on soil type and conditions",
+      "files": [
+        "src/simulation/soil_fertility.rs"
+      ],
+      "test_count": 6,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "simulation_maps": {
+      "status": "ok",
+      "description": "InfluenceMap, ThreatMap, ExplorationMap",
+      "files": [
+        "src/simulation/maps.rs"
+      ],
+      "test_count": 20,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "ecs_core": {
+      "status": "ok",
+      "description": "Entity-Component-System: components, AI, movement, hunger, death, farms, breeding, raids",
+      "files": [
+        "src/ecs/components.rs",
+        "src/ecs/systems.rs",
+        "src/ecs/ai.rs",
+        "src/ecs/spawn.rs",
+        "src/ecs/tests.rs"
+      ],
+      "test_count": 230,
+      "known_issues": [
+        "ecs/tests.rs is 7164 lines in one file \u2014 should be split into focused test modules",
+        "VillagerMemory is written (DangerZone, ThreatReport) in systems.rs but never read in ai.rs for decisions \u2014 Phase 2 (memory-driven AI) not started; AI still reads global stockpile counts (15 occurrences in ai.rs)"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "ecs_spatial": {
+      "status": "ok",
+      "description": "SpatialHashGrid for O(nearby) entity queries",
+      "files": [
+        "src/ecs/spatial.rs"
+      ],
+      "test_count": 17,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "ecs_groups": {
+      "status": "ok",
+      "description": "GroupManager for agent clustering",
+      "files": [
+        "src/ecs/groups.rs"
+      ],
+      "test_count": 32,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "pathfinding": {
+      "status": "ok",
+      "description": "Hierarchical A*, NavRegions, FlowFieldRegistry",
       "files": [
         "src/pathfinding/graph.rs",
         "src/pathfinding/region.rs",
         "src/pathfinding/flow_field.rs"
       ],
-      "test_count": 10,
-      "needs_tests": false,
-      "known_issues": []
+      "test_count": 40,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
     },
-    {
-      "name": "particle_system",
-      "description": "Construction dust, mining sparkle, wind flow, weather particles",
-      "status": "broken",
-      "files": ["src/game/particles.rs"],
-      "test_count": 3,
-      "needs_tests": true,
-      "known_issues": [
-        "FAILING TEST: construction_dust_particles_spawn — test expects yellow-brown dust (Color 220,200,100) but none spawn in 20 ticks with seeded game",
-        "Particle spawn is gated on rng.random_range(0..4)==0 (25% per tick); test may need more ticks or deterministic RNG"
-      ]
-    },
-    {
-      "name": "rendering",
-      "description": "Normal/Map/Landscape/Debug modes, overlays, query panel",
-      "status": "stable",
+    "game_loop": {
+      "status": "needs_refactor",
+      "description": "Game struct, step(), input handling, water cycle, fire, particles",
       "files": [
-        "src/game/render/mod.rs",
-        "src/game/render/shared.rs"
+        "src/game/mod.rs",
+        "src/game/input.rs",
+        "src/game/water_cycle.rs",
+        "src/game/fire.rs",
+        "src/game/particles.rs",
+        "src/game/tests.rs"
+      ],
+      "test_count": 107,
+      "known_issues": [
+        "game/mod.rs is 2592 lines \u2014 grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
+        "fire.rs, water_cycle.rs, particles.rs have 0 tests each"
+      ],
+      "last_verified": "2026-04-07"
+    },
+    "building_system": {
+      "status": "ok",
+      "description": "Auto-build, building placement, demolish, outposts, influence, traffic",
+      "files": [
+        "src/game/build.rs"
       ],
       "test_count": 0,
-      "needs_tests": true,
+      "test_note": "Tests live in src/game/tests.rs, counted under game_loop",
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "events": {
+      "status": "needs_work",
+      "description": "Random events: drought, harvest, migration, wolf surge, milestones, threat scaling",
+      "files": [
+        "src/game/events.rs"
+      ],
+      "test_count": 13,
       "known_issues": [
-        "game/render.rs split completed — ARCHITECTURE.md refactor priority 4 is DONE (partially)",
-        "render/mod.rs at 1300 lines, shared.rs at 864 — further splitting may be needed"
-      ]
+        "Drought event structurally impossible at 12K ticks: grain>=pop*5 threshold never met in evaluation runs (Summer just starts at tick 12K)",
+        "threat_score not exposed in diagnostics JSON \u2014 event readiness unobservable"
+      ],
+      "last_verified": "2026-04-07"
+    },
+    "chokepoint": {
+      "status": "ok",
+      "description": "Chokepoint detection for defensive positioning",
+      "files": [
+        "src/game/chokepoint.rs"
+      ],
+      "test_count": 10,
+      "known_issues": [],
+      "last_verified": "2026-04-06"
+    },
+    "rendering": {
+      "status": "ok",
+      "description": "Terminal rendering: 4 modes (Normal, Map, Landscape, Debug) + overlays",
+      "files": [
+        "src/renderer.rs",
+        "src/crossterm_renderer.rs",
+        "src/headless_renderer.rs",
+        "src/game/render/"
+      ],
+      "test_count": 61,
+      "known_issues": [
+        "Three color truth sources (Terrain::fg/bg, SoilType::ground_fg, vegetation_color_from_conditions) \u2014 should be unified",
+        "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
+        "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "save_load": {
+      "status": "needs_tests",
+      "description": "JSON save/load for game state + ECS world serialization",
+      "files": [
+        "src/game/save.rs",
+        "src/ecs/serialize.rs"
+      ],
+      "test_count": 0,
+      "known_issues": [
+        "No dedicated unit tests \u2014 only implicit coverage via integration tests"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "scripting": {
+      "status": "stub",
+      "description": "Lua scripting (feature-gated, not fully implemented)",
+      "files": [
+        "src/scripting/mod.rs"
+      ],
+      "test_count": 5,
+      "known_issues": [
+        "Not fully implemented or tested"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "hydrology": {
+      "status": "ok",
+      "description": "Particle-based hydraulic erosion (SimpleHydrology port from Nick McDonald)",
+      "files": [
+        "src/hydrology.rs"
+      ],
+      "test_count": 5,
+      "known_issues": [
+        "Not referenced in ARCHITECTURE.md file map",
+        "Integration with terrain_pipeline unclear \u2014 standalone research module"
+      ],
+      "last_verified": "2026-04-06"
+    },
+    "world_state": {
+      "status": "needs_work",
+      "description": "WorldState struct \u2014 canonical simulation state (heights, water, moisture, vegetation, wind). Introduced in 0D architecture refactor Stages 1-4.",
+      "files": [
+        "src/world_state.rs"
+      ],
+      "test_count": 0,
+      "known_issues": [
+        "Not documented in ARCHITECTURE.md or design docs",
+        "WaterMap still coexists in Game struct \u2014 WorldState.water (PipeWater) should eventually be the only water source",
+        "No unit tests \u2014 all coverage is indirect through integration tests",
+        "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
+      ],
+      "last_verified": "2026-04-06"
     }
-  ],
-  "harness": {
-    "validate_features_sh": "scripts/validate_features.sh",
-    "check_baselines_sh": "scripts/check_baselines.sh",
-    "baseline_seed_42_pop": 8,
-    "baseline_seed_137_pop": 12,
-    "baseline_seed_777_pop": 8,
-    "baseline_seed_42_water_pct": 17.0,
-    "baseline_seed_137_water_pct": 30.3,
-    "baseline_seed_777_water_pct": 13.6
+  },
+  "status_legend": {
+    "ok": "Working, tested, no major issues",
+    "needs_work": "Functional but has design/data-flow problems",
+    "needs_refactor": "Working but code structure needs improvement",
+    "needs_cleanup": "Should be removed or replaced",
+    "needs_tests": "Working but insufficient test coverage",
+    "stub": "Not fully implemented",
+    "broken": "Failing tests or known bugs"
   }
 }

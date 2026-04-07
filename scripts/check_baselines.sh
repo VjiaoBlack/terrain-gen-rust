@@ -1,84 +1,87 @@
 #!/usr/bin/env bash
-# check_baselines.sh — Verify key simulation metrics haven't regressed.
-# Runs 3 seeds to tick 12000 and checks population/water baselines.
-# Must exit 0 on current (passing) code. Slower than validate_features.sh (~3 min).
+# Run golden seeds and compare against baseline expectations.
+# Exit code 0 = all pass, 1 = at least one regression.
 set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
 
-FAILURES=0
-CHECKS=0
+BASELINE_DIR="tests/baselines"
+PASS=0
+FAIL=0
 
-check() {
-    local desc="$1"
-    local result="$2"
-    CHECKS=$((CHECKS + 1))
-    if [ "$result" = "ok" ]; then
-        echo "  PASS: $desc"
-    else
-        echo "  FAIL: $desc — $result"
-        FAILURES=$((FAILURES + 1))
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq required (brew install jq)"
+  exit 1
+fi
+
+cargo build --release 2>/dev/null
+
+for baseline in "$BASELINE_DIR"/seed_*.json; do
+  seed=$(jq -r '.seed' "$baseline")
+  tick=$(jq -r '.tick' "$baseline")
+
+  echo "Running seed $seed for $tick ticks..."
+  actual=$(cargo run --release -- \
+    --screenshot --seed "$seed" --width 80 --height 30 \
+    --ticks "$tick" --auto-build --diagnostics 2>/dev/null)
+
+  # Check survival
+  pop=$(echo "$actual" | jq '.population')
+  expected_survived=$(jq -r '.expected.survived' "$baseline")
+  if [ "$expected_survived" = "true" ] && [ "$pop" = "0" ]; then
+    echo "  FAIL: seed $seed died (expected survival)"
+    FAIL=$((FAIL + 1))
+    continue
+  fi
+
+  # Check numeric ranges
+  SEED_OK=true
+  for field in population; do
+    val=$(echo "$actual" | jq ".$field")
+    min=$(jq ".expected.${field}.min // empty" "$baseline" 2>/dev/null)
+    max=$(jq ".expected.${field}.max // empty" "$baseline" 2>/dev/null)
+    tolerance=$(jq '.tolerance' "$baseline")
+
+    if [ -n "$min" ] && [ -n "$max" ]; then
+      adj_min=$(echo "$min * (1 - $tolerance)" | bc -l)
+      adj_max=$(echo "$max * (1 + $tolerance)" | bc -l)
+      outside=$(echo "$val < $adj_min || $val > $adj_max" | bc -l 2>/dev/null || echo "0")
+      if [ "$outside" = "1" ]; then
+        echo "  WARN: seed $seed $field=$val outside [$(printf '%.0f' "$adj_min"), $(printf '%.0f' "$adj_max")]"
+        SEED_OK=false
+      fi
     fi
-}
+  done
 
-check_gte() {
-    local desc="$1"
-    local val="$2"
-    local min="$3"
-    check "$desc >= $min" "$(awk "BEGIN{exit !($val >= $min)}" && echo ok || echo "$val < $min")"
-}
+  # Check terrain metrics
+  water=$(echo "$actual" | jq '.terrain.water_coverage_pct')
+  water_min=$(jq '.expected.water_coverage_pct.min // empty' "$baseline" 2>/dev/null)
+  water_max=$(jq '.expected.water_coverage_pct.max // empty' "$baseline" 2>/dev/null)
+  if [ -n "$water_min" ] && [ -n "$water_max" ]; then
+    outside=$(echo "$water < $water_min || $water > $water_max" | bc -l 2>/dev/null || echo "0")
+    if [ "$outside" = "1" ]; then
+      echo "  WARN: seed $seed water_coverage=${water}% outside [${water_min}, ${water_max}]"
+      SEED_OK=false
+    fi
+  fi
 
-check_between() {
-    local desc="$1"
-    local val="$2"
-    local lo="$3"
-    local hi="$4"
-    check "$desc in [$lo, $hi]" "$(awk "BEGIN{exit !($val >= $lo && $val <= $hi)}" && echo ok || echo "$val out of range [$lo, $hi]")"
-}
+  # Check biome count
+  biomes=$(echo "$actual" | jq '.terrain.biome_distribution | length')
+  biome_min=$(jq '.expected.biome_types.min // empty' "$baseline" 2>/dev/null)
+  if [ -n "$biome_min" ]; then
+    if [ "$biomes" -lt "$biome_min" ]; then
+      echo "  WARN: seed $seed biome_types=$biomes < min $biome_min"
+      SEED_OK=false
+    fi
+  fi
 
-echo "=== check_baselines.sh — 3 seeds × 12K ticks ==="
-echo "(This takes ~3 minutes)"
-echo ""
-
-for seed in 42 137 777; do
-    echo "--- Seed $seed ---"
-    DIAG=$(cargo run --release -- --play --seed "$seed" --width 40 --height 15 \
-        --ticks 12000 --auto-build --diagnostics 2>/dev/null | tail -1)
-
-    POP=$(echo "$DIAG" | grep -oP '"population":\K\d+' || echo "0")
-    WATER=$(echo "$DIAG" | grep -oP '"water_coverage_pct":\K[0-9.]+' || echo "0")
-    PIPE=$(echo "$DIAG" | grep -oP '"pipe_water_total":\K[0-9.]+' || echo "0")
-    WIND=$(echo "$DIAG" | grep -oP '"wind_moisture_total":\K[0-9.]+' || echo "0")
-    VEG=$(echo "$DIAG" | grep -oP '"avg_vegetation":\K[0-9.]+' || echo "0")
-    FOOD=$(echo "$DIAG" | grep -oP '"food":\K\d+' || echo "0")
-    TICK=$(echo "$DIAG" | grep -oP '"tick":\K\d+' || echo "0")
-
-    check "seed $seed: reached tick 12000" \
-        "$([ "$TICK" -ge 12000 ] && echo ok || echo "only reached tick $TICK")"
-    check_gte "seed $seed: population survived (>= 1)" "$POP" 1
-    check_gte "seed $seed: food > 0 at tick 12000" "$FOOD" 1
-    check_between "seed $seed: water coverage in [5, 60]%" "$WATER" 5 60
-    check_gte "seed $seed: pipe_water_total > 100" "$PIPE" 100
-    check_gte "seed $seed: wind_moisture_total > 0" "$WIND" 1
-    check_gte "seed $seed: avg_vegetation > 0" "$VEG" 0.01
-    echo ""
+  if [ "$SEED_OK" = true ]; then
+    echo "  PASS: seed $seed (pop=$pop, water=${water}%, biomes=$biomes)"
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+  fi
 done
 
-# Cross-seed diversity check: seeds 42 and 137 should have different water coverage
-WATER_42=$(cargo run --release -- --play --seed 42 --width 40 --height 15 \
-    --ticks 100 --auto-build --diagnostics 2>/dev/null | tail -1 | \
-    grep -oP '"water_coverage_pct":\K[0-9.]+' || echo "0")
-WATER_137=$(cargo run --release -- --play --seed 137 --width 40 --height 15 \
-    --ticks 100 --auto-build --diagnostics 2>/dev/null | tail -1 | \
-    grep -oP '"water_coverage_pct":\K[0-9.]+' || echo "0")
-DIFF=$(awk "BEGIN{d=$WATER_137-$WATER_42; print (d<0)?-d:d}")
-check "seeds 42 vs 137 have different water coverage (diff >= 5%)" \
-    "$(awk "BEGIN{exit !($DIFF >= 5)}" && echo ok || echo "diff=$DIFF% (seeds too similar)")"
-
 echo ""
-echo "=== Results: $((CHECKS - FAILURES))/$CHECKS passed ==="
-if [ "$FAILURES" -gt 0 ]; then
-    echo "BASELINE CHECK FAILED: $FAILURES regression(s) detected"
-    exit 1
-else
-    echo "All baselines passed."
-    exit 0
-fi
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]

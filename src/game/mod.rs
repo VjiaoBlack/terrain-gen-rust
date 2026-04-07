@@ -149,13 +149,17 @@ impl RenderMode {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OverlayMode {
     None,
-    Tasks,     // Color-code villagers by current activity
-    Resources, // Show resource locations with color markers
-    Threats,   // Show wolf positions and danger zones
-    Traffic,   // Show foot traffic heatmap
-    Territory, // Show settlement influence/culture borders
-    Wind,      // Show wind direction arrows and speed
-    WindFlow,  // Show wind as animated particles (no arrows)
+    Tasks,      // Color-code villagers by current activity
+    Resources,  // Show resource locations with color markers
+    Threats,    // Show wolf positions and danger zones
+    Traffic,    // Show foot traffic heatmap
+    Territory,  // Show settlement influence/culture borders
+    Wind,       // Show wind direction arrows and speed
+    WindFlow,   // Show wind as animated particles (no arrows)
+    Height,     // Raw height values as grayscale
+    Discharge,  // River discharge field (blue = high flow)
+    Moisture,   // Soil moisture (green = wet)
+    Slope,      // Terrain slope (white = steep)
 }
 
 /// Default raid strength for backward-compatible deserialization of old saves.
@@ -420,10 +424,11 @@ pub struct Game {
     pub target_fps: u32,
     pub tick: u64,
     pub map: TileMap,
-    pub heights: Vec<f64>,
+    /// Canonical simulation state — single source of truth.
+    /// All persistent, causal simulation data lives here.
+    pub state: crate::world_state::WorldState,
+    /// Legacy water map (old system, being phased out)
     pub water: WaterMap,
-    pub moisture: MoistureMap,
-    pub vegetation: VegetationMap,
     pub sim_config: SimConfig,
     pub terrain_config: TerrainGenConfig,
     pub camera: Camera,
@@ -466,6 +471,7 @@ pub struct Game {
     pub soil: Vec<crate::terrain_pipeline::SoilType>,
     pub soil_fertility: SoilFertilityMap,
     pub river_mask: Vec<bool>,
+    // hydro moved to state.hydro
     pub pipeline_temperature: Vec<f64>,
     pub pipeline_slope: Vec<f64>,
     pub pipeline_moisture: Vec<f64>,
@@ -512,13 +518,10 @@ pub struct Game {
     pub threat_score: f64,
     /// Tick of the last threat spawn, used to enforce a minimum cooldown between threats.
     pub last_threat_tick: u64,
-    /// Wind vector field: terrain-deflected prevailing wind with curl noise.
-    /// Recomputed on seasonal direction changes.
-    pub wind: WindField,
+    // wind moved to state.wind
     /// Active outposts — satellite settlements near distant resources.
     pub outposts: Vec<Outpost>,
-    /// Pipe-model water simulation: 8-directional flow driven by hydrostatic pressure.
-    pub pipe_water: crate::pipe_water::PipeWater,
+    // pipe_water moved to state.water
     #[cfg(feature = "lua")]
     pub script_engine: Option<crate::scripting::ScriptEngine>,
 }
@@ -535,18 +538,36 @@ impl Game {
         use crate::terrain_pipeline::{PipelineConfig, run_pipeline};
 
         // Run the full terrain pipeline
-        let pipeline_config = PipelineConfig {
-            terrain: TerrainGenConfig {
-                seed,
-                scale: 0.015,
-                ..Default::default()
-            },
-            ..PipelineConfig::default()
-        };
+        let mut pipeline_config = PipelineConfig::default();
+        pipeline_config.terrain.seed = seed;
         let result = run_pipeline(map_width, map_height, &pipeline_config);
+        Self::from_pipeline_result(target_fps, seed, result)
+    }
+
+    /// Create a game from a pre-built pipeline result (e.g. from --live-gen).
+    /// Skips running the pipeline — uses the provided heights, discharge, etc.
+    pub fn new_from_pipeline(
+        target_fps: u32,
+        seed: u32,
+        result: crate::terrain_pipeline::PipelineResult,
+    ) -> Self {
+        Self::from_pipeline_result(target_fps, seed, result)
+    }
+
+    fn from_pipeline_result(
+        target_fps: u32,
+        seed: u32,
+        result: crate::terrain_pipeline::PipelineResult,
+    ) -> Self {
+        let map_width = result.map.width;
+        let map_height = result.map.height;
+        let terrain_config = crate::terrain_gen::TerrainGenConfig {
+            seed,
+            ..Default::default()
+        };
+
         let mut map = result.map;
         let heights = result.heights;
-        let terrain_config = pipeline_config.terrain;
 
         // Seed water from pipeline rivers + water tiles
         let mut water = WaterMap::new(map_width, map_height);
@@ -1009,14 +1030,16 @@ impl Game {
             hsw as usize,
             hsh as usize,
         );
-        for (dx, dy, terrain) in BuildingType::Hut.tiles() {
-            map.set(
-                hx as usize + dx as usize,
-                hy as usize + dy as usize,
-                terrain,
-            );
+        if (hx as usize) < map_width && (hy as usize) < map_height {
+            for (dx, dy, terrain) in BuildingType::Hut.tiles() {
+                let tx = hx as i32 + dx;
+                let ty = hy as i32 + dy;
+                if tx >= 0 && ty >= 0 && (tx as usize) < map_width && (ty as usize) < map_height {
+                    map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
         }
-        ecs::spawn_hut(&mut world, hx + hsw as f64 / 2.0, hy + hsh as f64 / 2.0);
 
         // Pre-built farm — search opposite side of stockpile
         let (fsw, fsh) = BuildingType::Farm.size();
@@ -1027,32 +1050,36 @@ impl Game {
             fsw as usize,
             fsh as usize,
         );
-        for (dx, dy, terrain) in BuildingType::Farm.tiles() {
-            map.set(
-                fx as usize + dx as usize,
-                fy as usize + dy as usize,
-                terrain,
-            );
+        if (fx as usize) < map_width && (fy as usize) < map_height {
+            for (dx, dy, terrain) in BuildingType::Farm.tiles() {
+                let tx = fx as i32 + dx;
+                let ty = fy as i32 + dy;
+                if tx >= 0 && ty >= 0 && (tx as usize) < map_width && (ty as usize) < map_height {
+                    map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
         }
-        ecs::spawn_farm_plot(&mut world, fx + fsw as f64 / 2.0, fy + fsh as f64 / 2.0);
 
         // Pre-built Granary — converts food to grain which is preserved through Winter.
         // Without this, winter food decay (2%/30 ticks) kills all settlements before Year 2.
         let (gsw, gsh) = BuildingType::Granary.size();
         let (gx, gy) = find_building_spot(&map, scx + 5, scy + 4, gsw as usize, gsh as usize);
-        for (dx, dy, terrain) in BuildingType::Granary.tiles() {
-            map.set(
-                gx as usize + dx as usize,
-                gy as usize + dy as usize,
-                terrain,
+        if (gx as usize) < map_width && (gy as usize) < map_height {
+            for (dx, dy, terrain) in BuildingType::Granary.tiles() {
+                let tx = gx as i32 + dx;
+                let ty = gy as i32 + dy;
+                if tx >= 0 && ty >= 0 && (tx as usize) < map_width && (ty as usize) < map_height {
+                    map.set(tx as usize, ty as usize, terrain);
+                }
+            }
+            ecs::spawn_processing_building(
+                &mut world,
+                gx + gsw as f64 / 2.0,
+                gy + gsh as f64 / 2.0,
+                Recipe::FoodToGrain,
             );
         }
-        ecs::spawn_processing_building(
-            &mut world,
-            gx + gsw as f64 / 2.0,
-            gy + gsh as f64 / 2.0,
-            Recipe::FoodToGrain,
-        );
 
         // Spawn berry bushes from ResourceMap: pick the 2 best (fertility / distance)
         // tiles within 8 tiles of settlement that are walkable.
@@ -1189,14 +1216,29 @@ impl Game {
         // Snapshot base terrain before any seasonal effects
         map.init_base_terrain();
 
+        // Build pipe_water for WorldState
+        let mut pipe_water = crate::pipe_water::PipeWater::new(map_width, map_height);
+
         let mut g = Self {
             target_fps,
             tick: 0,
             map,
-            heights,
+            state: crate::world_state::WorldState {
+                width: map_width,
+                height: map_height,
+                heights,
+                water: pipe_water,
+                wind: WindField::new(map_width, map_height), // placeholder, recomputed below
+                moisture,
+                vegetation,
+                hydro: {
+                    let max_d = result.hydro.discharge.iter().cloned().fold(0.0f64, f64::max);
+                    let visible = result.hydro.discharge.iter().filter(|&&d| crate::hydrology::erf_approx(0.4 * d) > 0.1).count();
+                    eprintln!("[HYDROLOGY] discharge: max={max_d:.4} visible_tiles={visible}/{}", result.hydro.discharge.len());
+                    result.hydro
+                },
+            },
             water,
-            moisture,
-            vegetation,
             sim_config: SimConfig::default(),
             terrain_config,
             camera,
@@ -1244,6 +1286,7 @@ impl Game {
             soil_fertility: SoilFertilityMap::from_soil_types(map_width, map_height, &result.soil),
             soil: result.soil,
             river_mask: result.river_mask,
+            // hydro is in state (initialized above)
             pipeline_temperature: result.temperature,
             pipeline_slope: result.slope,
             pipeline_moisture: result.moisture,
@@ -1269,23 +1312,29 @@ impl Game {
             threat_map: ThreatMap::new(map_width, map_height),
             threat_score: 0.0,
             last_threat_tick: 0,
-            wind: WindField::new(map_width, map_height), // rebuilt below
             outposts: Vec::new(),
-            pipe_water: crate::pipe_water::PipeWater::new(map_width, map_height),
             #[cfg(feature = "lua")]
             script_engine: None,
         };
 
-        // Seed pipe_water from actual Water terrain tiles only.
-        // River_mask disabled — river carving is off, so river_mask tiles
-        // are dry land that shouldn't have water dumped on them.
+        // Seed pipe_water from two sources:
+        // 1. Ocean tiles (Terrain::Water) — boundary condition, constant depth
+        // 2. Discharge field — high-discharge channels get actual water depth
+        //    so rivers are visible from tick 0 via the pipe_water renderer.
+        let pipeline_wl = result.water_level;
         for y in 0..map_height {
             for x in 0..map_width {
+                let i = y * map_width + x;
                 if matches!(g.map.get(x, y), Some(Terrain::Water)) {
-                    let i = y * map_width + x;
-                    let depth = (g.terrain_config.water_level - g.heights[i]).max(0.01);
-                    g.pipe_water.add_water(x, y, depth);
-                    g.pipe_water.set_ocean_boundary(x, y, depth);
+                    let depth = (pipeline_wl - g.state.heights[i]).max(0.01);
+                    g.state.water.add_water(x, y, depth);
+                    g.state.water.set_ocean_boundary(x, y, depth);
+                } else if i < g.state.hydro.discharge.len() {
+                    let d = crate::hydrology::erf_approx(0.4 * g.state.hydro.discharge[i]);
+                    if d > 0.5 {
+                        // Strong river channel — thin water layer
+                        g.state.water.add_water(x, y, (d - 0.5) * 0.02);
+                    }
                 }
             }
         }
@@ -1295,9 +1344,9 @@ impl Game {
         g.chokepoints_dirty = false;
         // Compute initial wind field from terrain + chokepoints
         let wind_dir = WindField::seasonal_direction(g.day_night.season);
-        g.wind = match g.sim_config.wind_model {
+        g.state.wind = match g.sim_config.wind_model {
             crate::simulation::WindModel::CurlNoise => WindField::compute_curl_noise_field(
-                &g.heights,
+                &g.state.heights,
                 map_width,
                 map_height,
                 wind_dir,
@@ -1306,7 +1355,7 @@ impl Game {
                 g.terrain_config.seed,
             ),
             crate::simulation::WindModel::Stam => WindField::compute_from_terrain(
-                &g.heights,
+                &g.state.heights,
                 map_width,
                 map_height,
                 wind_dir,
@@ -1934,7 +1983,7 @@ impl Game {
                     &mut self.world,
                     self.day_night.season,
                     farm_mult,
-                    &self.moisture,
+                    &self.state.moisture,
                     &mut self.soil_fertility,
                     &self.soil,
                 );
@@ -1983,7 +2032,7 @@ impl Game {
                 }
 
                 // Resource regrowth (deforestation lifecycle: Stump -> Bare -> Sapling -> Forest)
-                ecs::system_regrowth(&mut self.world, &mut self.map, &self.vegetation, self.tick);
+                ecs::system_regrowth(&mut self.world, &mut self.map, &self.state.vegetation, self.tick);
 
                 // Forest fire system: check ignition ~once per in-game day (1200 ticks)
                 if self.tick.is_multiple_of(1200) {
@@ -1998,8 +2047,8 @@ impl Game {
                         &self.world,
                         &mut self.soil_fertility,
                         &self.soil,
-                        &self.vegetation,
-                        &self.moisture,
+                        &self.state.vegetation,
+                        &self.state.moisture,
                         self.day_night.season,
                         &self.map,
                     );
@@ -2122,7 +2171,7 @@ impl Game {
             }
             if self.day_night.enabled {
                 self.day_night.compute_lighting(
-                    &self.heights,
+                    &self.state.heights,
                     self.map.width,
                     self.map.height,
                     self.camera.x,
@@ -2300,11 +2349,11 @@ impl Game {
                     }
                 }
                 let idx = y * map_w + x;
-                if idx < self.heights.len() {
-                    height_sum += self.heights[idx];
+                if idx < self.state.heights.len() {
+                    height_sum += self.state.heights[idx];
                 }
-                moisture_sum += self.moisture.get(x, y);
-                vegetation_sum += self.vegetation.get(x, y);
+                moisture_sum += self.state.moisture.get(x, y);
+                vegetation_sum += self.state.vegetation.get(x, y);
             }
         }
         let biome_distribution: BTreeMap<String, f64> = biome_counts
@@ -2316,11 +2365,58 @@ impl Game {
         let avg_moisture = round1(moisture_sum / total_tiles);
         let avg_vegetation = round1(vegetation_sum / total_tiles);
         let water_coverage_pct = (water_tiles as f64 / total_tiles * 1000.0).round() / 10.0;
-        let pipe_water_total = round1(self.pipe_water.total_water());
-        let wind_moisture_total = round1(self.wind.moisture_carried.iter().copied().sum::<f64>());
+        let pipe_water_total = round1(self.state.water.total_water());
+        let wind_moisture_total = round1(self.state.wind.moisture_carried.iter().copied().sum::<f64>());
+
+        // Settlement metrics (derived from influence map + exploration)
+        let mut footprint_tiles = 0u32;
+        for y in 0..map_h {
+            for x in 0..map_w {
+                if self.influence.get(x, y) > 0.1 {
+                    footprint_tiles += 1;
+                }
+            }
+        }
+        let explored = self.exploration.revealed.iter().filter(|&&r| r).count();
+        let exploration_pct = round1(explored as f64 / total_tiles * 100.0);
+        let outpost_count = self.outposts.len() as u32;
+
+        // Housing metrics
+        let mut hut_capacity = 0u32;
+        for h in self.world.query::<&HutBuilding>().iter() {
+            hut_capacity += h.capacity;
+        }
+
+        // Threat metrics
+        let fire_tile_count = self.fire_tiles.len() as u32;
+        let active_event_count = self.events.active_events.len() as u32;
+
+        // Terrain extension: elevation std + slope distribution
+        let height_mean = height_sum / total_tiles;
+        let height_var_sum: f64 = self
+            .state.heights
+            .iter()
+            .map(|h| (h - height_mean).powi(2))
+            .sum();
+        let elevation_std = round1((height_var_sum / total_tiles).sqrt());
+
+        let (mut slope_flat, mut slope_gentle, mut slope_steep, mut slope_cliff) =
+            (0u32, 0u32, 0u32, 0u32);
+        for &s in &self.pipeline_slope {
+            if s < 0.05 {
+                slope_flat += 1;
+            } else if s < 0.15 {
+                slope_gentle += 1;
+            } else if s < 0.3 {
+                slope_steep += 1;
+            } else {
+                slope_cliff += 1;
+            }
+        }
 
         serde_json::json!({
             "tick": self.tick,
+            "seed": self.terrain_config.seed,
             "population": villager_count,
             "resources": {
                 "food": self.resources.food,
@@ -2354,7 +2450,124 @@ impl Game {
                 "water_coverage_pct": water_coverage_pct,
                 "pipe_water_total": pipe_water_total,
                 "wind_moisture_total": wind_moisture_total,
+                "elevation_std": elevation_std,
+                "slope_distribution": {
+                    "flat_pct": round1(slope_flat as f64 / total_tiles * 100.0),
+                    "gentle_pct": round1(slope_gentle as f64 / total_tiles * 100.0),
+                    "steep_pct": round1(slope_steep as f64 / total_tiles * 100.0),
+                    "cliff_pct": round1(slope_cliff as f64 / total_tiles * 100.0),
+                },
             },
+            "settlement": {
+                "footprint_tiles": footprint_tiles,
+                "exploration_pct": exploration_pct,
+                "outpost_count": outpost_count,
+            },
+            "housing": {
+                "hut_capacity": hut_capacity,
+                "population": villager_count,
+                "growth_potential": hut_capacity.saturating_sub(villager_count),
+            },
+            "threats": {
+                "fire_tiles": fire_tile_count,
+                "active_events": active_event_count,
+                "threat_score": round1(self.threat_score),
+            },
+        })
+    }
+
+    /// Generate a TITAN-style report card: narrative status categories as JSON.
+    /// Pure derived data — view = f(state), never stored.
+    pub fn generate_report_card(&self) -> serde_json::Value {
+        let diag = self.collect_diagnostics();
+
+        let pop = diag["population"].as_u64().unwrap_or(0);
+        let food = diag["resources"]["food"].as_u64().unwrap_or(0);
+        let hut_cap = diag["housing"]["hut_capacity"].as_u64().unwrap_or(0);
+        let fire_tiles = diag["threats"]["fire_tiles"].as_u64().unwrap_or(0);
+        let threat_score = diag["threats"]["threat_score"].as_f64().unwrap_or(0.0);
+        let exploration = diag["settlement"]["exploration_pct"].as_f64().unwrap_or(0.0);
+
+        // Population assessment
+        let (pop_status, pop_detail) = match pop {
+            0 => ("DEAD", "settlement extinct"),
+            1..=3 => ("Critical", "near extinction"),
+            4..=8 => ("Fragile", "one bad winter away"),
+            9..=15 => ("Healthy", "growing"),
+            _ => ("Thriving", "expanding"),
+        };
+
+        // Food assessment (per capita)
+        let food_per_cap = if pop > 0 {
+            food as f64 / pop as f64
+        } else {
+            0.0
+        };
+        let (food_status, food_detail) = if pop == 0 {
+            ("N/A", "no population")
+        } else if food_per_cap < 2.0 {
+            ("Critical", "starvation imminent")
+        } else if food_per_cap < 5.0 {
+            ("Tight", "no buffer")
+        } else if food_per_cap < 15.0 {
+            ("Adequate", "stable supply")
+        } else {
+            ("Surplus", "well stocked")
+        };
+
+        // Housing assessment
+        let (housing_status, housing_detail) = if pop == 0 {
+            ("N/A", "no population")
+        } else if hut_cap <= pop {
+            ("Overcrowded", "need more huts")
+        } else if hut_cap < pop + 4 {
+            ("Tight", "limited growth room")
+        } else {
+            ("Adequate", "room to grow")
+        };
+
+        // Terrain assessment
+        let biome_count = diag["terrain"]["biome_distribution"]
+            .as_object()
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let (terrain_status, terrain_detail) = match biome_count {
+            0..=1 => ("Monotonous", "single biome"),
+            2..=3 => ("Limited", "low variety"),
+            4..=5 => ("Varied", "good mix"),
+            _ => ("Diverse", "rich landscape"),
+        };
+
+        // Threat assessment
+        let (threat_status, threat_detail): (&str, String) = if fire_tiles > 0 {
+            ("Fire", format!("{} tiles burning", fire_tiles))
+        } else if threat_score > 50.0 {
+            ("High", "prosperous target".to_string())
+        } else if threat_score > 15.0 {
+            ("Growing", "attracting attention".to_string())
+        } else {
+            ("Low", "quiet settlement".to_string())
+        };
+
+        let summary = format!(
+            "Population: {} ({}) | Food: {} ({}) | Housing: {} ({}) | Terrain: {} ({}) | Threats: {} ({})",
+            pop_status, pop_detail, food_status, food_detail,
+            housing_status, housing_detail, terrain_status, terrain_detail,
+            threat_status, threat_detail
+        );
+
+        serde_json::json!({
+            "tick": diag["tick"],
+            "seed": diag["seed"],
+            "categories": {
+                "population": {"status": pop_status, "detail": pop_detail, "value": pop},
+                "food": {"status": food_status, "detail": food_detail, "per_capita": ((food_per_cap * 10.0).round() / 10.0)},
+                "housing": {"status": housing_status, "detail": housing_detail, "capacity": hut_cap, "population": pop},
+                "terrain": {"status": terrain_status, "detail": terrain_detail, "biome_count": biome_count},
+                "threats": {"status": threat_status, "detail": threat_detail, "score": threat_score},
+                "exploration": {"pct": exploration},
+            },
+            "summary": summary,
         })
     }
 

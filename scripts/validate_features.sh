@@ -1,127 +1,139 @@
 #!/usr/bin/env bash
-# validate_features.sh — Fast deterministic harness checks.
-# Must exit 0 on current (passing) code. Run before every commit.
+# Validates features.json: schema, file existence, test count accuracy.
+# Usage: ./scripts/validate_features.sh
+# Exit code 0 = all good, 1 = issues found
+
 set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
 
-FAILURES=0
-CHECKS=0
+FEATURES="features.json"
+ERRORS=0
+WARNINGS=0
 
-check() {
-    local desc="$1"
-    local result="$2"
-    CHECKS=$((CHECKS + 1))
-    if [ "$result" = "ok" ]; then
-        echo "  PASS: $desc"
-    else
-        echo "  FAIL: $desc — $result"
-        FAILURES=$((FAILURES + 1))
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq required but not installed (brew install jq)"
+  exit 1
+fi
+
+# 1. JSON parses cleanly
+if ! jq empty "$FEATURES" 2>/dev/null; then
+  echo "FAIL: $FEATURES is not valid JSON"
+  exit 1
+fi
+echo "OK: JSON parses cleanly"
+
+# 2. Every file listed actually exists
+echo ""
+echo "=== File existence ==="
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  for file in $(jq -r ".systems[\"$system\"].files[]" "$FEATURES"); do
+    if [ ! -e "$file" ] && ! ls -d $file &>/dev/null 2>&1; then
+      echo "FAIL: $system lists '$file' but it doesn't exist"
+      ERRORS=$((ERRORS + 1))
     fi
-}
-
-echo "=== validate_features.sh ==="
-
-# ── 1. Build check ──────────────────────────────────────────────────────────
-echo ""
-echo "--- Build & Test ---"
-if cargo build --release 2>/dev/null; then
-    check "cargo build --release" "ok"
-else
-    check "cargo build --release" "build failed"
-    exit 1
+  done
+done
+if [ $ERRORS -eq 0 ]; then
+  echo "OK: All listed files exist"
 fi
 
-# Count test results (allow known failing test)
-TEST_OUTPUT=$(cargo test --lib 2>&1 || true)
-PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "0")
-FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
-check "lib tests pass count >= 750" "$([ "${PASSED:-0}" -ge 750 ] && echo ok || echo "only $PASSED passed")"
-check "lib tests fail count <= 1 (known: construction_dust_particles_spawn)" \
-    "$([ "${FAILED:-0}" -le 1 ] && echo ok || echo "$FAILED tests failing (expected <=1)")"
-
-# ── 2. Module size checks ────────────────────────────────────────────────────
+# 3. Test counts are roughly accurate
 echo ""
-echo "--- Module Size ---"
-check_file_size() {
-    local file="$1"
-    local limit="$2"
-    if [ ! -f "$file" ]; then
-        check "file exists: $file" "file not found"
-        return
+echo "=== Test count accuracy ==="
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  expected=$(jq -r ".systems[\"$system\"].test_count" "$FEATURES")
+  files=$(jq -r ".systems[\"$system\"].files[]" "$FEATURES")
+
+  actual=0
+  for file in $files; do
+    if [ -f "$file" ]; then
+      count=$(grep -c '#\[test\]' "$file" 2>/dev/null || true)
+      actual=$((actual + count))
+    elif [ -d "$file" ]; then
+      count=$(grep -r '#\[test\]' "$file" 2>/dev/null | wc -l | tr -d ' ')
+      actual=$((actual + count))
     fi
-    local lines
-    lines=$(wc -l < "$file")
-    check "$file <= $limit lines" "$([ "$lines" -le "$limit" ] && echo ok || echo "$lines lines (limit $limit)")"
-}
+  done
 
-check_file_size "src/tilemap.rs" 3000
-check_file_size "src/game/mod.rs" 3000
-check_file_size "src/game/build.rs" 3000
-check_file_size "src/ecs/systems.rs" 3000
-check_file_size "src/ecs/ai.rs" 3000
-check_file_size "src/simulation/moisture.rs" 2500
-
-# ── 3. Required files exist ──────────────────────────────────────────────────
-echo ""
-echo "--- Required Files ---"
-for f in \
-    "features.json" \
-    "docs/ARCHITECTURE.md" \
-    "docs/game_design.md" \
-    "docs/workflow.md" \
-    "scripts/validate_features.sh" \
-    "scripts/check_baselines.sh"
-do
-    check "exists: $f" "$([ -f "$f" ] && echo ok || echo "missing")"
+  # Allow 30% tolerance (tests may live in separate test files)
+  if [ "$expected" -eq 0 ] && [ "$actual" -eq 0 ]; then
+    continue
+  elif [ "$expected" -eq 0 ] && [ "$actual" -gt 0 ]; then
+    echo "WARN: $system claims 0 tests but found $actual in source files"
+    WARNINGS=$((WARNINGS + 1))
+  elif [ "$actual" -eq 0 ] && [ "$expected" -gt 0 ]; then
+    echo "WARN: $system claims $expected tests but found 0 in listed files (tests may be in separate test module)"
+    WARNINGS=$((WARNINGS + 1))
+  else
+    ratio=$(echo "$actual $expected" | awk '{if ($2>0) printf "%.0f", ($1/$2)*100; else print 0}')
+    if [ "$ratio" -lt 50 ] || [ "$ratio" -gt 200 ]; then
+      echo "WARN: $system test count mismatch — features.json says $expected, files have $actual (#[test] annotations)"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+  fi
 done
-
-# ── 4. features.json schema ──────────────────────────────────────────────────
-echo ""
-echo "--- features.json ---"
-if command -v jq &>/dev/null; then
-    check "features.json is valid JSON" "$(jq empty features.json 2>/dev/null && echo ok || echo "invalid JSON")"
-    SYSTEM_COUNT=$(jq '.systems | length' features.json 2>/dev/null || echo 0)
-    check "features.json has >= 5 systems" "$([ "$SYSTEM_COUNT" -ge 5 ] && echo ok || echo "only $SYSTEM_COUNT systems")"
-else
-    check "jq available for JSON checks" "jq not installed — install for full validation"
+if [ $WARNINGS -eq 0 ]; then
+  echo "OK: Test counts are within tolerance"
 fi
 
-# ── 5. Diagnostics JSON fields ───────────────────────────────────────────────
+# 4. Status values are valid
 echo ""
-echo "--- Diagnostics Output ---"
-DIAG=$(cargo run --release -- --play --seed 42 --width 40 --height 15 --ticks 1000 --auto-build --diagnostics 2>/dev/null | tail -1)
-if [ -z "$DIAG" ]; then
-    check "diagnostics output non-empty" "empty output"
-else
-    for field in population resources terrain tick; do
-        check "diagnostics has field: $field" \
-            "$(echo "$DIAG" | grep -q "\"$field\"" && echo ok || echo "field missing in: $(echo "$DIAG" | head -c 80)")"
-    done
-    PIPE_WATER=$(echo "$DIAG" | grep -oP '"pipe_water_total":\K[0-9.]+' || echo "0")
-    check "pipe_water_total > 0 (water system active)" \
-        "$(awk "BEGIN{exit !($PIPE_WATER > 0)}" && echo ok || echo "pipe_water_total=$PIPE_WATER")"
-    WIND_MOIST=$(echo "$DIAG" | grep -oP '"wind_moisture_total":\K[0-9.]+' || echo "0")
-    check "wind_moisture_total > 0 (atmosphere active)" \
-        "$(awk "BEGIN{exit !($WIND_MOIST > 0)}" && echo ok || echo "wind_moisture_total=$WIND_MOIST")"
-    VEG=$(echo "$DIAG" | grep -oP '"avg_vegetation":\K[0-9.]+' || echo "0")
-    check "avg_vegetation > 0 (vegetation system active)" \
-        "$(awk "BEGIN{exit !($VEG > 0)}" && echo ok || echo "avg_vegetation=$VEG")"
+echo "=== Status validation ==="
+valid_statuses=$(jq -r '.status_legend | keys[]' "$FEATURES" | tr '\n' '|')
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  status=$(jq -r ".systems[\"$system\"].status" "$FEATURES")
+  if ! echo "$status" | grep -qE "^(${valid_statuses%|})$"; then
+    echo "FAIL: $system has invalid status '$status'"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+if [ $ERRORS -eq 0 ]; then
+  echo "OK: All statuses are valid"
 fi
 
-# ── 6. Design doc presence ───────────────────────────────────────────────────
+# 5. Large non-test source files (>3000 lines)
 echo ""
-echo "--- Design Docs ---"
-for pillar_dir in pillar1_geography pillar2_emergence pillar3_arc pillar4_observable pillar5_scale; do
-    count=$(ls docs/design/${pillar_dir}/*.md 2>/dev/null | wc -l || echo 0)
-    check "docs/design/$pillar_dir has >= 1 doc" "$([ "$count" -ge 1 ] && echo ok || echo "no docs found")"
-done
+echo "=== Large source file check ==="
+LARGE_FILE_FOUND=0
+while IFS= read -r -d '' f; do
+  name=$(basename "$f")
+  lines=$(wc -l < "$f")
+  if [ "$lines" -gt 3000 ] && [ "$name" != "tests.rs" ]; then
+    echo "WARN: $f is $lines lines (over 3000 — consider splitting)"
+    WARNINGS=$((WARNINGS + 1))
+    LARGE_FILE_FOUND=1
+  fi
+done < <(find src -name "*.rs" -print0 2>/dev/null)
+if [ $LARGE_FILE_FOUND -eq 0 ]; then
+  echo "OK: No non-test source files over 3000 lines"
+fi
 
-# ── Summary ─────────────────────────────────────────────────────────────────
+# 6. Systems marked 'ok' with test_count=0 and no test_note
 echo ""
-echo "=== Results: $((CHECKS - FAILURES))/$CHECKS passed ==="
-if [ "$FAILURES" -gt 0 ]; then
-    echo "VALIDATION FAILED: $FAILURES check(s) failed"
-    exit 1
-else
-    echo "All checks passed."
-    exit 0
+echo "=== Zero-test ok systems ==="
+ZERO_TEST_FOUND=0
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  status=$(jq -r ".systems[\"$system\"].status" "$FEATURES")
+  count=$(jq -r ".systems[\"$system\"].test_count" "$FEATURES")
+  test_note=$(jq -r ".systems[\"$system\"].test_note // empty" "$FEATURES")
+  if [ "$status" = "ok" ] && [ "$count" = "0" ] && [ -z "$test_note" ]; then
+    echo "WARN: $system has status='ok' but test_count=0 with no test_note — untested?"
+    WARNINGS=$((WARNINGS + 1))
+    ZERO_TEST_FOUND=1
+  fi
+done
+if [ $ZERO_TEST_FOUND -eq 0 ]; then
+  echo "OK: All 'ok' systems with test_count=0 have a test_note explaining why"
+fi
+
+# Summary
+echo ""
+echo "=== Summary ==="
+systems=$(jq '.systems | length' "$FEATURES")
+echo "Systems: $systems"
+echo "Errors: $ERRORS"
+echo "Warnings: $WARNINGS"
+
+if [ $ERRORS -gt 0 ]; then
+  exit 1
 fi

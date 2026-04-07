@@ -56,11 +56,30 @@ impl super::Game {
             GameInput::ScrollLeft => self.camera.x -= self.scroll_speed,
             GameInput::ScrollRight => self.camera.x += self.scroll_speed,
             GameInput::ToggleRain => {
-                self.raining = !self.raining;
+                // Cycle rain mode: WindDriven -> Uniform -> Off -> WindDriven
+                use crate::simulation::RainMode;
+                self.sim_config.rain_mode = match self.sim_config.rain_mode {
+                    RainMode::WindDriven => {
+                        self.notify("Rain: UNIFORM (testing mode)".to_string());
+                        RainMode::Uniform
+                    }
+                    RainMode::Uniform => {
+                        self.notify("Rain: OFF".to_string());
+                        RainMode::Off
+                    }
+                    RainMode::Off => {
+                        self.notify("Rain: WIND-DRIVEN (normal)".to_string());
+                        RainMode::WindDriven
+                    }
+                };
                 self.dirty.mark_all();
             }
             GameInput::ToggleErosion => {
-                self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled
+                self.sim_config.erosion_enabled = !self.sim_config.erosion_enabled;
+                self.notify(format!(
+                    "Runtime erosion: {}",
+                    if self.sim_config.erosion_enabled { "ON" } else { "OFF" }
+                ));
             }
             GameInput::ToggleDayNight => {
                 self.day_night.enabled = !self.day_night.enabled;
@@ -205,7 +224,7 @@ impl super::Game {
             }
             GameInput::Drain => {
                 self.water.drain();
-                self.pipe_water.drain();
+                self.state.water.drain();
             }
             GameInput::ToggleAutoBuild => self.auto_build = !self.auto_build,
             GameInput::CycleOverlay => {
@@ -217,7 +236,11 @@ impl super::Game {
                     OverlayMode::Traffic => OverlayMode::Territory,
                     OverlayMode::Territory => OverlayMode::Wind,
                     OverlayMode::Wind => OverlayMode::WindFlow,
-                    OverlayMode::WindFlow => OverlayMode::None,
+                    OverlayMode::WindFlow => OverlayMode::Height,
+                    OverlayMode::Height => OverlayMode::Discharge,
+                    OverlayMode::Discharge => OverlayMode::Moisture,
+                    OverlayMode::Moisture => OverlayMode::Slope,
+                    OverlayMode::Slope => OverlayMode::None,
                 };
                 self.dirty.mark_all();
             }

@@ -293,13 +293,13 @@ impl super::Game {
                     continue;
                 }
 
-                let height = self.heights[idx];
+                let height = self.state.heights[idx];
                 let temp = if idx < self.pipeline_temperature.len() {
                     self.pipeline_temperature[idx]
                 } else {
                     0.5
                 };
-                let avg_m = self.moisture.get_avg(x, y);
+                let avg_m = self.state.moisture.get_avg(x, y);
                 let slope = if idx < self.pipeline_slope.len() {
                     self.pipeline_slope[idx]
                 } else {
@@ -1786,16 +1786,16 @@ impl super::Game {
 
         // ── Flatness: prefer low slope (approximate from height differences) ──
         if w_flat.abs() > 0.01 {
-            if idx < self.heights.len() {
-                let center_h = self.heights[idx];
+            if idx < self.state.heights.len() {
+                let center_h = self.state.heights[idx];
                 let mut max_diff = 0.0f64;
                 for (dx, dy) in [(-1i32, 0), (1, 0), (0, -1i32), (0, 1)] {
                     let nx = mx + dx;
                     let ny = my + dy;
                     if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h {
                         let ni = ny as usize * w + nx as usize;
-                        if ni < self.heights.len() {
-                            let diff = (self.heights[ni] - center_h).abs();
+                        if ni < self.state.heights.len() {
+                            let diff = (self.state.heights[ni] - center_h).abs();
                             if diff > max_diff {
                                 max_diff = diff;
                             }
@@ -1808,8 +1808,8 @@ impl super::Game {
         }
 
         // ── Elevation (high ground for garrisons/walls) ──
-        if w_high.abs() > 0.01 && idx < self.heights.len() {
-            score += w_high * self.heights[idx];
+        if w_high.abs() > 0.01 && idx < self.state.heights.len() {
+            score += w_high * self.state.heights[idx];
         }
 
         // ── Chokepoint: read from precomputed ChokepointMap ──

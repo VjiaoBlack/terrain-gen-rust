@@ -35,28 +35,9 @@ impl super::super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        // Check for runtime water depth (pipe_water)
-                        let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
-                        if water_depth > 0.005
-                            && !matches!(
-                                terrain,
-                                Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
-                            )
-                        {
-                            let intensity = (water_depth * 4.0).min(1.0);
-                            let water_fg = Color(
-                                (30.0 * (1.0 - intensity)) as u8,
-                                (60.0 + 40.0 * intensity) as u8,
-                                (140.0 + 60.0 * intensity) as u8,
-                            );
-                            let water_bg = Color(
-                                (15.0 * (1.0 - intensity)) as u8,
-                                (30.0 + 20.0 * intensity) as u8,
-                                (80.0 + 40.0 * intensity) as u8,
-                            );
-                            let water_chars = ['~', '≈', '∼'];
-                            let anim = ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
-                            renderer.draw(sx, sy, water_chars[anim], water_fg, Some(water_bg));
+                        // UNIFIED water rendering
+                        if let Some((ch, fg, bg)) = self.water_visual(wx as usize, wy as usize, self.tick) {
+                            renderer.draw(sx, sy, ch, fg, Some(bg));
                         } else {
                             let (ch, fg, bg) =
                                 self.landscape_terrain_glyph(terrain, wx as usize, wy as usize);
@@ -150,6 +131,14 @@ impl super::super::Game {
             self.draw_traffic_overlay(renderer);
         } else if self.overlay == OverlayMode::Wind {
             self.draw_wind_overlay(renderer);
+        } else if self.overlay == OverlayMode::Height {
+            self.draw_height_overlay(renderer);
+        } else if self.overlay == OverlayMode::Discharge {
+            self.draw_discharge_overlay(renderer);
+        } else if self.overlay == OverlayMode::Moisture {
+            self.draw_moisture_overlay(renderer);
+        } else if self.overlay == OverlayMode::Slope {
+            self.draw_slope_overlay(renderer);
         }
 
         // WindFlow: particles ARE the visualization — draw on top
@@ -202,7 +191,7 @@ impl super::super::Game {
         wy: usize,
     ) -> (char, Color, Color) {
         // Base texture character driven by vegetation density
-        let veg = self.vegetation.get(wx, wy);
+        let veg = self.state.vegetation.get(wx, wy);
         let mut ch = terrain.landscape_ch(wx, wy, veg);
 
         // Blend soil base with landscape vegetation color based on vegetation density.
@@ -221,7 +210,7 @@ impl super::super::Game {
             } else {
                 0.5
             };
-            let moist = self.moisture.get(wx, wy);
+            let moist = self.state.moisture.get(wx, wy);
             let vc = crate::tilemap::vegetation_color_from_conditions(moist, temp);
             blend_vegetation(soil.ground_fg(), vc, veg)
         } else {
@@ -233,7 +222,7 @@ impl super::super::Game {
             } else {
                 0.5
             };
-            let moist = self.moisture.get(wx, wy);
+            let moist = self.state.moisture.get(wx, wy);
             let vc = crate::tilemap::vegetation_color_from_conditions(moist, temp);
             let vc_dark = Color(
                 vc.0.saturating_sub(25),
@@ -250,8 +239,8 @@ impl super::super::Game {
             terrain,
             Terrain::Grass | Terrain::Scrubland | Terrain::Bare | Terrain::Sapling
         ) {
-            if wx < self.vegetation.width && wy < self.vegetation.height {
-                let v = self.vegetation.get(wx, wy);
+            if wx < self.state.vegetation.width && wy < self.state.vegetation.height {
+                let v = self.state.vegetation.get(wx, wy);
                 if v > 0.8 {
                     // Dense canopy
                     let pool: &[char] = &['%', '#', '&', '@'];
@@ -270,6 +259,9 @@ impl super::super::Game {
                 }
             }
         }
+
+        // River rendering removed — handled by unified water_visual() in the
+        // terrain pass. Discharge still influences water color via water_visual().
 
         // Apply seasonal palette shift
         fg = self.landscape_season_tint(fg, terrain);

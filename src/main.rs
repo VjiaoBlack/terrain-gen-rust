@@ -267,6 +267,25 @@ fn main() -> Result<()> {
         }
         eprintln!("  camera: ({}, {})", game.camera.x, game.camera.y);
 
+        // JSON diagnostics / report card output to stdout (suppresses ANSI frame)
+        let json_mode = args.iter().any(|a| a == "--diagnostics")
+            || args.iter().any(|a| a == "--report-card");
+        if args.iter().any(|a| a == "--diagnostics") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&game.collect_diagnostics()).unwrap()
+            );
+        }
+        if args.iter().any(|a| a == "--report-card") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&game.generate_report_card()).unwrap()
+            );
+        }
+        if json_mode {
+            return Ok(());
+        }
+
         if let Some(path) = png_path {
             #[cfg(feature = "png")]
             {
@@ -420,6 +439,14 @@ fn main() -> Result<()> {
                     print!("{}", r.frame_as_ansi());
                     println!("--- tick {} ---", game_obj.tick);
                     last_cmd_was_frame = true;
+                } else if cmd == "dump-state" {
+                    println!("{}", game_obj.collect_diagnostics());
+                } else if cmd == "report-card" {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&game_obj.generate_report_card())
+                            .unwrap()
+                    );
                 }
             }
             // Dump final frame only if the last command wasn't already a frame dump
@@ -510,6 +537,164 @@ fn main() -> Result<()> {
         } else {
             print!("{}", r.frame_as_string());
         }
+        return Ok(());
+    }
+
+    // --live-gen: show terrain generation in real time.
+    // Renders the heightmap as grayscale while erosion runs, ~30fps.
+    if args.iter().any(|a| a == "--live-gen") {
+        let seed: u32 = args
+            .iter()
+            .position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(42);
+        let mut renderer = CrosstermRenderer::new()?;
+        let (w, h) = renderer.size();
+        let map_w = 256usize;
+        let map_h = 256usize;
+
+        // Generate normalized terrain (Nick's approach)
+        let mut heights = terrain_gen_rust::terrain_pipeline::generate_normalized_terrain(
+            map_w, map_h, seed,
+        );
+
+        // Set up hydrology
+        let params = terrain_gen_rust::hydrology::HydroParams {
+            sea_level: 0.0,
+            ..Default::default()
+        };
+        let mut hydro = terrain_gen_rust::hydrology::HydroMap::new(map_w, map_h);
+
+        let area = (map_w * map_h) as f64;
+        let nick_area = 512.0 * 512.0;
+        let particles = ((512.0 * area / nick_area).round() as u32).max(32);
+        let target_total = 2_560_000.0 * area / nick_area;
+        let total_cycles = ((target_total / particles as f64).round() as u32).max(50);
+        let render_interval = (total_cycles / 100).max(1); // ~100 frames
+
+        use terrain_gen_rust::renderer::{Color, Renderer};
+
+        for cycle in 0..total_cycles {
+            terrain_gen_rust::hydrology::erode(
+                &mut heights, &mut hydro, &params,
+                particles, seed.wrapping_add(cycle),
+            );
+
+            // Render every N cycles
+            if cycle % render_interval == 0 || cycle == total_cycles - 1 {
+                let pct = (cycle + 1) as f64 / total_cycles as f64 * 100.0;
+                let min_h = heights.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max_h = heights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let range = (max_h - min_h).max(1e-10);
+
+                // Render heightmap using half-blocks for 2x vertical density
+                for sy in 0..(h.saturating_sub(2)) {
+                    for sx in 0..w {
+                        // Map screen coords to terrain coords
+                        let mx = (sx as f64 / w as f64 * map_w as f64) as usize;
+                        let my_top = (sy as f64 * 2.0 / (h as f64 * 2.0) * map_h as f64) as usize;
+                        let my_bot = ((sy as f64 * 2.0 + 1.0) / (h as f64 * 2.0) * map_h as f64) as usize;
+
+                        let to_gray = |mx: usize, my: usize| -> Color {
+                            if mx >= map_w || my >= map_h {
+                                return Color(0, 0, 0);
+                            }
+                            let i = my * map_w + mx;
+                            let v = ((heights[i] - min_h) / range * 255.0) as u8;
+                            // Discharge tint
+                            let d = terrain_gen_rust::hydrology::erf_approx(
+                                0.4 * hydro.discharge[i],
+                            );
+                            if d > 0.1 {
+                                let a = d.min(0.9);
+                                Color(
+                                    (v as f64 * (1.0 - a)) as u8,
+                                    (v as f64 * (1.0 - a) + 50.0 * a) as u8,
+                                    (v as f64 * (1.0 - a) + 200.0 * a) as u8,
+                                )
+                            } else {
+                                Color(v, v, v)
+                            }
+                        };
+
+                        let top = to_gray(mx, my_top);
+                        let bot = to_gray(mx, my_bot);
+                        renderer.draw(sx, sy, '▄', bot, Some(top));
+                    }
+                }
+
+                // Status line
+                let status = format!(
+                    " Erosion: {:.0}% ({}/{} cycles) particles={} min={:.3} max={:.3}",
+                    pct, cycle + 1, total_cycles, particles, min_h, max_h
+                );
+                for (i, ch) in status.chars().enumerate() {
+                    if i < w as usize {
+                        renderer.draw(
+                            i as u16,
+                            h - 1,
+                            ch,
+                            Color(255, 220, 100),
+                            Some(Color(25, 25, 40)),
+                        );
+                    }
+                }
+                renderer.flush()?;
+            }
+        }
+
+        // Pass heights + hydro to the game instead of re-running the pipeline.
+        // Drop the live-gen renderer first so showcase can create its own.
+        drop(renderer);
+
+        // Run the rest of the pipeline (biome classification, soil, etc.)
+        // on the already-eroded heightmap.
+        use terrain_gen_rust::terrain_pipeline::PipelineConfig;
+        let mut pipeline_config = PipelineConfig::default();
+        pipeline_config.terrain.seed = seed;
+        // Skip erosion in the pipeline — we already did it
+        pipeline_config.erosion_model = terrain_gen_rust::terrain_pipeline::ErosionModel::Off;
+
+        let mut result = terrain_gen_rust::terrain_pipeline::run_pipeline(map_w, map_h, &pipeline_config);
+        // Overwrite with our eroded heights and hydrology state
+        result.heights = heights;
+        result.hydro = hydro;
+        // Recompute water level from eroded heights
+        let mut sorted_h = result.heights.clone();
+        sorted_h.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        result.water_level = sorted_h[sorted_h.len() * 10 / 100];
+
+        // Reclassify biomes from eroded heightmap
+        let slope = terrain_gen_rust::terrain_pipeline::compute_slope(&result.heights, map_w, map_h);
+        let temperature = terrain_gen_rust::terrain_pipeline::compute_temperature(&result.heights, map_w, map_h, seed);
+        for y in 0..map_h {
+            for x in 0..map_w {
+                let i = y * map_w + x;
+                let terrain = terrain_gen_rust::terrain_pipeline::classify_biome(
+                    result.heights[i], temperature[i], result.moisture[i],
+                    slope[i], result.water_level,
+                );
+                result.map.set(x, y, terrain);
+            }
+        }
+        result.slope = slope;
+        result.temperature = temperature;
+
+        let mut renderer = CrosstermRenderer::new()?;
+        let mut game = Game::new_from_pipeline(60, seed, result);
+
+        game.half_speed_base = true;
+        game.world.clear();
+        let (mw, mh) = (game.map.width, game.map.height);
+        for y in 0..mh {
+            for x in 0..mw {
+                game.exploration.reveal(x, y, 1);
+            }
+        }
+        game.raining = false;
+        game.render_mode = terrain_gen_rust::game::RenderMode::Landscape;
+        run_interactive(&mut game, &mut renderer)?;
         return Ok(());
     }
 

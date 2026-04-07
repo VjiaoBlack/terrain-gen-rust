@@ -74,11 +74,36 @@ Every change must be verified with DATA, not assumptions.
 - When new research changes the approach: write new doc, keep old in git history
 - When two docs conflict: resolve in KNOWN_CONFLICTS.md, update both docs
 
+## Sprint Contracts
+
+Before implementation, the Architect and Coder negotiate a sprint contract. This replaces vague handoffs with testable agreements.
+
+```markdown
+## Sprint Contract: [feature name]
+
+### Deliverables
+- [ ] [concrete output 1]
+- [ ] [concrete output 2]
+
+### Success Criteria (must be verifiable)
+- [ ] `cargo test --lib` passes
+- [ ] [specific diagnostic check with expected values]
+- [ ] [specific playtest check: seed X produces Y behavior]
+
+### Out of Scope
+- [explicitly list what this sprint does NOT touch]
+
+### Files to Modify
+- [list files, so review agent knows what to check]
+```
+
+The contract is written BEFORE coding starts. The review agent evaluates against the contract, not vibes.
+
 ## Agent Patterns
 - **Research agent** (Sonnet): web search + synthesis → docs/research/
 - **Design agent** (Opus): reads codebase + design doc → writes feature spec
 - **Implementation agent** (Opus): reads design doc + code → implements + tests
-- **Review agent** (Opus): reads diff + project context → checks for bugs, design violations, regressions
+- **Review agent** (Opus): reads diff + project context → checks against sprint contract
 - **Master orchestrator** (this conversation): plans, delegates, verifies, merges
 
 ## Code Review Protocol

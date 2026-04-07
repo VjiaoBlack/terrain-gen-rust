@@ -32,69 +32,19 @@ impl super::super::Game {
                         continue;
                     }
                     if let Some(terrain) = self.map.get(wx as usize, wy as usize) {
-                        if *terrain == Terrain::Water {
-                            // Water terrain: animated character + blue shimmer
-                            let water_chars = ['~', '≈', '∼'];
-                            let anim_index =
-                                ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
-                            let ch = water_chars[anim_index];
-
-                            let Color(r, g, b) = terrain.fg();
-                            let shimmer =
-                                (((self.tick as f64) * 0.1 + (wx as f64)).sin() * 20.0) as i16;
-                            let b_shimmered = (b as i16 + shimmer).clamp(0, 255) as u8;
-                            let fg = Color(r, g, b_shimmered);
-
-                            let bg = terrain.bg().map(|Color(br, bg_g, bb)| {
-                                let bb_shimmered = (bb as i16 + shimmer).clamp(0, 255) as u8;
-                                Color(br, bg_g, bb_shimmered)
-                            });
-
-                            renderer.draw(sx, sy, ch, fg, bg);
+                        // UNIFIED water rendering: one code path for ocean, rivers,
+                        // rain, flooding. Reads pipe_water.depth as single source of truth.
+                        if let Some((ch, fg, bg)) = self.water_visual(wx as usize, wy as usize, self.tick) {
+                            let fg = self.day_night.apply_lighting(fg, wx as usize, wy as usize);
+                            let bg = self.day_night.apply_lighting(bg, wx as usize, wy as usize);
+                            renderer.draw(sx, sy, ch, fg, Some(bg));
                         } else {
-                            // Check for runtime water depth — render as water if flooded
-                            // Use pipe_water for responsive physics-based depth
-                            let water_depth = self.pipe_water.get_depth(wx as usize, wy as usize);
-                            if water_depth > 0.005
-                                && !matches!(
-                                    terrain,
-                                    Terrain::Water | Terrain::BuildingFloor | Terrain::BuildingWall
-                                )
-                            {
-                                let intensity = (water_depth * 4.0).min(1.0);
-                                let water_fg = Color(
-                                    (40.0 * (1.0 - intensity)) as u8,
-                                    (80.0 + 60.0 * intensity) as u8,
-                                    (160.0 + 60.0 * intensity) as u8,
-                                );
-                                let water_bg = Color(
-                                    (20.0 * (1.0 - intensity)) as u8,
-                                    (40.0 + 30.0 * intensity) as u8,
-                                    (100.0 + 40.0 * intensity) as u8,
-                                );
-                                let water_chars = ['~', '≈', '∼'];
-                                let anim =
-                                    ((self.tick / 8) as usize + wx as usize + wy as usize) % 3;
-                                let fg = self.day_night.apply_lighting(
-                                    water_fg,
-                                    wx as usize,
-                                    wy as usize,
-                                );
-                                let bg = Some(self.day_night.apply_lighting(
-                                    water_bg,
-                                    wx as usize,
-                                    wy as usize,
-                                ));
-                                renderer.draw(sx, sy, water_chars[anim], fg, bg);
-                                continue;
-                            }
-
                             // Blend soil + vegetation for natural terrain types
                             let (fg, bg) = if terrain.has_vegetation_blending() {
                                 let ux = wx as usize;
                                 let uy = wy as usize;
                                 let idx = uy * self.map.width + ux;
-                                let veg = self.vegetation.get(ux, uy);
+                                let veg = self.state.vegetation.get(ux, uy);
                                 // Soil color from actual SoilType, not biome enum
                                 let soil = if idx < self.soil.len() {
                                     self.soil[idx]
@@ -107,7 +57,7 @@ impl super::super::Game {
                                 } else {
                                     0.5
                                 };
-                                let moist = self.moisture.get(ux, uy);
+                                let moist = self.state.moisture.get(ux, uy);
                                 let vc =
                                     crate::tilemap::vegetation_color_from_conditions(moist, temp);
                                 let vc_dark = Color(
@@ -156,8 +106,8 @@ impl super::super::Game {
                 let wy = self.camera.y + sy as i32;
                 if wx >= 0
                     && wy >= 0
-                    && (wx as usize) < self.vegetation.width
-                    && (wy as usize) < self.vegetation.height
+                    && (wx as usize) < self.state.vegetation.width
+                    && (wy as usize) < self.state.vegetation.height
                 {
                     if !self.dirty.is_dirty(wx as usize, wy as usize) {
                         continue;
@@ -165,7 +115,7 @@ impl super::super::Game {
                     if !self.exploration.is_revealed(wx as usize, wy as usize) {
                         continue;
                     }
-                    let v = self.vegetation.get(wx as usize, wy as usize);
+                    let v = self.state.vegetation.get(wx as usize, wy as usize);
                     if v > 0.2 {
                         let (ch, fg) = if v > 0.8 {
                             ('♠', Color(0, 80, 10))
@@ -192,7 +142,7 @@ impl super::super::Game {
                                 } else {
                                     0.5
                                 };
-                                let moist_v = self.moisture.get(ux, uy);
+                                let moist_v = self.state.moisture.get(ux, uy);
                                 let vc = crate::tilemap::vegetation_color_from_conditions(
                                     moist_v, temp_v,
                                 );
@@ -234,7 +184,7 @@ impl super::super::Game {
                     if matches!(self.map.get(wx as usize, wy as usize), Some(Terrain::Water)) {
                         continue;
                     }
-                    let depth = self.pipe_water.get_depth(wx as usize, wy as usize);
+                    let depth = self.state.water.get_depth(wx as usize, wy as usize);
                     if depth > 0.05 {
                         let intensity = (depth * 5.0).min(1.0);
                         let r = (50.0 * (1.0 - intensity)) as u8;
@@ -412,6 +362,14 @@ impl super::super::Game {
             self.draw_traffic_overlay(renderer);
         } else if self.overlay == OverlayMode::Wind {
             self.draw_wind_overlay(renderer);
+        } else if self.overlay == OverlayMode::Height {
+            self.draw_height_overlay(renderer);
+        } else if self.overlay == OverlayMode::Discharge {
+            self.draw_discharge_overlay(renderer);
+        } else if self.overlay == OverlayMode::Moisture {
+            self.draw_moisture_overlay(renderer);
+        } else if self.overlay == OverlayMode::Slope {
+            self.draw_slope_overlay(renderer);
         }
 
         // WindFlow: particles ARE the visualization — draw on top

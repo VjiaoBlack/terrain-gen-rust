@@ -330,16 +330,16 @@ impl super::super::Game {
                 }
                 let ux = wx as usize;
                 let uy = wy as usize;
-                if ux >= self.wind.width || uy >= self.wind.height {
+                if ux >= self.state.wind.width || uy >= self.state.wind.height {
                     continue;
                 }
                 if !self.exploration.is_revealed(ux, uy) {
                     continue;
                 }
 
-                let (vx, vy) = self.wind.get_wind(ux, uy);
-                let speed = self.wind.get_speed(ux, uy);
-                let shadow = self.wind.get_shadow(ux, uy);
+                let (vx, vy) = self.state.wind.get_wind(ux, uy);
+                let speed = self.state.wind.get_speed(ux, uy);
+                let shadow = self.state.wind.get_shadow(ux, uy);
 
                 // Direction arrow: points where wind is going
                 // In our coordinate system: +x = right, +y = down
@@ -378,6 +378,177 @@ impl super::super::Game {
                     Color(r, g, b),
                     Some(Color(bg_val, bg_val, bg_val + 10)),
                 );
+            }
+        }
+    }
+
+    /// Draw height overlay: grayscale showing raw heightmap values.
+    /// Black = water_level (0.0), white = max height (1.0).
+    /// Useful for diagnosing erosion artifacts.
+    pub(in super::super) fn draw_height_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 {
+                    continue;
+                }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.map.width || uy >= self.map.height {
+                    continue;
+                }
+
+                let idx = uy * self.map.width + ux;
+                let height = if idx < self.state.heights.len() {
+                    self.state.heights[idx]
+                } else {
+                    0.0
+                };
+
+                // Pure 0-255 grayscale: height maps directly to brightness.
+                // Water gets blue tint. Uses half-block ▄ for 2x vertical density.
+                let water_level = self.terrain_config.water_level;
+                // Also check pipe_water depth for dynamic water
+                let pw_depth = self.state.water.get_depth(ux, uy);
+                let is_water = height <= water_level || pw_depth > 0.01;
+
+                let (ch, fg, bg) = if is_water {
+                    // Water: blue brightness by depth
+                    let depth = if height <= water_level {
+                        ((water_level - height) / water_level.max(0.01)).clamp(0.0, 1.0)
+                    } else {
+                        (pw_depth * 5.0).clamp(0.0, 1.0)
+                    };
+                    let v = (255.0 * (1.0 - depth * 0.7)) as u8;
+                    (' ', Color(0, 0, v), Color(0, 0, v))
+                } else {
+                    // Land: pure grayscale 0-255
+                    let v = (height.clamp(0.0, 1.0) * 255.0) as u8;
+                    (' ', Color(v, v, v), Color(v, v, v))
+                };
+
+                renderer.draw(sx_raw as u16, sy, ch, fg, Some(bg));
+                // Fill aspect ratio gap
+                for dx in 1..aspect {
+                    let fill_x = sx_raw + dx as i32;
+                    if fill_x >= 0 && (fill_x as u16) < w {
+                        renderer.draw(fill_x as u16, sy, ' ', fg, Some(bg));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Draw discharge overlay: blue intensity = river flow strength.
+    pub(in super::super) fn draw_discharge_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 { continue; }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.map.width || uy >= self.map.height { continue; }
+
+                let idx = uy * self.map.width + ux;
+                let d = if idx < self.state.hydro.discharge.len() {
+                    crate::hydrology::erf_approx(0.4 * self.state.hydro.discharge[idx])
+                } else {
+                    0.0
+                };
+                let v = (d * 255.0).min(255.0) as u8;
+                let fg = Color(0, v / 3, v);
+                let bg = Color(0, v / 6, v / 2);
+
+                renderer.draw(sx_raw as u16, sy, ' ', fg, Some(bg));
+                for dx in 1..aspect {
+                    let fill_x = sx_raw + dx as i32;
+                    if fill_x >= 0 && (fill_x as u16) < w {
+                        renderer.draw(fill_x as u16, sy, ' ', fg, Some(bg));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Draw moisture overlay: green intensity = soil moisture.
+    pub(in super::super) fn draw_moisture_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 { continue; }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.map.width || uy >= self.map.height { continue; }
+
+                let m = self.state.moisture.get(ux, uy);
+                let v = (m.clamp(0.0, 1.0) * 255.0) as u8;
+                let fg = Color(v / 4, v, v / 3);
+                let bg = Color(v / 8, v / 2, v / 6);
+
+                renderer.draw(sx_raw as u16, sy, ' ', fg, Some(bg));
+                for dx in 1..aspect {
+                    let fill_x = sx_raw + dx as i32;
+                    if fill_x >= 0 && (fill_x as u16) < w {
+                        renderer.draw(fill_x as u16, sy, ' ', fg, Some(bg));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Draw slope overlay: white intensity = steepness.
+    pub(in super::super) fn draw_slope_overlay(&self, renderer: &mut dyn Renderer) {
+        let (w, h) = renderer.size();
+        let status_h = 1u16;
+        let aspect = CELL_ASPECT;
+        let panel_w = PANEL_WIDTH as i32;
+
+        for sy in 0..h.saturating_sub(status_h) {
+            for sx_raw in (panel_w..w as i32).step_by(aspect as usize) {
+                let wx = self.camera.x + (sx_raw - panel_w) / aspect;
+                let wy = self.camera.y + sy as i32;
+                if wx < 0 || wy < 0 { continue; }
+                let ux = wx as usize;
+                let uy = wy as usize;
+                if ux >= self.map.width || uy >= self.map.height { continue; }
+
+                let idx = uy * self.map.width + ux;
+                let slope = if idx < self.pipeline_slope.len() {
+                    self.pipeline_slope[idx]
+                } else {
+                    0.0
+                };
+                // Amplify slope for visibility (typical range 0-0.1)
+                let v = (slope * 10.0).clamp(0.0, 1.0);
+                let brightness = (v * 255.0) as u8;
+                let fg = Color(brightness, brightness, brightness);
+                let bg = Color(brightness / 2, brightness / 2, brightness / 2);
+
+                renderer.draw(sx_raw as u16, sy, ' ', fg, Some(bg));
+                for dx in 1..aspect {
+                    let fill_x = sx_raw + dx as i32;
+                    if fill_x >= 0 && (fill_x as u16) < w {
+                        renderer.draw(fill_x as u16, sy, ' ', fg, Some(bg));
+                    }
+                }
             }
         }
     }

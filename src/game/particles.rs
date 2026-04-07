@@ -47,11 +47,11 @@ impl super::Game {
             let py = self.camera.y + (rng.random_range(0..vh as u32) as i32);
             if px >= 0
                 && py >= 0
-                && (px as usize) < self.wind.width
-                && (py as usize) < self.wind.height
+                && (px as usize) < self.state.wind.width
+                && (py as usize) < self.state.wind.height
             {
-                let (wx, wy) = self.wind.get_wind(px as usize, py as usize);
-                let speed = self.wind.get_speed(px as usize, py as usize);
+                let (wx, wy) = self.state.wind.get_wind(px as usize, py as usize);
+                let speed = self.state.wind.get_speed(px as usize, py as usize);
                 if speed > 0.02 {
                     // Particle char hints at direction
                     let ch = if wx.abs() > wy.abs() {

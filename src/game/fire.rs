@@ -31,7 +31,7 @@ impl super::Game {
             if !terrain.is_flammable() {
                 continue;
             }
-            let moisture = self.moisture.get(x, y);
+            let moisture = self.state.moisture.get(x, y);
             if moisture >= 0.15 {
                 continue;
             }
@@ -69,7 +69,7 @@ impl super::Game {
                     if !terrain.is_flammable() {
                         continue;
                     }
-                    let moisture = self.moisture.get(ux, uy);
+                    let moisture = self.state.moisture.get(ux, uy);
                     if moisture >= 0.15 {
                         continue;
                     }
@@ -136,12 +136,12 @@ impl super::Game {
                         continue;
                     }
                     // High moisture blocks spread
-                    let moisture = self.moisture.get(ux, uy);
+                    let moisture = self.state.moisture.get(ux, uy);
                     if moisture > 0.6 {
                         continue;
                     }
                     // spread_probability = 0.03 * (1.0 - moisture) * vegetation_factor
-                    let veg = self.vegetation.get(ux, uy).clamp(0.3, 1.0);
+                    let veg = self.state.vegetation.get(ux, uy).clamp(0.3, 1.0);
                     let prob = 0.03 * (1.0 - moisture) * veg;
                     let roll = rng.random_range(0u32..10000) as f64 / 10000.0;
                     if roll < prob {
@@ -172,7 +172,7 @@ impl super::Game {
             // Ash fertility bonus
             self.soil_fertility.add(*x, *y, 0.05);
             // Clear vegetation
-            if let Some(v) = self.vegetation.get_mut(*x, *y) {
+            if let Some(v) = self.state.vegetation.get_mut(*x, *y) {
                 *v = 0.0;
             }
         }
