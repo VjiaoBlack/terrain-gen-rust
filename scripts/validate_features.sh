@@ -126,6 +126,44 @@ if [ $ZERO_TEST_FOUND -eq 0 ]; then
   echo "OK: All 'ok' systems with test_count=0 have a test_note explaining why"
 fi
 
+# 7. threat_score present in collect_diagnostics (regression guard)
+echo ""
+echo "=== Diagnostics coverage ==="
+if ! grep -q '"threat_score"' src/game/mod.rs 2>/dev/null; then
+  echo "FAIL: threat_score not found in src/game/mod.rs — diagnostics regression?"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "OK: threat_score present in diagnostics output"
+fi
+
+# 8. Stale last_verified dates (>30 days)
+echo ""
+echo "=== Stale last_verified check ==="
+TODAY=$(date +%Y-%m-%d 2>/dev/null || echo "2026-01-01")
+STALE_FOUND=0
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  lv=$(jq -r ".systems[\"$system\"].last_verified // empty" "$FEATURES")
+  if [ -z "$lv" ]; then continue; fi
+  # compute days since last_verified using python3 (portable)
+  days=$(python3 -c "
+from datetime import date
+try:
+    lv = date.fromisoformat('$lv')
+    today = date.fromisoformat('$TODAY')
+    print((today - lv).days)
+except:
+    print(0)
+" 2>/dev/null || echo 0)
+  if [ "$days" -gt 30 ]; then
+    echo "WARN: $system last_verified=$lv is ${days} days old (>30)"
+    WARNINGS=$((WARNINGS + 1))
+    STALE_FOUND=1
+  fi
+done
+if [ $STALE_FOUND -eq 0 ]; then
+  echo "OK: All systems verified within 30 days"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

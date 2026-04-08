@@ -198,9 +198,10 @@
       "test_count": 107,
       "known_issues": [
         "game/mod.rs is 2592 lines \u2014 grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
-        "fire.rs, water_cycle.rs, particles.rs have 0 tests each"
+        "fire.rs, water_cycle.rs, particles.rs have 0 tests each",
+        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test \u2014 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed"
       ],
-      "last_verified": "2026-04-07"
+      "last_verified": "2026-04-08"
     },
     "building_system": {
       "status": "ok",
@@ -222,9 +223,9 @@
       "test_count": 13,
       "known_issues": [
         "Drought event structurally impossible at 12K ticks: grain>=pop*5 threshold never met in evaluation runs (Summer just starts at tick 12K)",
-        "threat_score not exposed in diagnostics JSON \u2014 event readiness unobservable"
+        "threat_score now exposed in diagnostics (RESOLVED in commit 8af4abd) — WolfSurge fires for seed 137 at tick 6000; 0/3 seeds see Drought"
       ],
-      "last_verified": "2026-04-07"
+      "last_verified": "2026-04-08"
     },
     "chokepoint": {
       "status": "ok",
