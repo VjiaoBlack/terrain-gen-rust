@@ -164,6 +164,23 @@ if [ $STALE_FOUND -eq 0 ]; then
   echo "OK: All systems verified within 30 days"
 fi
 
+# 9. needs_tests systems with test_count=0 (no progress on coverage)
+echo ""
+echo "=== needs_tests progress check ==="
+NEEDS_TESTS_STALE=0
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  status=$(jq -r ".systems[\"$system\"].status" "$FEATURES")
+  count=$(jq -r ".systems[\"$system\"].test_count" "$FEATURES")
+  if [ "$status" = "needs_tests" ] && [ "$count" = "0" ]; then
+    echo "WARN: $system status='needs_tests' but test_count=0 — no progress on test coverage"
+    WARNINGS=$((WARNINGS + 1))
+    NEEDS_TESTS_STALE=1
+  fi
+done
+if [ $NEEDS_TESTS_STALE -eq 0 ]; then
+  echo "OK: All 'needs_tests' systems have made progress (test_count > 0)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
