@@ -181,6 +181,30 @@ if [ $NEEDS_TESTS_STALE -eq 0 ]; then
   echo "OK: All 'needs_tests' systems have made progress (test_count > 0)"
 fi
 
+# 10. Hardcoded /tmp/ paths in test files (parallel test race condition risk)
+echo ""
+echo "=== Hardcoded temp path check ==="
+HARDCODED_TMP=0
+# Collect unique file+path pairs to avoid duplicate warnings per usage site
+declare -A SEEN_TMP
+while IFS= read -r match; do
+  file=$(echo "$match" | cut -d: -f1)
+  path=$(echo "$match" | grep -oE '"/tmp/[^"]*"' | head -1)
+  key="${file}:${path}"
+  # Warn if it looks like a plain /tmp/test_*.json with no dynamic component
+  if echo "$path" | grep -qE '"/tmp/test_[a-z_]+\.(json|txt|bin)"'; then
+    if [ -z "${SEEN_TMP[$key]+x}" ]; then
+      SEEN_TMP[$key]=1
+      echo "WARN: $file has hardcoded tmp path $path — parallel tests may race (use unique suffix)"
+      WARNINGS=$((WARNINGS + 1))
+      HARDCODED_TMP=1
+    fi
+  fi
+done < <(grep -rn '"/tmp/' src/ 2>/dev/null)
+if [ $HARDCODED_TMP -eq 0 ]; then
+  echo "OK: No hardcoded /tmp/ paths with static names found in test files"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

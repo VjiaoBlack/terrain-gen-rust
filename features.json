@@ -201,9 +201,10 @@
       "known_issues": [
         "game/mod.rs is 2592 lines — grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
         "fire.rs, water_cycle.rs, particles.rs have 0 tests each",
-        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test — 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed"
+        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test — 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed",
+        "save_load_round_trip (tests.rs:196) and build_site_gets_completed_in_game (tests.rs:251) fail intermittently in full parallel test suite — save_load uses hardcoded /tmp/test_savegame.json (races with test_events_save.json in parallel), build_site is timing-sensitive under thread contention; both pass when run individually"
       ],
-      "last_verified": "2026-04-09"
+      "last_verified": "2026-04-10"
     },
     "building_system": {
       "status": "ok",
