@@ -205,6 +205,26 @@ if [ $HARDCODED_TMP -eq 0 ]; then
   echo "OK: No hardcoded /tmp/ paths with static names found in test files"
 fi
 
+# 11. Verify simulation.rs does not exist (split to src/simulation/ is complete)
+echo ""
+echo "=== Split regression guard: simulation.rs ==="
+if [ -f "src/simulation.rs" ]; then
+  echo "FAIL: src/simulation.rs exists — this monolith was split into src/simulation/. Accidental re-creation?"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "OK: src/simulation.rs absent (split to src/simulation/ intact)"
+fi
+
+# 12. Verify game/render.rs does not exist (split to src/game/render/ is complete)
+echo ""
+echo "=== Split regression guard: game/render.rs ==="
+if [ -f "src/game/render.rs" ]; then
+  echo "FAIL: src/game/render.rs exists — this file was split into src/game/render/. Accidental re-creation?"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "OK: src/game/render.rs absent (split to src/game/render/ intact)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

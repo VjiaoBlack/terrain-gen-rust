@@ -15,5 +15,22 @@
       "emergent_behavior": 2
     },
     "notes": "0D architecture refactor (WorldState) Stages 1-4 complete. Terrain 98%+ flat (elevation_std 0.09-0.12). Food Critical on 2/3 seeds at tick 6000. All baselines PASS. No active events/wolves on any seed at tick 6000."
+  },
+  {
+    "date": "2026-04-11",
+    "commit": "eeef277",
+    "seeds": {
+      "42": {"population": 4, "food": 12, "food_per_cap": 3.0, "buildings": 5, "water_pct": 30.7, "biomes": 13, "survived": true},
+      "137": {"population": 11, "food": 15, "food_per_cap": 1.4, "buildings": 10, "water_pct": 17.9, "biomes": 14, "survived": true},
+      "777": {"population": 13, "food": 18, "food_per_cap": 1.4, "buildings": 12, "water_pct": 37.9, "biomes": 14, "survived": true}
+    },
+    "rubric_avg": 2.9,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 3
+    },
+    "notes": "Terrain 98.5%+ flat (persistent). Food Tight/Critical on 2/3 seeds. WolfSurge fires on seed 42 (threat_score=10.68). Default seed (no --seed) dies at tick 6668. ARCHITECTURE.md stale (second day). event_system_serialization added as known flaky test. All 3 baselines PASS. Score 2.9 unchanged from 2026-04-10."
   }
 ]
