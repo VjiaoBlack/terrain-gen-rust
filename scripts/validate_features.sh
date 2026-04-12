@@ -225,6 +225,27 @@ else
   echo "OK: src/game/render.rs absent (split to src/game/render/ intact)"
 fi
 
+# 13. Verify code-split product files exist (positive complement to checks 11-12)
+echo ""
+echo "=== Split product files exist ==="
+MISSING_SPLITS=0
+for split_file in \
+    "src/ecs/tests.rs" \
+    "src/game/tests.rs" \
+    "src/game/input.rs" \
+    "src/game/water_cycle.rs" \
+    "src/game/fire.rs" \
+    "src/game/particles.rs"; do
+  if [ ! -f "$split_file" ]; then
+    echo "FAIL: $split_file missing — expected from code-split; may have been accidentally deleted"
+    ERRORS=$((ERRORS + 1))
+    MISSING_SPLITS=1
+  fi
+done
+if [ $MISSING_SPLITS -eq 0 ]; then
+  echo "OK: All expected split-product files present"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
