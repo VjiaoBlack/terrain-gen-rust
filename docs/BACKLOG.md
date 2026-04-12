@@ -153,6 +153,11 @@ This refactor touches rendering, walkability, pathfinding, ice, floods, biome cl
 
 (Ocean rendering mismatch moved to Priority 0D Stage 1)
 
+### Simulation non-determinism across same-seed replays
+- **Status**: NOT STARTED
+- **Why**: Health check agent reports seed 137 producing food=3 on one run and food=15 on another at the same tick count. Same-seed replays should be deterministic. Likely `thread_rng()` leaking into breeding/death systems.
+- **Approach**: Grep for `thread_rng()` in game loop code paths. Replace with seeded RNG passed through `Game` struct. Verify with a test that two same-seed runs produce identical state.
+
 ## Priority 2: Vegetation-Erosion Coupling
 
 ### Root-density erosion resistance
