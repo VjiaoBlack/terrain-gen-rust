@@ -209,8 +209,9 @@ fn save_load_round_trip() {
         .filter(|c| c.species == Species::Villager)
         .count();
 
-    game.save("/tmp/test_savegame.json").unwrap();
-    let loaded = Game::load("/tmp/test_savegame.json", 60).unwrap();
+    let path = format!("/tmp/test_savegame_{:?}_{}.json", std::thread::current().id(), std::process::id());
+    game.save(&path).unwrap();
+    let loaded = Game::load(&path, 60).unwrap();
 
     assert_eq!(loaded.tick, tick_before);
     assert_eq!(loaded.resources.food, food_before);
@@ -222,7 +223,7 @@ fn save_load_round_trip() {
         .count();
     assert_eq!(villager_count_after, villager_count_before);
 
-    let _ = std::fs::remove_file("/tmp/test_savegame.json");
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
@@ -700,8 +701,9 @@ fn event_system_serialization() {
     });
     game.events.event_log.push("Test event".to_string());
 
-    game.save("/tmp/test_events_save.json").unwrap();
-    let loaded = Game::load("/tmp/test_events_save.json", 60).unwrap();
+    let path = format!("/tmp/test_events_save_{:?}_{}.json", std::thread::current().id(), std::process::id());
+    game.save(&path).unwrap();
+    let loaded = Game::load(&path, 60).unwrap();
 
     assert_eq!(loaded.events.active_events.len(), 1);
     assert!(matches!(
@@ -713,7 +715,7 @@ fn event_system_serialization() {
     assert_eq!(loaded.events.event_log.len(), 1);
 
     // Cleanup
-    let _ = std::fs::remove_file("/tmp/test_events_save.json");
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
