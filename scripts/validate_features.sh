@@ -246,6 +246,26 @@ if [ $MISSING_SPLITS -eq 0 ]; then
   echo "OK: All expected split-product files present"
 fi
 
+# 14. Known-flaky tests not marked #[ignore] (CI false-failure guard)
+echo ""
+echo "=== Known-flaky test ignore guard ==="
+FLAKY_UNIGNORED=0
+# construction_dust_particles_spawn is documented as flaky in features.json (game_loop.known_issues)
+# Probabilistic particle spawn over 20 ticks → ~0.3% false-failure rate per CI run.
+# Should be #[ignore]d to avoid non-deterministic CI failures.
+if grep -q "fn construction_dust_particles_spawn" src/game/tests.rs 2>/dev/null; then
+  if grep -B3 "fn construction_dust_particles_spawn" src/game/tests.rs | grep -q "#\[ignore"; then
+    echo "OK: Known-flaky test construction_dust_particles_spawn is properly marked #[ignore]"
+  else
+    echo "WARN: construction_dust_particles_spawn is documented as flaky (features.json:game_loop) but not marked #[ignore] — false CI failures expected (hit on 2026-04-13)"
+    WARNINGS=$((WARNINGS + 1))
+    FLAKY_UNIGNORED=1
+  fi
+fi
+if [ $FLAKY_UNIGNORED -eq 0 ] && ! grep -q "fn construction_dust_particles_spawn" src/game/tests.rs 2>/dev/null; then
+  echo "OK: construction_dust_particles_spawn not found (removed or renamed — update this check)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

@@ -11,9 +11,11 @@
       "test_count": 23,
       "known_issues": [
         "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs",
-        "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)"
+        "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)",
+        "terrain_pipeline.rs is 2232 lines — approaching split threshold",
+        "Desert biome dominant in 2/3 evaluation seeds (32–49%) with near-zero Forest (0.1–0.7%); biome distribution imbalanced post-WorldState refactor"
       ],
-      "last_verified": "2026-04-12"
+      "last_verified": "2026-04-13"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -93,7 +95,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-04-12"
+      "last_verified": "2026-04-13"
     },
     "simulation_scent": {
       "status": "ok",
@@ -151,9 +153,10 @@
       "known_issues": [
         "ecs/tests.rs is 7164 lines in one file — should be split into focused test modules",
         "VillagerMemory is written (DangerZone, ThreatReport) in systems.rs but never read in ai.rs for decisions — Phase 2 (memory-driven AI) not started; AI still reads global stockpile counts (15 occurrences in ai.rs)",
-        "Simulation non-determinism: seed 777 population at tick 6000 varies between runs (13 on 2026-04-11, 11 on 2026-04-12). Likely cause: thread_rng() used in breeding/death path — replace with seeded per-entity RNG for reproducibility."
+        "Simulation non-determinism: seed 777 population at tick 6000 varies between runs (13 on 2026-04-11, 11 on 2026-04-12). Likely cause: thread_rng() used in breeding/death path — replace with seeded per-entity RNG for reproducibility.",
+        "ecs/systems.rs is 2227 lines and ecs/ai.rs is 2104 lines — both approaching split threshold"
       ],
-      "last_verified": "2026-04-12"
+      "last_verified": "2026-04-13"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -202,11 +205,11 @@
       "known_issues": [
         "game/mod.rs is 2592 lines — grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
         "fire.rs, water_cycle.rs, particles.rs have 0 tests each",
-        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test — 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed",
+        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test — 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed. HIT on 2026-04-13. Should be #[ignore]d.",
         "save_load_round_trip (tests.rs:196) and build_site_gets_completed_in_game (tests.rs:251) fail intermittently in full parallel test suite — save_load uses hardcoded /tmp/test_savegame.json (races with test_events_save.json in parallel), build_site is timing-sensitive under thread contention; both pass when run individually",
         "event_system_serialization (tests.rs:703) also flaky — uses hardcoded /tmp/test_events_save.json, races with save_load_round_trip in parallel test runs; same fix needed (unique temp path per process)"
       ],
-      "last_verified": "2026-04-12"
+      "last_verified": "2026-04-13"
     },
     "building_system": {
       "status": "ok",
@@ -216,8 +219,10 @@
       ],
       "test_count": 0,
       "test_note": "Tests live in src/game/tests.rs, counted under game_loop",
-      "known_issues": [],
-      "last_verified": "2026-04-09"
+      "known_issues": [
+        "game/build.rs is 2306 lines — approaching split threshold"
+      ],
+      "last_verified": "2026-04-13"
     },
     "events": {
       "status": "needs_work",
@@ -229,9 +234,10 @@
       "known_issues": [
         "Drought event structurally impossible at 12K ticks: grain>=pop*5 threshold never met in evaluation runs (Summer just starts at tick 12K)",
         "WolfSurge fires for seed 42 at tick 6000 (threat_score=10.68); seeds 137/777 see no events at tick 6000. 0/3 seeds see Drought.",
-        "Road auto-build (ROAD_TRAFFIC_THRESHOLD=300.0) never triggers in evaluation window — 0% Road coverage at tick 6000 across all 3 seeds. Threshold too high for small populations (4-11 villagers)."
+        "Road auto-build (ROAD_TRAFFIC_THRESHOLD=300.0) never triggers in evaluation window — 0% Road coverage at tick 6000 across all 3 seeds. Threshold too high for small populations (4-11 villagers).",
+        "0/3 evaluation seeds produced any events at tick 6000 on 2026-04-13 — event calibration needs work across all event types"
       ],
-      "last_verified": "2026-04-12"
+      "last_verified": "2026-04-13"
     },
     "chokepoint": {
       "status": "ok",
