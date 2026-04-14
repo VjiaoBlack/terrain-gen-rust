@@ -266,6 +266,54 @@ if [ $FLAKY_UNIGNORED -eq 0 ] && ! grep -q "fn construction_dust_particles_spawn
   echo "OK: construction_dust_particles_spawn not found (removed or renamed — update this check)"
 fi
 
+# 15. Non-determinism guard: rand::rng() in game simulation hot paths
+echo ""
+echo "=== RNG determinism check ==="
+NONDETERMINISTIC=0
+for hotpath in src/ecs/systems.rs src/game/mod.rs src/ecs/ai.rs; do
+  if [ -f "$hotpath" ]; then
+    count=$(grep -c "rand::rng()" "$hotpath" 2>/dev/null || true)
+    if [ "$count" -gt 0 ]; then
+      echo "WARN: $hotpath uses rand::rng() ($count occurrences) — non-deterministic across same-seed replays (BACKLOG.md: simulation non-determinism)"
+      WARNINGS=$((WARNINGS + 1))
+      NONDETERMINISTIC=1
+    fi
+  fi
+done
+if [ $NONDETERMINISTIC -eq 0 ]; then
+  echo "OK: No rand::rng() in game loop hot paths — simulation determinism maintained"
+fi
+
+# 16. metrics_history.json freshness (health-check continuity guard)
+echo ""
+echo "=== Metrics history freshness ==="
+if [ ! -f "docs/metrics_history.json" ]; then
+  echo "WARN: docs/metrics_history.json not found — trend tracking missing"
+  WARNINGS=$((WARNINGS + 1))
+else
+  LATEST_DATE=$(jq -r '.[-1].date // empty' "docs/metrics_history.json" 2>/dev/null)
+  if [ -z "$LATEST_DATE" ] || [ "$LATEST_DATE" = "null" ]; then
+    echo "WARN: docs/metrics_history.json has no entries"
+    WARNINGS=$((WARNINGS + 1))
+  else
+    days=$(python3 -c "
+from datetime import date
+try:
+  lv = date.fromisoformat('$LATEST_DATE')
+  today = date.fromisoformat('$(date +%Y-%m-%d 2>/dev/null || echo 2026-01-01)')
+  print((today - lv).days)
+except:
+  print(0)
+" 2>/dev/null || echo 0)
+    if [ "$days" -gt 14 ]; then
+      echo "WARN: metrics_history.json last entry is $LATEST_DATE ($days days ago > 14) — rubric evaluations may be stale"
+      WARNINGS=$((WARNINGS + 1))
+    else
+      echo "OK: metrics_history.json recent entry: $LATEST_DATE ($days days ago)"
+    fi
+  fi
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
