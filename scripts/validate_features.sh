@@ -314,6 +314,35 @@ except:
   fi
 fi
 
+# 17. Score plateau detection: warn if last 5 metrics_history entries show no improvement
+echo ""
+echo "=== Score plateau detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  plateau=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 5:
+    print('insufficient_data')
+else:
+    recent = [e.get('rubric_avg', e.get('score')) for e in data[-5:] if e.get('rubric_avg') or e.get('score')]
+    if len(recent) >= 5 and round(max(recent) - min(recent), 2) <= 0.10:
+        print(f'plateau:{len(recent)}:{recent[-1]}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$plateau" | grep -q "^plateau:"; then
+    count=$(echo "$plateau" | cut -d: -f2)
+    score=$(echo "$plateau" | cut -d: -f3)
+    echo "WARN: Game score has been flat at ~${score}/5.0 for ${count}+ consecutive entries — no improvement detected. Prioritize BACKLOG.md items to break plateau."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Score is not in a plateau (recent variation detected or insufficient history)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check for plateau"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
