@@ -244,5 +244,46 @@
       "emergent_behavior": 3
     },
     "notes": "777/1/10 tests \u2014 construction_dust_particles_spawn fired (probabilistic, 2nd time; needs #[ignore]). No code changes since April 12. Seed 137 food=11 (was 16 on April 14 \u2014 rand::rng() variance). 0 events all seeds. All baselines PASS. Added check #17 (score plateau detection) \u2014 fires for 5 consecutive entries at 2.90."
+  },
+  {
+    "date": "2026-04-16",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true
+      },
+      "137": {
+        "population": 11,
+        "food": 8,
+        "food_per_cap": 0.7,
+        "buildings": 9,
+        "water_pct": 17.9,
+        "biomes": 13,
+        "survived": true
+      },
+      "777": {
+        "population": 11,
+        "food": 18,
+        "food_per_cap": 1.6,
+        "buildings": 11,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "survived": true
+      }
+    },
+    "rubric_avg": 2.9,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 3
+    },
+    "notes": "778/0/10 tests. 0 events all seeds. Seed 137 food=8 (rand::rng() variance \u2014 was 11 on Apr 15). construction_dust_particles_spawn still not #[ignore]. Added check #18 (needs_work zero-test \u2014 fires for world_state). Score 2.9 \u2014 6 consecutive plateau. All baselines PASS. 4 priority actions: fix flaky test, lower road threshold, investigate seed 42 pop stuck, fix biome distribution."
   }
 ]

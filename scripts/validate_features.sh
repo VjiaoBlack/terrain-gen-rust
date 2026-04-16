@@ -343,6 +343,23 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check for plateau"
 fi
 
+# 18. needs_work systems with test_count=0 (design issues without test coverage)
+echo ""
+echo "=== needs_work zero-test check ==="
+NEEDS_WORK_ZERO=0
+for system in $(jq -r '.systems | keys[]' "$FEATURES"); do
+  status=$(jq -r ".systems[\"$system\"].status" "$FEATURES")
+  count=$(jq -r ".systems[\"$system\"].test_count" "$FEATURES")
+  if [ "$status" = "needs_work" ] && [ "$count" = "0" ]; then
+    echo "WARN: $system status='needs_work' but test_count=0 — known design issues with no test coverage (higher risk than needs_tests)"
+    WARNINGS=$((WARNINGS + 1))
+    NEEDS_WORK_ZERO=1
+  fi
+done
+if [ $NEEDS_WORK_ZERO -eq 0 ]; then
+  echo "OK: All 'needs_work' systems have some test coverage"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
