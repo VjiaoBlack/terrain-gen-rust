@@ -360,6 +360,17 @@ if [ $NEEDS_WORK_ZERO -eq 0 ]; then
   echo "OK: All 'needs_work' systems have some test coverage"
 fi
 
+# 19. Test suite size regression guard (catch accidental test deletions)
+echo ""
+echo "=== Test suite size regression guard ==="
+actual_test_count=$(grep -r '#\[test\]' src/ --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$actual_test_count" -lt 700 ]; then
+  echo "FAIL: Only $actual_test_count #[test] annotations in src/ — expected >= 700 (possible accidental test deletion; suite was 818 on 2026-04-17)"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "OK: $actual_test_count #[test] annotations found in src/ (>= 700 threshold)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
