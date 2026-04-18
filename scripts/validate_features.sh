@@ -371,6 +371,18 @@ else
   echo "OK: $actual_test_count #[test] annotations found in src/ (>= 700 threshold)"
 fi
 
+# 20. Screenshot mode half_speed_base regression guard
+# --screenshot sets half_speed_base=true (main.rs), causing --ticks 12000 to yield game.tick≈6000.
+# All historical evaluations are calibrated to this. If removed, comparisons break.
+echo ""
+echo "=== Screenshot half_speed_base guard ==="
+if grep -q "half_speed_base = true" src/main.rs 2>/dev/null; then
+  echo "OK: half_speed_base=true present in src/main.rs (screenshot eval calibrated to game.tick≈6000 for --ticks 12000)"
+else
+  echo "WARN: half_speed_base=true not found in src/main.rs — if removed from --screenshot mode, all historical rubric evaluations are no longer comparable (game.tick would double to 12000)"
+  WARNINGS=$((WARNINGS + 1))
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
