@@ -383,6 +383,27 @@ else
   WARNINGS=$((WARNINGS + 1))
 fi
 
+# 21. Fog-of-war triviality guard: warn if sight_range or initial reveal radius is so large
+#     that the exploration map is trivially 100% revealed (confirmed in all eval seeds).
+echo ""
+echo "=== Fog-of-war triviality check ==="
+FOG_TRIVIAL=0
+sight_val=$(grep -oE 'sight_range:\s*[0-9]+(\.[0-9]+)?' src/ecs/spawn.rs 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | sort -g | tail -1)
+reveal_val=$(grep -oE 'exploration\.reveal\([^)]+,\s*[0-9]+\)' src/game/mod.rs 2>/dev/null | grep -oE ',\s*[0-9]+\)' | grep -oE '[0-9]+' | head -1)
+if [ -n "$sight_val" ] && awk "BEGIN {exit !($sight_val > 15)}"; then
+  echo "WARN: sight_range=$sight_val in spawn.rs — trivially reveals a 70x25 map (exploration_pct=100% in all eval seeds). Fog-of-war not functional as game mechanic."
+  WARNINGS=$((WARNINGS + 1))
+  FOG_TRIVIAL=1
+fi
+if [ -n "$reveal_val" ] && [ "$reveal_val" -gt 10 ]; then
+  echo "WARN: Initial exploration reveal radius=$reveal_val in game/mod.rs — instantly reveals ~40% of a 70x25 map. Reduce for meaningful fog-of-war."
+  WARNINGS=$((WARNINGS + 1))
+  FOG_TRIVIAL=1
+fi
+if [ $FOG_TRIVIAL -eq 0 ]; then
+  echo "OK: Fog-of-war parameters within reasonable range (sight_range<=15, reveal_radius<=10)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

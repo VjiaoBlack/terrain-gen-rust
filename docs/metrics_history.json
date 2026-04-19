@@ -367,5 +367,46 @@
       "emergent_behavior": 3
     },
     "notes": "778/0/10 tests. 0 errors, 6 warnings validate_features. All 3 baselines PASS. New finding: half_speed_base=true in screenshot mode makes --ticks 12000 yield game.tick=6000 (all history evaluated at tick 6000). Added check #20 (screenshot half_speed_base guard). Diagnostics sim fields under .terrain not .simulation key. food_per_cap differs between diag/report-card runs (rand::rng non-determinism: 3 in systems.rs, 3 in mod.rs). Score 2.9 \u2014 8th consecutive plateau."
+  },
+  {
+    "date": "2026-04-19",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true
+      },
+      "137": {
+        "population": 11,
+        "food": 13,
+        "food_per_cap": 1.1,
+        "buildings": 11,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true
+      },
+      "777": {
+        "population": 4,
+        "food": 14,
+        "food_per_cap": 3.5,
+        "buildings": 6,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "survived": true
+      }
+    },
+    "rubric_avg": 2.9,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 3
+    },
+    "notes": "778/0/10 tests. 0 errors, 8 warnings validate_features (6 existing + 2 from new check #21 fog-of-war triviality). All 3 baselines PASS. Non-determinism confirmed: seed 777 yielded pop=4/11/12 in 3 sequential diagnostic runs today. 0 events all seeds. Added harness check #21 (fog-of-war triviality: sight_range=25.0>15, reveal_radius=15>10). Score 2.9 \u2014 9th consecutive plateau."
   }
 ]
