@@ -404,6 +404,20 @@ if [ $FOG_TRIVIAL -eq 0 ]; then
   echo "OK: Fog-of-war parameters within reasonable range (sight_range<=15, reveal_radius<=10)"
 fi
 
+# 22. VillagerMemory Pillar 2 gap detector
+# Design doc (game_design.md Pillar 2) requires per-villager memory to drive AI decisions.
+# VillagerMemory is defined in components.rs and written in systems.rs, but if it is never
+# read in ai.rs, Pillar 2 (local decision-making) is not implemented — villagers still use
+# global stockpile counts instead of personal knowledge.
+echo ""
+echo "=== Pillar 2 gap: VillagerMemory in AI ==="
+if ! grep -q "VillagerMemory" src/ecs/ai.rs 2>/dev/null; then
+  echo "WARN: VillagerMemory not referenced in src/ecs/ai.rs — per-villager memory (Pillar 2) is defined and written but not read for AI decisions. Villagers still use global state."
+  WARNINGS=$((WARNINGS + 1))
+else
+  echo "OK: VillagerMemory is referenced in ai.rs — Pillar 2 memory-driven decisions connected"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

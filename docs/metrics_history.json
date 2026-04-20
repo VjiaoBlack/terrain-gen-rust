@@ -408,5 +408,46 @@
       "emergent_behavior": 3
     },
     "notes": "778/0/10 tests. 0 errors, 8 warnings validate_features (6 existing + 2 from new check #21 fog-of-war triviality). All 3 baselines PASS. Non-determinism confirmed: seed 777 yielded pop=4/11/12 in 3 sequential diagnostic runs today. 0 events all seeds. Added harness check #21 (fog-of-war triviality: sight_range=25.0>15, reveal_radius=15>10). Score 2.9 \u2014 9th consecutive plateau."
+  },
+  {
+    "date": "2026-04-20",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true
+      },
+      "137": {
+        "population": 11,
+        "food": 11,
+        "food_per_cap": 1.0,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 13,
+        "survived": true
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.4,
+        "buildings": 8,
+        "water_pct": 37.9,
+        "biomes": 15,
+        "survived": true
+      }
+    },
+    "rubric_avg": 2.9,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 3
+    },
+    "notes": "778/0/10 tests. Seed 42 observed dying at tick 6668 in playtest (GAME OVER). Food Critical in 2/3 seeds. Added check #22 (VillagerMemory Pillar 2 gap). 9 validate_features warnings. Score 2.9 \u2014 9th consecutive plateau. All baselines PASS. sight_range now 25.0 (up from 22). Priority: diagnose seed 42 death, fix food crisis, lower road threshold."
   }
 ]
