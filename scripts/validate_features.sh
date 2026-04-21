@@ -418,6 +418,41 @@ else
   echo "OK: VillagerMemory is referenced in ai.rs — Pillar 2 memory-driven decisions connected"
 fi
 
+# 23. Persistent food crisis: food_per_cap < 2.0 in 2+ of 3 seeds for 3+ consecutive entries
+# Catches chronic food under-production that isn't resolved between health checks.
+echo ""
+echo "=== Persistent food crisis check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  crisis=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 3:
+    print('insufficient_data')
+else:
+    window = data[-5:]
+    crisis_entries = sum(
+        1 for entry in window
+        if sum(1 for s in entry.get('seeds', {}).values()
+               if s.get('food_per_cap', 999) < 2.0) >= 2
+    )
+    if crisis_entries >= 3:
+        print(f'crisis:{crisis_entries}:{len(window)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$crisis" | grep -q "^crisis:"; then
+    count=$(echo "$crisis" | cut -d: -f2)
+    total=$(echo "$crisis" | cut -d: -f3)
+    echo "WARN: food_per_cap < 2.0 in 2+ seeds in ${count}/${total} recent health checks — food system chronically under-producing. Diagnose farm yield vs hunger rate before changing constants."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: No persistent food crisis (food_per_cap >= 2.0 in majority of seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check food crisis trend"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
