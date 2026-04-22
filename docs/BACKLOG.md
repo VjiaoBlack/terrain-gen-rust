@@ -194,3 +194,13 @@ This refactor touches rendering, walkability, pathfinding, ice, floods, biome cl
 ### Sediment type conversion graph
 - **Research**: `docs/research/soilmachine_deep_dive.md` (section 2: Sediment Conversion Graph)
 - Rock → gravel → sand → soil chain.
+
+### Web port for website-background renders
+- **Status**: IDEA — brainstormed 2026-04-21
+- **Why**: Run terrain sim as ambient background on personal sites / portfolio. Doubles as a "demo reel" for the project.
+- **Options considered**:
+  - **A. WASM (Rust → `wasm-bindgen` → browser)** — keeps Rust as single source of truth, near-native perf (~0.5-2ms/tick at 128×128). ~300KB-1.5MB bundle, ~200ms cold-start. Best if we want the real game playable in browser.
+  - **B. Full TS port** — rejected. 2-4 weeks of work, permanent double-maintenance tax, slower than WASM anyway.
+  - **C. TS "lite" (aesthetic-only)** — weekend project. Reimplement just noise terrain + fake villager animation. Tiny bundle (~30-80KB), fast first paint. Best if the goal is just *vibes* in a background.
+- **Recommendation**: Start with C (cheap, satisfies background use-case). Upgrade to A later only if browser-playable game becomes a real goal. Do NOT do B.
+- **Prerequisite for A**: expose a minimal `World::step()` + snapshot-getter surface from the Rust crate, compile with `wasm-pack`.
