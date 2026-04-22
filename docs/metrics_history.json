@@ -490,5 +490,46 @@
       "emergent_behavior": 3
     },
     "notes": "778/0/10 tests. 0 errors, 10 warnings (added check #23: persistent food crisis). Seed 42 dies at tick 6668 in playtest. WolfSurge on seed 777 (non-determinism: was seed 137 yesterday). Food Critical in 2/3 seeds (4/5 recent entries). Score 2.9 \u2014 10th consecutive plateau. All baselines PASS."
+  },
+  {
+    "date": "2026-04-22",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true
+      },
+      "137": {
+        "population": 11,
+        "food": 4,
+        "food_per_cap": 0.36,
+        "buildings": 11,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true
+      },
+      "777": {
+        "population": 13,
+        "food": 22,
+        "food_per_cap": 1.69,
+        "buildings": 11,
+        "water_pct": 38.0,
+        "biomes": 15,
+        "survived": true
+      }
+    },
+    "rubric_avg": 2.9,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 3
+    },
+    "notes": "778/0/10 tests. 0 errors, 11 warnings (added check #24: seed 42 stagnation \u2014 fires 5/5). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 11 consecutive entries. Non-determinism confirmed: RC runs show seed 137 pop=4 vs diag pop=11. Food Critical on seed 137 (food_per_cap=0.36). 0 events all seeds. Score 2.9 \u2014 11th consecutive plateau."
   }
 ]

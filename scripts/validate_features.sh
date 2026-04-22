@@ -453,6 +453,43 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check food crisis trend"
 fi
 
+# 24. Seed 42 population stagnation guard
+# Seed 42 has been exactly pop=4, food=12 in every health check since initial baselines.
+# This indicates a structural failure (auto-build never places second Hut despite wood surplus)
+# not random noise. Warn when stuck for 3+ consecutive entries.
+echo ""
+echo "=== Seed 42 stagnation check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  stagnation=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 3:
+    print('insufficient_data')
+else:
+    window = data[-5:]
+    stuck = sum(
+        1 for e in window
+        if e.get('seeds', {}).get('42', {}).get('population') == 4
+        and e.get('seeds', {}).get('42', {}).get('food') == 12
+    )
+    if stuck >= 3:
+        print(f'stuck:{stuck}:{len(window)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$stagnation" | grep -q "^stuck:"; then
+    count=$(echo "$stagnation" | cut -d: -f2)
+    total=$(echo "$stagnation" | cut -d: -f3)
+    echo "WARN: Seed 42 has been exactly pop=4, food=12 for ${count}/${total} recent health checks — auto-build growth failure. Diagnose Hut placement priority in game/build.rs before changing constants."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Seed 42 is not stagnating (population or food changed recently)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check seed 42 stagnation"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
