@@ -490,6 +490,24 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check seed 42 stagnation"
 fi
 
+# 25. ROAD_TRAFFIC_THRESHOLD too high for small settlements (road formation gate)
+# At 300.0, evaluation seeds (pop=4-13 at tick 6000) cannot accumulate enough traffic
+# at any single tile for auto-road-build to trigger. Roads never form in evaluation window.
+echo ""
+echo "=== Road formation threshold check ==="
+road_thresh=$(grep -oE 'ROAD_TRAFFIC_THRESHOLD[^=]+=\s*[0-9]+(\.[0-9]+)?' src/game/mod.rs 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?$' | head -1)
+if [ -n "$road_thresh" ]; then
+  too_high=$(awk "BEGIN {print ($road_thresh > 200.0) ? 1 : 0}")
+  if [ "$too_high" = "1" ]; then
+    echo "WARN: ROAD_TRAFFIC_THRESHOLD=${road_thresh} in src/game/mod.rs — prevents road formation in small settlements (0% Road coverage in all eval seeds at tick 6000 with pop=4-13). Consider tuning to <=100 for emergent roads."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: ROAD_TRAFFIC_THRESHOLD=${road_thresh} (<= 200.0, road formation feasible for small settlements)"
+  fi
+else
+  echo "SKIP: ROAD_TRAFFIC_THRESHOLD not found in src/game/mod.rs"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
