@@ -15,7 +15,7 @@
         "terrain_pipeline.rs is 2232 lines — approaching split threshold",
         "Desert biome dominant in 2/3 evaluation seeds (32–49%) with near-zero Forest (0.1–0.7%); biome distribution imbalanced post-WorldState refactor"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -25,7 +25,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "pipe_water": {
       "status": "ok",
@@ -37,7 +37,7 @@
       "known_issues": [
         "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -50,7 +50,7 @@
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -65,7 +65,7 @@
         "moisture.rs is 1867 lines — largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests — only 9 are regular passing tests"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -75,7 +75,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -85,7 +85,7 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_wind": {
       "status": "ok",
@@ -95,7 +95,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_scent": {
       "status": "ok",
@@ -105,7 +105,7 @@
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -115,7 +115,7 @@
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -125,7 +125,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "simulation_maps": {
       "status": "ok",
@@ -137,7 +137,7 @@
       "known_issues": [
         "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic — exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "ecs_core": {
       "status": "ok",
@@ -153,13 +153,13 @@
       "known_issues": [
         "ecs/tests.rs is 7164 lines in one file — should be split into focused test modules",
         "VillagerMemory is written (DangerZone, ThreatReport) in systems.rs but never read in ai.rs for decisions — Phase 2 (memory-driven AI) not started; AI still reads global stockpile counts (15 occurrences in ai.rs)",
-        "Simulation non-determinism: seed 777 population at tick 6000 varies between runs (13 on 2026-04-11, 11 on 2026-04-12). Likely cause: thread_rng() used in breeding/death path — replace with seeded per-entity RNG for reproducibility.",
+        "Simulation non-determinism: seed 777 population at tick 6000 varies between runs (8–13 observed across April 2026). On 2026-04-24 three sequential runs of the same binary yielded pop=8, 11, 11 (spanning 3 values in one session). Root cause: rand::rng() in breeding/death path — replace with seeded per-entity RNG for reproducibility.",
         "ecs/systems.rs is 2227 lines and ecs/ai.rs is 2104 lines — both approaching split threshold",
         "CLAUDE.md test count estimate is 4x stale — claims ~190 lib tests but cargo test --lib shows 778 passed (818 #[test] annotations in src/). Update CLAUDE.md comments.",
         "Seed 42 dies at tick ~6668 in playtest (pop=4 at tick 6000 is Fragile and does not survive to 12K ticks); food or housing insufficient for long-term viability at this seed",
-        "Seed 42 has been exactly pop=4 food=12 for 13 consecutive health checks — auto-build never places second Hut despite wood=43 surplus; growth blocked by full housing_capacity=4 and incorrect build priority"
+        "Seed 42 has been exactly pop=4 food=12 for 14 consecutive health checks — auto-build never places second Hut despite wood=43 surplus; growth blocked by full housing_capacity=4 and incorrect build priority"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -169,7 +169,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "ecs_groups": {
       "status": "ok",
@@ -179,7 +179,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "pathfinding": {
       "status": "ok",
@@ -191,7 +191,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -211,7 +211,7 @@
         "construction_dust_particles_spawn (tests.rs:2840) is a flaky test — 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed. HIT on 2026-04-13 and 2026-04-15. Should be #[ignore]d.",
         "Simulation metrics (avg_moisture, avg_vegetation, pipe_water_total, wind_moisture_total) are nested under \"terrain\" key in collect_diagnostics() output, not a \"simulation\" key — non-obvious grouping for external consumers (game/mod.rs:2445)"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "building_system": {
       "status": "ok",
@@ -224,7 +224,7 @@
       "known_issues": [
         "game/build.rs is 2306 lines — approaching split threshold"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "events": {
       "status": "needs_work",
@@ -239,7 +239,7 @@
         "Road auto-build (ROAD_TRAFFIC_THRESHOLD=300.0) never triggers in evaluation window — 0% Road coverage at tick 6000 across all 3 seeds. Threshold too high for small populations (4-11 villagers).",
         "0/3 evaluation seeds produced any events at tick 6000 on 2026-04-13 — event calibration needs work across all event types"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "chokepoint": {
       "status": "ok",
@@ -249,7 +249,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "rendering": {
       "status": "ok",
@@ -266,7 +266,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "save_load": {
       "status": "needs_tests",
@@ -279,7 +279,7 @@
       "known_issues": [
         "No dedicated unit tests — only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "scripting": {
       "status": "stub",
@@ -291,7 +291,7 @@
       "known_issues": [
         "Not fully implemented or tested"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "hydrology": {
       "status": "ok",
@@ -304,7 +304,7 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear — standalone research module"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     },
     "world_state": {
       "status": "needs_work",
@@ -319,7 +319,7 @@
         "No unit tests — all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-04-23"
+      "last_verified": "2026-04-24"
     }
   },
   "status_legend": {

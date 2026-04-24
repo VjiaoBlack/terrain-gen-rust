@@ -508,6 +508,27 @@ else
   echo "SKIP: ROAD_TRAFFIC_THRESHOLD not found in src/game/mod.rs"
 fi
 
+# 26. Extracted game sub-modules test coverage
+# fire.rs, water_cycle.rs, particles.rs were extracted from game/mod.rs but
+# have no unit tests — only indirect coverage through large integration tests.
+# Documented in features.json:game_loop.known_issues.
+echo ""
+echo "=== Extracted game sub-module test coverage ==="
+UNTESTED_MODULES=0
+for module in src/game/fire.rs src/game/water_cycle.rs src/game/particles.rs; do
+  if [ -f "$module" ]; then
+    count=$(grep -c '#\[test\]' "$module" 2>/dev/null || true)
+    if [ "$count" -eq 0 ]; then
+      echo "WARN: $module has 0 tests — extracted from game/mod.rs but no unit tests added (features.json:game_loop known_issues)"
+      WARNINGS=$((WARNINGS + 1))
+      UNTESTED_MODULES=1
+    fi
+  fi
+done
+if [ "$UNTESTED_MODULES" -eq 0 ]; then
+  echo "OK: All extracted game sub-modules have at least 1 test"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

@@ -572,5 +572,46 @@
       "emergent_behavior": 3
     },
     "notes": "778/0/10 tests. 0 errors, 12 warnings (added check #25: ROAD_TRAFFIC_THRESHOLD=300.0 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 13 consecutive entries. save_load/event_serial race conditions RESOLVED (dynamic tmp paths). 0 events all seeds. Score 2.9 \u2014 13th consecutive plateau at 2.9."
+  },
+  {
+    "date": "2026-04-24",
+    "commit": "bb275c8",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true
+      },
+      "137": {
+        "population": 11,
+        "food": 7,
+        "food_per_cap": 0.64,
+        "buildings": 9,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true
+      },
+      "777": {
+        "population": 8,
+        "food": 13,
+        "food_per_cap": 1.63,
+        "buildings": 6,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "survived": true
+      }
+    },
+    "rubric_avg": 2.9,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 3
+    },
+    "notes": "778/0/10 tests. 0 errors, 15 warnings (added check #26: fire/water_cycle/particles have 0 tests \u2014 fires 3\u00d7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 14 consecutive entries. Non-determinism severity: seed 777 yielded pop=8 (diag), 11 (report card), 11 (baselines) in same session \u2014 widest same-session spread to date. 0 events all seeds. Score 2.9 \u2014 14th consecutive plateau at 2.9."
   }
 ]
