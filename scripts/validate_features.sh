@@ -529,6 +529,24 @@ if [ "$UNTESTED_MODULES" -eq 0 ]; then
   echo "OK: All extracted game sub-modules have at least 1 test"
 fi
 
+# 27. Drought event threshold impossibility (static analysis)
+# Drought in events.rs requires grain >= villager_count * N. If N is too large,
+# drought can never fire in the evaluation window (grain=0-22 at pop=4-12 at tick 6000).
+# Documented in features.json:events.known_issues ("grain>=pop*5 threshold never met").
+echo ""
+echo "=== Drought event threshold check ==="
+drought_mult=$(grep -oE 'grain >= villager_count \* ([0-9]+)' src/game/events.rs 2>/dev/null | grep -oE '[0-9]+$' | head -1)
+if [ -n "$drought_mult" ]; then
+  if [ "$drought_mult" -gt 3 ]; then
+    echo "WARN: Drought requires grain >= pop * $drought_mult (src/game/events.rs) — evaluation seeds accumulate grain=0-22 at pop=4-12 at tick 6000; threshold needs pop*${drought_mult}=$((4 * drought_mult))-$((12 * drought_mult)) grain. Drought is structurally impossible in evaluation window."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Drought grain threshold multiplier=${drought_mult} (<=3) — feasible for typical population sizes"
+  fi
+else
+  echo "SKIP: Drought grain threshold pattern not found in src/game/events.rs — check may need updating"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="

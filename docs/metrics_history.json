@@ -1,617 +1,658 @@
 [
-  {
-    "date": "2026-04-06",
-    "commit": "adb700a",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 18,
-        "food_per_cap": 1.1,
-        "buildings": 10,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 14,
-        "food_per_cap": 1.4,
-        "buildings": 12,
-        "water_pct": 38.0,
-        "biomes": 15,
-        "survived": true
-      }
+    {
+        "date": "2026-04-06",
+        "commit": "adb700a",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 18,
+                "food_per_cap": 1.1,
+                "buildings": 10,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 14,
+                "food_per_cap": 1.4,
+                "buildings": 12,
+                "water_pct": 38.0,
+                "biomes": 15,
+                "survived": true
+            }
+        },
+        "rubric_avg": 3.0,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 3,
+            "simulation_health": 4,
+            "emergent_behavior": 2
+        },
+        "notes": "0D architecture refactor (WorldState) Stages 1-4 complete. Terrain 98%+ flat (elevation_std 0.09-0.12). Food Critical on 2/3 seeds at tick 6000. All baselines PASS. No active events/wolves on any seed at tick 6000."
     },
-    "rubric_avg": 3.0,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 3,
-      "simulation_health": 4,
-      "emergent_behavior": 2
+    {
+        "date": "2026-04-11",
+        "commit": "eeef277",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 10,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 13,
+                "food": 18,
+                "food_per_cap": 1.4,
+                "buildings": 12,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "Terrain 98.5%+ flat (persistent). Food Tight/Critical on 2/3 seeds. WolfSurge fires on seed 42 (threat_score=10.68). Default seed (no --seed) dies at tick 6668. ARCHITECTURE.md stale (second day). event_system_serialization added as known flaky test. All 3 baselines PASS. Score 2.9 unchanged from 2026-04-10."
     },
-    "notes": "0D architecture refactor (WorldState) Stages 1-4 complete. Terrain 98%+ flat (elevation_std 0.09-0.12). Food Critical on 2/3 seeds at tick 6000. All baselines PASS. No active events/wolves on any seed at tick 6000."
-  },
-  {
-    "date": "2026-04-11",
-    "commit": "eeef277",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 10,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 13,
-        "food": 18,
-        "food_per_cap": 1.4,
-        "buildings": 12,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-12",
+        "commit": "2ba44ff",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 14,
+                "food_per_cap": 1.3,
+                "buildings": 10,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 8,
+                "water_pct": 38.0,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "No code changes from April 11. 778/0/10 tests pass. Road auto-build 0% (threshold too high). 0 events all seeds. Backfilled from health report."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
+    {
+        "date": "2026-04-13",
+        "commit": "7b95fa5",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.8,
+                "biomes": 14,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 4,
+                "food_per_cap": 0.4,
+                "buildings": 10,
+                "water_pct": 17.8,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 21,
+                "food_per_cap": 1.9,
+                "buildings": 8,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "construction_dust_particles_spawn flaky test FIRED (777/1/10). save_load tests fixed with unique /tmp paths. ARCHITECTURE.md updated. Desert biome dominance and road threshold added to features.json. Seed 137 food=4 (thread_rng non-determinism). Backfilled from health report."
     },
-    "notes": "Terrain 98.5%+ flat (persistent). Food Tight/Critical on 2/3 seeds. WolfSurge fires on seed 42 (threat_score=10.68). Default seed (no --seed) dies at tick 6668. ARCHITECTURE.md stale (second day). event_system_serialization added as known flaky test. All 3 baselines PASS. Score 2.9 unchanged from 2026-04-10."
-  },
-  {
-    "date": "2026-04-12",
-    "commit": "2ba44ff",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 14,
-        "food_per_cap": 1.3,
-        "buildings": 10,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 8,
-        "water_pct": 38.0,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-14",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 16,
+                "food_per_cap": 1.5,
+                "buildings": 11,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 8,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 pass (flaky test did not fire). All 3 baselines PASS. No code changes since April 13. Seed 137 food=16 (was 4 on April 13 \u2014 thread_rng non-determinism confirmed). Added checks #15 (rand::rng() non-determinism guard) and #16 (metrics_history freshness) to validate_features.sh."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
+    {
+        "date": "2026-04-15",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 11,
+                "food_per_cap": 1.0,
+                "buildings": 11,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 11,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "777/1/10 tests \u2014 construction_dust_particles_spawn fired (probabilistic, 2nd time; needs #[ignore]). No code changes since April 12. Seed 137 food=11 (was 16 on April 14 \u2014 rand::rng() variance). 0 events all seeds. All baselines PASS. Added check #17 (score plateau detection) \u2014 fires for 5 consecutive entries at 2.90."
     },
-    "notes": "No code changes from April 11. 778/0/10 tests pass. Road auto-build 0% (threshold too high). 0 events all seeds. Backfilled from health report."
-  },
-  {
-    "date": "2026-04-13",
-    "commit": "7b95fa5",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.8,
-        "biomes": 14,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 4,
-        "food_per_cap": 0.4,
-        "buildings": 10,
-        "water_pct": 17.8,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 21,
-        "food_per_cap": 1.9,
-        "buildings": 8,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-16",
+        "commit": "cba2e13",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 8,
+                "food_per_cap": 0.7,
+                "buildings": 9,
+                "water_pct": 17.9,
+                "biomes": 13,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 18,
+                "food_per_cap": 1.6,
+                "buildings": 11,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 events all seeds. Seed 137 food=8 (rand::rng() variance \u2014 was 11 on Apr 15). construction_dust_particles_spawn still not #[ignore]. Added check #18 (needs_work zero-test \u2014 fires for world_state). Score 2.9 \u2014 6 consecutive plateau. All baselines PASS. 4 priority actions: fix flaky test, lower road threshold, investigate seed 42 pop stuck, fix biome distribution."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
+    {
+        "date": "2026-04-17",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 14,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 11,
+                "food_per_cap": 1.0,
+                "buildings": 8,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 12,
+                "water_pct": 38.0,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 818 #[test] annotations (CLAUDE.md ~190 estimate stale). 0 events all seeds. All baselines PASS. Added check #19 (test suite size regression guard >=700). Updated all last_verified to 2026-04-17. Score 2.9 \u2014 7th consecutive plateau. Priority: fix flaky test, lower road threshold, fix biome distribution, fix seed 42 pop stuck."
     },
-    "notes": "construction_dust_particles_spawn flaky test FIRED (777/1/10). save_load tests fixed with unique /tmp paths. ARCHITECTURE.md updated. Desert biome dominance and road threshold added to features.json. Seed 137 food=4 (thread_rng non-determinism). Backfilled from health report."
-  },
-  {
-    "date": "2026-04-14",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 16,
-        "food_per_cap": 1.5,
-        "buildings": 11,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 8,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-18",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 14,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 14,
+                "food_per_cap": 1.3,
+                "buildings": 9,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 12,
+                "water_pct": 38.0,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 6 warnings validate_features. All 3 baselines PASS. New finding: half_speed_base=true in screenshot mode makes --ticks 12000 yield game.tick=6000 (all history evaluated at tick 6000). Added check #20 (screenshot half_speed_base guard). Diagnostics sim fields under .terrain not .simulation key. food_per_cap differs between diag/report-card runs (rand::rng non-determinism: 3 in systems.rs, 3 in mod.rs). Score 2.9 \u2014 8th consecutive plateau."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
+    {
+        "date": "2026-04-19",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 13,
+                "food_per_cap": 1.1,
+                "buildings": 11,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 4,
+                "food": 14,
+                "food_per_cap": 3.5,
+                "buildings": 6,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 8 warnings validate_features (6 existing + 2 from new check #21 fog-of-war triviality). All 3 baselines PASS. Non-determinism confirmed: seed 777 yielded pop=4/11/12 in 3 sequential diagnostic runs today. 0 events all seeds. Added harness check #21 (fog-of-war triviality: sight_range=25.0>15, reveal_radius=15>10). Score 2.9 \u2014 9th consecutive plateau."
     },
-    "notes": "778/0/10 pass (flaky test did not fire). All 3 baselines PASS. No code changes since April 13. Seed 137 food=16 (was 4 on April 13 \u2014 thread_rng non-determinism confirmed). Added checks #15 (rand::rng() non-determinism guard) and #16 (metrics_history freshness) to validate_features.sh."
-  },
-  {
-    "date": "2026-04-15",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 11,
-        "food_per_cap": 1.0,
-        "buildings": 11,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 11,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-20",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 11,
+                "food_per_cap": 1.0,
+                "buildings": 8,
+                "water_pct": 17.9,
+                "biomes": 13,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 8,
+                "water_pct": 37.9,
+                "biomes": 15,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. Seed 42 observed dying at tick 6668 in playtest (GAME OVER). Food Critical in 2/3 seeds. Added check #22 (VillagerMemory Pillar 2 gap). 9 validate_features warnings. Score 2.9 \u2014 9th consecutive plateau. All baselines PASS. sight_range now 25.0 (up from 22). Priority: diagnose seed 42 death, fix food crisis, lower road threshold."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
+    {
+        "date": "2026-04-21",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 14,
+                "food_per_cap": 1.3,
+                "buildings": 10,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.3,
+                "buildings": 13,
+                "water_pct": 38.0,
+                "biomes": 15,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 10 warnings (added check #23: persistent food crisis). Seed 42 dies at tick 6668 in playtest. WolfSurge on seed 777 (non-determinism: was seed 137 yesterday). Food Critical in 2/3 seeds (4/5 recent entries). Score 2.9 \u2014 10th consecutive plateau. All baselines PASS."
     },
-    "notes": "777/1/10 tests \u2014 construction_dust_particles_spawn fired (probabilistic, 2nd time; needs #[ignore]). No code changes since April 12. Seed 137 food=11 (was 16 on April 14 \u2014 rand::rng() variance). 0 events all seeds. All baselines PASS. Added check #17 (score plateau detection) \u2014 fires for 5 consecutive entries at 2.90."
-  },
-  {
-    "date": "2026-04-16",
-    "commit": "cba2e13",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 8,
-        "food_per_cap": 0.7,
-        "buildings": 9,
-        "water_pct": 17.9,
-        "biomes": 13,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 18,
-        "food_per_cap": 1.6,
-        "buildings": 11,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-22",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 4,
+                "food_per_cap": 0.36,
+                "buildings": 11,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 13,
+                "food": 22,
+                "food_per_cap": 1.69,
+                "buildings": 11,
+                "water_pct": 38.0,
+                "biomes": 15,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 11 warnings (added check #24: seed 42 stagnation \u2014 fires 5/5). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 11 consecutive entries. Non-determinism confirmed: RC runs show seed 137 pop=4 vs diag pop=11. Food Critical on seed 137 (food_per_cap=0.36). 0 events all seeds. Score 2.9 \u2014 11th consecutive plateau."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
+    {
+        "date": "2026-04-23",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 14,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 13,
+                "food_per_cap": 1.18,
+                "buildings": 11,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 13,
+                "food": 17,
+                "food_per_cap": 1.31,
+                "buildings": 11,
+                "water_pct": 38.0,
+                "biomes": 15,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 12 warnings (added check #25: ROAD_TRAFFIC_THRESHOLD=300.0 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 13 consecutive entries. save_load/event_serial race conditions RESOLVED (dynamic tmp paths). 0 events all seeds. Score 2.9 \u2014 13th consecutive plateau at 2.9."
     },
-    "notes": "778/0/10 tests. 0 events all seeds. Seed 137 food=8 (rand::rng() variance \u2014 was 11 on Apr 15). construction_dust_particles_spawn still not #[ignore]. Added check #18 (needs_work zero-test \u2014 fires for world_state). Score 2.9 \u2014 6 consecutive plateau. All baselines PASS. 4 priority actions: fix flaky test, lower road threshold, investigate seed 42 pop stuck, fix biome distribution."
-  },
-  {
-    "date": "2026-04-17",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 14,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 11,
-        "food_per_cap": 1.0,
-        "buildings": 8,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 12,
-        "water_pct": 38.0,
-        "biomes": 14,
-        "survived": true
-      }
+    {
+        "date": "2026-04-24",
+        "commit": "bb275c8",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 7,
+                "food_per_cap": 0.64,
+                "buildings": 9,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 8,
+                "food": 13,
+                "food_per_cap": 1.63,
+                "buildings": 6,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 15 warnings (added check #26: fire/water_cycle/particles have 0 tests \u2014 fires 3\u00d7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 14 consecutive entries. Non-determinism severity: seed 777 yielded pop=8 (diag), 11 (report card), 11 (baselines) in same session \u2014 widest same-session spread to date. 0 events all seeds. Score 2.9 \u2014 14th consecutive plateau at 2.9."
     },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 818 #[test] annotations (CLAUDE.md ~190 estimate stale). 0 events all seeds. All baselines PASS. Added check #19 (test suite size regression guard >=700). Updated all last_verified to 2026-04-17. Score 2.9 \u2014 7th consecutive plateau. Priority: fix flaky test, lower road threshold, fix biome distribution, fix seed 42 pop stuck."
-  },
-  {
-    "date": "2026-04-18",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 14,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 14,
-        "food_per_cap": 1.3,
-        "buildings": 9,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 12,
-        "water_pct": 38.0,
-        "biomes": 14,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 0 errors, 6 warnings validate_features. All 3 baselines PASS. New finding: half_speed_base=true in screenshot mode makes --ticks 12000 yield game.tick=6000 (all history evaluated at tick 6000). Added check #20 (screenshot half_speed_base guard). Diagnostics sim fields under .terrain not .simulation key. food_per_cap differs between diag/report-card runs (rand::rng non-determinism: 3 in systems.rs, 3 in mod.rs). Score 2.9 \u2014 8th consecutive plateau."
-  },
-  {
-    "date": "2026-04-19",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 13,
-        "food_per_cap": 1.1,
-        "buildings": 11,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 4,
-        "food": 14,
-        "food_per_cap": 3.5,
-        "buildings": 6,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 0 errors, 8 warnings validate_features (6 existing + 2 from new check #21 fog-of-war triviality). All 3 baselines PASS. Non-determinism confirmed: seed 777 yielded pop=4/11/12 in 3 sequential diagnostic runs today. 0 events all seeds. Added harness check #21 (fog-of-war triviality: sight_range=25.0>15, reveal_radius=15>10). Score 2.9 \u2014 9th consecutive plateau."
-  },
-  {
-    "date": "2026-04-20",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 11,
-        "food_per_cap": 1.0,
-        "buildings": 8,
-        "water_pct": 17.9,
-        "biomes": 13,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.4,
-        "buildings": 8,
-        "water_pct": 37.9,
-        "biomes": 15,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. Seed 42 observed dying at tick 6668 in playtest (GAME OVER). Food Critical in 2/3 seeds. Added check #22 (VillagerMemory Pillar 2 gap). 9 validate_features warnings. Score 2.9 \u2014 9th consecutive plateau. All baselines PASS. sight_range now 25.0 (up from 22). Priority: diagnose seed 42 death, fix food crisis, lower road threshold."
-  },
-  {
-    "date": "2026-04-21",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 14,
-        "food_per_cap": 1.3,
-        "buildings": 10,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 11,
-        "food": 15,
-        "food_per_cap": 1.3,
-        "buildings": 13,
-        "water_pct": 38.0,
-        "biomes": 15,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 0 errors, 10 warnings (added check #23: persistent food crisis). Seed 42 dies at tick 6668 in playtest. WolfSurge on seed 777 (non-determinism: was seed 137 yesterday). Food Critical in 2/3 seeds (4/5 recent entries). Score 2.9 \u2014 10th consecutive plateau. All baselines PASS."
-  },
-  {
-    "date": "2026-04-22",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 4,
-        "food_per_cap": 0.36,
-        "buildings": 11,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 13,
-        "food": 22,
-        "food_per_cap": 1.69,
-        "buildings": 11,
-        "water_pct": 38.0,
-        "biomes": 15,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 0 errors, 11 warnings (added check #24: seed 42 stagnation \u2014 fires 5/5). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 11 consecutive entries. Non-determinism confirmed: RC runs show seed 137 pop=4 vs diag pop=11. Food Critical on seed 137 (food_per_cap=0.36). 0 events all seeds. Score 2.9 \u2014 11th consecutive plateau."
-  },
-  {
-    "date": "2026-04-23",
-    "commit": "pending",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 14,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 13,
-        "food_per_cap": 1.18,
-        "buildings": 11,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 13,
-        "food": 17,
-        "food_per_cap": 1.31,
-        "buildings": 11,
-        "water_pct": 38.0,
-        "biomes": 15,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 0 errors, 12 warnings (added check #25: ROAD_TRAFFIC_THRESHOLD=300.0 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 13 consecutive entries. save_load/event_serial race conditions RESOLVED (dynamic tmp paths). 0 events all seeds. Score 2.9 \u2014 13th consecutive plateau at 2.9."
-  },
-  {
-    "date": "2026-04-24",
-    "commit": "bb275c8",
-    "seeds": {
-      "42": {
-        "population": 4,
-        "food": 12,
-        "food_per_cap": 3.0,
-        "buildings": 5,
-        "water_pct": 30.7,
-        "biomes": 13,
-        "survived": true
-      },
-      "137": {
-        "population": 11,
-        "food": 7,
-        "food_per_cap": 0.64,
-        "buildings": 9,
-        "water_pct": 17.9,
-        "biomes": 14,
-        "survived": true
-      },
-      "777": {
-        "population": 8,
-        "food": 13,
-        "food_per_cap": 1.63,
-        "buildings": 6,
-        "water_pct": 37.9,
-        "biomes": 14,
-        "survived": true
-      }
-    },
-    "rubric_avg": 2.9,
-    "rubric_breakdown": {
-      "terrain_quality": 3,
-      "settlement_viability": 2,
-      "simulation_health": 4,
-      "emergent_behavior": 3
-    },
-    "notes": "778/0/10 tests. 0 errors, 15 warnings (added check #26: fire/water_cycle/particles have 0 tests \u2014 fires 3\u00d7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 14 consecutive entries. Non-determinism severity: seed 777 yielded pop=8 (diag), 11 (report card), 11 (baselines) in same session \u2014 widest same-session spread to date. 0 events all seeds. Score 2.9 \u2014 14th consecutive plateau at 2.9."
-  }
+    {
+        "date": "2026-04-25",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 14,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 16,
+                "food_per_cap": 1.46,
+                "buildings": 9,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 12,
+                "food": 18,
+                "food_per_cap": 1.5,
+                "buildings": 12,
+                "water_pct": 37.9,
+                "biomes": 15,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 16 warnings (added check #27: drought grain threshold impossibility \u2014 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 15 consecutive entries. Seeds 137/777 pop higher than yesterday (non-determinism: rand::rng()). 0 events all seeds. Score 2.9 \u2014 15th consecutive plateau at 2.9."
+    }
 ]
