@@ -547,6 +547,33 @@ else
   echo "SKIP: Drought grain threshold pattern not found in src/game/events.rs — check may need updating"
 fi
 
+# 28. rand::rng() count growth guard
+# Documents the baseline rand::rng() call counts in hot-path files.
+# If any file exceeds its documented count, the simulation is becoming MORE non-deterministic.
+# Current baseline: systems.rs=3, game/mod.rs=3, ai.rs=0
+echo ""
+echo "=== rand::rng() count growth guard ==="
+RNG_REGRESSED=0
+check_rng_count() {
+  local filepath="$1"
+  local expected_max="$2"
+  if [ -f "$filepath" ]; then
+    local count
+    count=$(grep -c "rand::rng()" "$filepath" 2>/dev/null || true)
+    if [ "$count" -gt "$expected_max" ]; then
+      echo "WARN: $filepath has $count rand::rng() calls (baseline was $expected_max) — simulation is becoming MORE non-deterministic; diagnose before adding more"
+      WARNINGS=$((WARNINGS + 1))
+      RNG_REGRESSED=1
+    fi
+  fi
+}
+check_rng_count "src/ecs/systems.rs" 3
+check_rng_count "src/game/mod.rs" 3
+check_rng_count "src/ecs/ai.rs" 0
+if [ "$RNG_REGRESSED" -eq 0 ]; then
+  echo "OK: rand::rng() counts in hot paths have not grown beyond baseline (systems.rs<=3, mod.rs<=3, ai.rs=0)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
