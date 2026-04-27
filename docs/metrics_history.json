@@ -695,5 +695,46 @@
             "emergent_behavior": 3
         },
         "notes": "778/0/10 tests. 0 errors, 16 warnings. Added check #28 (rand::rng() count growth guard \u2014 OK, counts at baseline). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 16 consecutive entries. Seed 777 non-determinism: diag pop=4 vs report card pop=11. Seed 137 food=12 (was 16 yesterday \u2014 rand::rng() variance). 0 events all seeds. Score 2.9 \u2014 16th consecutive plateau at 2.9."
+    },
+    {
+        "date": "2026-04-27",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 14,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 11,
+                "food_per_cap": 1.0,
+                "buildings": 10,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 8,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 17 warnings. Added check #29 (CLAUDE.md test count staleness \u2014 fires: claims ~190, actual 818). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 17 consecutive entries. Seed 777 non-determinism: diag pop=11 vs report-card pop=4 (auto-build path also affected by rand::rng()). Default seed dies GAME OVER at tick 6668 (confirmed playtest). 0 events all seeds. Score 2.9 \u2014 17th consecutive plateau at 2.9."
     }
 ]

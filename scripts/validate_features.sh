@@ -574,6 +574,26 @@ if [ "$RNG_REGRESSED" -eq 0 ]; then
   echo "OK: rand::rng() counts in hot paths have not grown beyond baseline (systems.rs<=3, mod.rs<=3, ai.rs=0)"
 fi
 
+# 29. CLAUDE.md test count staleness
+# CLAUDE.md claims "~190 tests" but actual count is 778 (4× off as of 2026-04-17).
+# Stale estimate misleads new contributors and agents about the test suite.
+# Warns if the CLAUDE.md claim is off by 2× or more from actual annotation count.
+echo ""
+echo "=== CLAUDE.md test count staleness ==="
+claude_claim=$(grep -oE '~[0-9]+\s*(lib\s*)?tests' CLAUDE.md | grep -oE '[0-9]+' | head -1)
+actual_tests=$(grep -r '#\[test\]' src/ --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
+if [ -n "$claude_claim" ] && [ "$claude_claim" -gt 0 ]; then
+  ratio=$(echo "$claude_claim $actual_tests" | awk '{if ($1>0) printf "%.0f", ($2/$1)*100; else print 0}')
+  if [ "$ratio" -gt 200 ] || [ "$ratio" -lt 50 ]; then
+    echo "WARN: CLAUDE.md claims ~${claude_claim} tests; actual is ${actual_tests} (${ratio}% of claim) — stale, misleads contributors. Update CLAUDE.md comments."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: CLAUDE.md test count claim (~${claude_claim}) close to actual (${actual_tests})"
+  fi
+else
+  echo "SKIP: No test count found in CLAUDE.md (pattern: '~N tests')"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
