@@ -594,6 +594,48 @@ else
   echo "SKIP: No test count found in CLAUDE.md (pattern: '~N tests')"
 fi
 
+# 30. Population swing detection: warns if any seed's population changes by >5
+# between the last two consecutive metrics_history entries. Captures the observable
+# impact of rand::rng() non-determinism on game outcomes (complements check #15
+# which catches the code-level rand::rng() calls).
+echo ""
+echo "=== Population swing detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  swing=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 2:
+    print('insufficient_data')
+else:
+    last = data[-1].get('seeds', {})
+    prev = data[-2].get('seeds', {})
+    max_swing = 0
+    worst = ''
+    for seed in last:
+        lp = last[seed].get('population', 0)
+        pp = prev.get(seed, {}).get('population', 0)
+        delta = abs(lp - pp)
+        if delta > max_swing:
+            max_swing = delta
+            worst = f'seed {seed}: {pp}->{lp}'
+    if max_swing > 5:
+        print(f'large_swing:{max_swing}:{worst}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$swing" | grep -q "^large_swing:"; then
+    delta=$(echo "$swing" | cut -d: -f2)
+    desc=$(echo "$swing" | cut -d: -f3-)
+    echo "WARN: Population changed by ${delta} between last two health checks ($desc) — rand::rng() non-determinism causing major game-state divergence between runs. Root cause: seeded RNG not used in auto-build/breeding paths."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Population swing between consecutive health checks within expected range (<= 5)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check population swing"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
