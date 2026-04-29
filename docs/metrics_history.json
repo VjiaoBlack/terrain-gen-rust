@@ -777,5 +777,49 @@
             "emergent_behavior": 3
         },
         "notes": "778/0/10 tests. 0 errors, 18 warnings (added check #30: population swing detection \u2014 fires: seed 777 Apr26->Apr27 delta=7). Seed 42 stuck pop=4 food=12 for 18 consecutive diagnostic entries; BUT baseline run shows pop=6 \u2014 confirms second Hut IS placed when rand::rng() favorable; auto-build logic correct, only non-determinism blocks it. Report-card: seeds 137/777 Healthy pop=11, food Critical. All 3 baselines PASS (seed 42 pop=6, 137 pop=11, 777 pop=11 in baseline runs). 0 events in diagnostic runs; seeds 137/777 threat=Growing in RC. Score 2.9 \u2014 18th consecutive plateau."
+    },
+    {
+        "date": "2026-04-29",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 13,
+                "rabbits": 0,
+                "survived": true
+            },
+            "137": {
+                "population": 11,
+                "food": 16,
+                "food_per_cap": 1.45,
+                "buildings": 9,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "rabbits": 0,
+                "survived": true
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.36,
+                "buildings": 11,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "rabbits": 10,
+                "survived": true
+            }
+        },
+        "rubric_avg": 2.9,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 3
+        },
+        "notes": "778/0/10 tests. 0 errors, 19 warnings (added check #31: prey extinction guard \u2014 fires: rabbits=0 in 2/3 seeds). New finding: prey extinct in seeds 42/137, only seed 777 has rabbits=10. Added 'rabbits' field to tracking. Check #30 (population swing) fires: seed 137 pop=4->11 (delta=7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 19 consecutive diagnostic entries. Non-determinism: seed 137 food=29 (Apr28) vs 16 (today); seed 777 pop=12 (Apr28) vs 11 (today). 0 events all seeds. Score 2.9 \u2014 19th consecutive plateau."
     }
 ]

@@ -636,6 +636,45 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check population swing"
 fi
 
+# 31. Prey extinction guard: rabbits=0 in 2+ seeds indicates ecosystem imbalance
+# game/mod.rs:878 documents: "Prey provide an early food web and are required for the
+# breeding system to function." Silent prey extinction may cause wolves to target
+# villagers exclusively, elevating threat scores. Field added to metrics_history on 2026-04-29.
+echo ""
+echo "=== Prey extinction check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  extinction=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    extinct = sum(1 for s in seeds.values() if s.get('rabbits', -1) == 0)
+    total_with_data = sum(1 for s in seeds.values() if 'rabbits' in s)
+    if total_with_data == 0:
+        print('no_rabbit_data')
+    elif extinct >= 2:
+        print(f'extinct:{extinct}:{total_with_data}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "no_data")
+  if echo "$extinction" | grep -q "^extinct:"; then
+    count=$(echo "$extinction" | cut -d: -f2)
+    total=$(echo "$extinction" | cut -d: -f3)
+    echo "WARN: Rabbits extinct (count=0) in ${count}/${total} seeds in last metrics entry — prey extinction may drive wolves to target villagers, elevating threat scores. See ecs_core known_issues."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$extinction" | grep -q "no_rabbit_data"; then
+    echo "SKIP: No 'rabbits' field in most recent metrics_history entry — add it to enable prey tracking"
+  else
+    echo "OK: Rabbit population present in 2+ evaluation seeds (ecosystem viable)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
