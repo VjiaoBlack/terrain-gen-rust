@@ -821,5 +821,64 @@
             "emergent_behavior": 3
         },
         "notes": "778/0/10 tests. 0 errors, 19 warnings (added check #31: prey extinction guard \u2014 fires: rabbits=0 in 2/3 seeds). New finding: prey extinct in seeds 42/137, only seed 777 has rabbits=10. Added 'rabbits' field to tracking. Check #30 (population swing) fires: seed 137 pop=4->11 (delta=7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 19 consecutive diagnostic entries. Non-determinism: seed 137 food=29 (Apr28) vs 16 (today); seed 777 pop=12 (Apr28) vs 11 (today). 0 events all seeds. Score 2.9 \u2014 19th consecutive plateau."
+    },
+    {
+        "date": "2026-04-30",
+        "commit": "pending",
+        "seeds": {
+            "42": {
+                "population": 4,
+                "food": 12,
+                "food_per_cap": 3.0,
+                "buildings": 5,
+                "water_pct": 30.7,
+                "biomes": 14,
+                "rabbits": 0,
+                "survived": true,
+                "slope_flat_pct": 98.4,
+                "desert_pct": 32.0,
+                "forest_pct": 0.3,
+                "events_fired": 0,
+                "housing_growth_potential": 0
+            },
+            "137": {
+                "population": 11,
+                "food": 13,
+                "food_per_cap": 1.2,
+                "buildings": 10,
+                "water_pct": 17.9,
+                "biomes": 14,
+                "rabbits": 2,
+                "survived": true,
+                "slope_flat_pct": 98.7,
+                "desert_pct": 48.7,
+                "forest_pct": 0.1,
+                "events_fired": 0,
+                "housing_growth_potential": 9
+            },
+            "777": {
+                "population": 11,
+                "food": 15,
+                "food_per_cap": 1.4,
+                "buildings": 8,
+                "water_pct": 37.9,
+                "biomes": 14,
+                "rabbits": 2,
+                "survived": true,
+                "slope_flat_pct": 98.6,
+                "desert_pct": 0.1,
+                "forest_pct": 0.7,
+                "events_fired": 0,
+                "housing_growth_potential": 1
+            }
+        },
+        "rubric_avg": 2.7,
+        "rubric_breakdown": {
+            "terrain_quality": 3,
+            "settlement_viability": 2,
+            "simulation_health": 4,
+            "emergent_behavior": 2
+        },
+        "notes": "778/0/10 tests. 0 errors, 19 warnings (+check #32: flat terrain detection \u2014 fires immediately; slope_flat_pct=98.4-98.7% in all 3 seeds). NEW: slope data added to metrics_history. Seed 42 pop=4 food=12 for 20th consecutive run. Food critical in 2/3 seeds (137: 1.2/cap, 777: 1.4/cap). Seed 137 Desert=48.7% (worst biome imbalance measured). All 3 baselines PASS. 0 events all seeds \u2014 20th consecutive health check with zero events. Score 2.7 (down from 2.9; emergent scored 2 vs 3 due to identical building mix across all seeds)."
     }
 ]

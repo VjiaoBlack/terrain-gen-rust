@@ -675,6 +675,52 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 32. Flat terrain detection guard
+# Pillar 1 ("Geography Shapes Everything") requires terrain with hills, mountain passes,
+# and varied topography to create strategic constraints on settlement growth.
+# slope_flat_pct > 95% across 2+ eval seeds means the terrain is too flat for geography
+# to meaningfully shape settlement development. Measured 2026-04-30: all 3 seeds at 98%+ flat.
+# Field 'slope_flat_pct' must be present in metrics_history entries for this check to fire.
+echo ""
+echo "=== Flat terrain detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  flat_terrain=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    flat_seeds = [
+        s for s, v in seeds.items()
+        if v.get('slope_flat_pct', -1) > 95.0
+    ]
+    total_with_data = sum(1 for v in seeds.values() if 'slope_flat_pct' in v)
+    if total_with_data == 0:
+        print('no_slope_data')
+    elif len(flat_seeds) >= 2:
+        pcts = [f\"{s}={seeds[s]['slope_flat_pct']:.1f}%\" for s in flat_seeds]
+        print(f'flat:{len(flat_seeds)}:{total_with_data}:{\",\".join(pcts)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "no_data")
+  if echo "$flat_terrain" | grep -q "^flat:"; then
+    count=$(echo "$flat_terrain" | cut -d: -f2)
+    total=$(echo "$flat_terrain" | cut -d: -f3)
+    desc=$(echo "$flat_terrain" | cut -d: -f4-)
+    echo "WARN: slope_flat_pct > 95% in ${count}/${total} seeds ($desc) — terrain nearly flat; Pillar 1 ('Geography Shapes Everything') requires hills/mountains for strategic constraints. Investigate terrain_pipeline.rs height generation and erosion amplitude."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$flat_terrain" | grep -q "no_slope_data"; then
+    echo "SKIP: No 'slope_flat_pct' field in most recent metrics_history entry — add it to enable flat terrain detection"
+  else
+    echo "OK: Terrain slope distribution acceptable (<= 95% flat in 2+ seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
