@@ -721,6 +721,25 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 33. Event modifier chain dead code guard
+# tick_config clones sim_config and applies drought/harvest rain_rate multipliers,
+# but step_water_cycle signature is (should_rain: bool, veg_growth_mult: f64) — no
+# rain_rate parameter. tick_config is built, modified, and silently discarded.
+# Drought/harvest events would have zero effect on simulation even if they fired.
+# Documented 2026-05-01: src/game/mod.rs:2135-2147 vs water_cycle.rs:9.
+echo ""
+echo "=== Event modifier chain dead code guard ==="
+if grep -q "tick_config.rain_rate" src/game/mod.rs 2>/dev/null; then
+  if ! grep -qE "step_water_cycle.*tick_config|tick_config.*step_water_cycle" src/game/mod.rs 2>/dev/null; then
+    echo "WARN: tick_config event modifiers (drought: rain_rate*=0.4, harvest: rain_rate*=1.5) built in game/mod.rs but never passed to step_water_cycle (signature: bool, f64) — event chain broken; drought/harvest have zero effect on simulation even when they fire."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: tick_config is passed to step_water_cycle — event modifiers connected"
+  fi
+else
+  echo "SKIP: tick_config.rain_rate not found in game/mod.rs — check may need updating"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
