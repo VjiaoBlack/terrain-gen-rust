@@ -740,6 +740,19 @@ else
   echo "SKIP: tick_config.rain_rate not found in game/mod.rs — check may need updating"
 fi
 
+# 34. WorldState 0D architecture regression guard
+# WorldState is the canonical simulation state introduced in the 0D refactor (Stages 1-4).
+# If game/mod.rs stops referencing WorldState, the refactor may have been accidentally reverted.
+# game/mod.rs:429 holds pub state: crate::world_state::WorldState.
+echo ""
+echo "=== WorldState 0D architecture regression guard ==="
+if grep -q "WorldState" src/game/mod.rs 2>/dev/null; then
+  echo "OK: WorldState referenced in src/game/mod.rs (0D architecture intact)"
+else
+  echo "WARN: WorldState not referenced in src/game/mod.rs — 0D architecture may have been accidentally reverted (check world_state.rs, game/mod.rs)"
+  WARNINGS=$((WARNINGS + 1))
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
