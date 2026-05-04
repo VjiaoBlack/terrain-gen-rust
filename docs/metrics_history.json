@@ -998,5 +998,62 @@
       "emergent_behavior": 2
     },
     "notes": "778/0/10 tests. 0 errors, 19 warnings (validate_features.sh). Added check #34: WorldState 0D architecture regression guard (OK). Seed 42 pop=4 food=12 for 22nd consecutive run (structural auto-build failure). Seed 137 rabbits=2 (partial recovery from extinction on 2026-05-01). Seed 777 WolfSurge fired (non-deterministic \u2014 was 0 events on 2026-05-01). All 3 baselines PASS. Persistent food crisis: f/cap < 2.0 in seeds 137 (1.36) and 777 (1.18). Score 2.7 unchanged (4th consecutive)."
+  },
+  {
+    "date": "2026-05-04",
+    "commit": "ecead4a",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 15,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.9,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 30.2,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0
+      },
+      "137": {
+        "population": 11,
+        "food_per_cap": 1.1,
+        "buildings": 10,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.0,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 0
+      },
+      "777": {
+        "population": 13,
+        "food_per_cap": 1.2,
+        "buildings": 12,
+        "water_pct": 38.0,
+        "biomes": 15,
+        "rabbits": 6,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 1
+      }
+    },
+    "rubric_avg": 2.7,
+    "rubric_breakdown": {
+      "terrain_quality": 3,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778/0/10 tests. 0 errors, 19 warnings (prey extinction fires: seed 137 rabbits=0, seed 42 rabbits=0) (was 19; WorldState check now passes). Non-determinism: most extreme within-session divergence observed \u2014 seed 137 diag=pop4 vs RC=pop11, seed 777 diag=pop7 vs RC=pop13 (sequential runs, same session, same binary). Seed 42 pop=4/food=15 (food up from persistent 12; stagnation check still fires on metrics_history). Seed 137 Desert=49.0% (near max). 0 events all seeds \u2014 23rd consecutive zero-event check. All 3 baselines PASS. Score 2.7 unchanged (5th consecutive at 2.7/5.0)."
   }
 ]
