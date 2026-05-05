@@ -753,6 +753,24 @@ else
   WARNINGS=$((WARNINGS + 1))
 fi
 
+# 35. build_site_gets_completed_in_game flaky test guard
+# Discovered 2026-05-05: fails in full test suite (777 passed, 1 failed), passes in isolation.
+# Root cause: rand::rng() in ecs/systems.rs and game/mod.rs causes villagers to not complete
+# the build site within 3000 ticks on some non-deterministic runs. Same mechanism as
+# construction_dust_particles_spawn. Should be marked #[ignore] until seeded RNG is used.
+echo ""
+echo "=== Known-flaky test ignore guard: build_site_gets_completed_in_game ==="
+if grep -q "fn build_site_gets_completed_in_game" src/game/tests.rs 2>/dev/null; then
+  if grep -B3 "fn build_site_gets_completed_in_game" src/game/tests.rs | grep -q "#\[ignore"; then
+    echo "OK: Known-flaky test build_site_gets_completed_in_game is properly marked #[ignore]"
+  else
+    echo "WARN: build_site_gets_completed_in_game fails in full test suite (discovered 2026-05-05) but not marked #[ignore] — non-deterministic CI failures expected. Root cause: rand::rng() in AI/build paths (features.json:ecs_core known_issues)"
+    WARNINGS=$((WARNINGS + 1))
+  fi
+else
+  echo "OK: build_site_gets_completed_in_game not found (removed or renamed — update this check)"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
