@@ -1114,5 +1114,64 @@
       "emergent_behavior": 2
     },
     "notes": "777 passed, 1 FAILED (build_site_gets_completed_in_game \u2014 NEW FLAKY, passes in isolation, rand::rng() root cause), 10 ignored. 0 errors, 19 warnings (validate_features). NEW: check #35 added for build_site_gets_completed_in_game. Baselines 3/3 PASS. Seed 137 rabbits=3 (recovered from 0 yesterday \u2014 rand::rng() variation). Score re-calibrated: terrain downgraded from 3\u21922 because 98%+ flat contradicts Pillar 1 directly. Score 2.4 (down from 2.7 \u2014 scoring correction, not regression). 24th consecutive zero-event check. Seed 42 food=12 (back to persistent baseline after 15 yesterday)."
+  },
+  {
+    "date": "2026-05-06",
+    "commit": "f9ffb8a",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0
+      },
+      "137": {
+        "population": 11,
+        "food": 12,
+        "food_per_cap": 1.1,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.4,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1
+      },
+      "777": {
+        "population": 11,
+        "food": 13,
+        "food_per_cap": 1.2,
+        "buildings": 10,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "rabbits": 8,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 9
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778/0/10 tests (build_site_gets_completed_in_game passed today \u2014 flaky). 0 errors, 20 warnings (validate_features; +1 new check #36 event suppression fires immediately). Baselines 3/3 PASS. Seed 137 rabbits=0 (was 3 yesterday \u2014 back to extinct, rand::rng() variation). NEW: within-session auto-build divergence documented \u2014 seed 137 diag=3 Huts vs RC=6 Huts, seed 777 diag=5 Huts vs RC=3 Huts (same binary, same seed, sequential runs). 25th consecutive zero-event check \u2014 check #36 added to harness. Score 2.4/5.0 (2nd consecutive at corrected score). Seed 42 pop=4 food=12 (5th consecutive stagnation)."
   }
 ]

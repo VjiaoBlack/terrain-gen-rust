@@ -771,6 +771,45 @@ else
   echo "OK: build_site_gets_completed_in_game not found (removed or renamed — update this check)"
 fi
 
+# 36. Event suppression detector
+# If the last 5 metrics_history entries all show events_fired=0 in 2+ seeds,
+# the event system is structurally suppressed (not just unlucky). Root cause is the
+# broken tick_config modifier chain: drought/harvest modifiers built in game/mod.rs:2135-2147
+# are never passed to step_water_cycle (check #33). 25 consecutive zero-event checks
+# recorded as of 2026-05-06.
+echo ""
+echo "=== Event suppression detector ==="
+if [ -f "docs/metrics_history.json" ]; then
+  suppressed=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 5:
+    print('insufficient_data')
+else:
+    window = data[-5:]
+    fully_suppressed = sum(
+        1 for entry in window
+        if sum(1 for s in entry.get('seeds', {}).values()
+               if s.get('events_fired', -1) == 0) >= 2
+    )
+    if fully_suppressed >= 5:
+        print(f'suppressed:{fully_suppressed}:{len(window)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$suppressed" | grep -q "^suppressed:"; then
+    count=$(echo "$suppressed" | cut -d: -f2)
+    total=$(echo "$suppressed" | cut -d: -f3)
+    echo "WARN: events_fired=0 in 2+ seeds for ${count}/${total} consecutive health checks — event system structurally suppressed. Root cause: tick_config event modifiers (game/mod.rs:2135-2147) not passed to step_water_cycle. Fix event modifier pipeline (check #33) before investigating trigger rates."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Events have fired in at least 1 seed in some recent health checks (not fully suppressed)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check event suppression"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
