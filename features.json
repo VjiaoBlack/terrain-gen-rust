@@ -16,7 +16,7 @@
         "Desert biome dominant in 2/3 evaluation seeds (32\u201349%) with near-zero Forest (0.1\u20130.7%); biome distribution imbalanced post-WorldState refactor",
         "Slope distribution is 98.4\u201398.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09\u20130.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -26,7 +26,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "pipe_water": {
       "status": "ok",
@@ -38,7 +38,7 @@
       "known_issues": [
         "Research prototype \u2014 volume conservation not extensively tested"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -51,7 +51,7 @@
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) \u2014 should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -66,7 +66,7 @@
         "moisture.rs is 1867 lines \u2014 largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests \u2014 only 9 are regular passing tests"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -76,7 +76,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -86,7 +86,7 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_wind": {
       "status": "ok",
@@ -96,7 +96,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_scent": {
       "status": "ok",
@@ -106,7 +106,7 @@
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -116,7 +116,7 @@
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -126,7 +126,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "simulation_maps": {
       "status": "ok",
@@ -138,7 +138,7 @@
       "known_issues": [
         "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic \u2014 exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "ecs_core": {
       "status": "ok",
@@ -161,9 +161,10 @@
         "Seed 42 has been exactly pop=4 food=12 for 22 consecutive health checks (diagnostic runs) \u2014 auto-build never places second Hut in diagnostic run; BUT seed 42 showed pop=6 in the 2026-04-28 baseline run, confirming the second Hut IS placed when rand::rng() is favorable. Root cause is rand::rng() non-determinism in game/build.rs auto-build scoring, not a logic error.",
         "Auto-build output itself is non-deterministic: seed 777 produces 1 Hut (pop=4, cap=4) in one run and 3 Huts (pop=11, cap=12) in the next sequential run with same binary and seed. rand::rng() affects building placement order, not just breeding/death.",
         "Prey (rabbits) extinct in 2/3 evaluation seeds by tick 6000: seed 42 rabbits=0, seed 137 rabbits=0, seed 777 rabbits=10 (2026-04-29 diagnostics). game/mod.rs:878 notes prey are required for breeding system. Prey extinction may cause wolves to target villagers exclusively, elevating threat scores (seeds 137/777 show threat_score ~22-27 vs seed 42's 10.68). Root cause unknown \u2014 possible predator saturation or spawn density too low.",
-        "Within-session auto-build divergence confirmed 2026-05-06: seed 137 diagnostics run (1st) placed 3 Huts (capacity=12); report-card run (2nd, sequential, same binary) placed 6 Huts (capacity=24). Seed 777: diagnostics=5 Huts vs report-card=3 Huts. rand::rng() in game/build.rs produces \u00b12-3 Hut variance per run, making housing capacity highly non-deterministic."
+        "Within-session auto-build divergence confirmed 2026-05-06: seed 137 diagnostics run (1st) placed 3 Huts (capacity=12); report-card run (2nd, sequential, same binary) placed 6 Huts (capacity=24). Seed 777: diagnostics=5 Huts vs report-card=3 Huts. rand::rng() in game/build.rs produces \u00b12-3 Hut variance per run, making housing capacity highly non-deterministic.",
+        "Wood skill frozen: skills.wood=0.5487951708942683 identical to 16 decimal places across all 3 evaluation seeds (42, 137, 777) in 2026-05-07 diagnostics. Farm skill varies correctly (2.77, 18.82, 25.05 per seed). Wood-gathering skill either not updated in ecs/systems.rs when wood is gathered, or not wired to any activity. Diagnose skill update path before skill-related changes."
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -173,7 +174,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "ecs_groups": {
       "status": "ok",
@@ -183,7 +184,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "pathfinding": {
       "status": "ok",
@@ -195,7 +196,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -217,7 +218,7 @@
         "Simulation metrics (avg_moisture, avg_vegetation, pipe_water_total, wind_moisture_total) are nested under \"terrain\" key in collect_diagnostics() output, not a \"simulation\" key \u2014 non-obvious grouping for external consumers (game/mod.rs:2445)",
         "12 compiler warnings in game/mod.rs: unused_mut (line 1220), tick_config assigned-but-never-read (lines 2135-2147 \u2014 dead event modifier chain), unused variable n, constant DIRECTIONS never used, unused methods. First counted 2026-05-01."
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "building_system": {
       "status": "ok",
@@ -230,7 +231,7 @@
       "known_issues": [
         "game/build.rs is 2306 lines \u2014 approaching split threshold"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "events": {
       "status": "needs_work",
@@ -246,7 +247,7 @@
         "0/3 evaluation seeds produced any events at tick 6000 \u2014 25 consecutive zero-event health checks as of 2026-05-06. Events cannot fire effectively while tick_config modifier chain is broken (see CRITICAL note below).",
         "CRITICAL: tick_config event modifier chain is broken \u2014 game/mod.rs:2135-2148 builds tick_config with drought (rain_rate*=0.4) and harvest (rain_rate*=1.5) modifiers but step_water_cycle() signature is (bool, f64) and never receives tick_config; modifiers are silently discarded. Drought/harvest have zero effect on simulation. First identified 2026-05-01."
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "chokepoint": {
       "status": "ok",
@@ -256,7 +257,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "rendering": {
       "status": "ok",
@@ -273,7 +274,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "save_load": {
       "status": "needs_tests",
@@ -286,7 +287,7 @@
       "known_issues": [
         "No dedicated unit tests \u2014 only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "scripting": {
       "status": "stub",
@@ -298,7 +299,7 @@
       "known_issues": [
         "Not fully implemented or tested"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "hydrology": {
       "status": "ok",
@@ -311,7 +312,7 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear \u2014 standalone research module"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     },
     "world_state": {
       "status": "needs_work",
@@ -326,7 +327,7 @@
         "No unit tests \u2014 all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-05-06"
+      "last_verified": "2026-05-07"
     }
   },
   "status_legend": {

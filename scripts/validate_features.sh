@@ -810,6 +810,42 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check event suppression"
 fi
 
+# 37. Seed 42 housing saturation guard
+# housing_growth_potential=0 for seed 42 in 3+ consecutive entries means
+# auto-build is not placing Huts despite population need. This is a more
+# robust signal than check #24 (pop=4 food=12), which fails to fire when
+# food varies due to rand::rng() non-determinism. Field added 2026-04-30.
+echo ""
+echo "=== Seed 42 housing saturation check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  saturation=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+window = data[-5:]
+entries_with_data = [e for e in window if 'housing_growth_potential' in e.get('seeds', {}).get('42', {})]
+if len(entries_with_data) < 3:
+    print('insufficient_data')
+else:
+    recent = entries_with_data[-3:]
+    stuck = sum(1 for e in recent if e.get('seeds', {}).get('42', {}).get('housing_growth_potential', -1) == 0)
+    if stuck >= 3:
+        print(f'saturated:{stuck}:{len(recent)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$saturation" | grep -q "^saturated:"; then
+    count=$(echo "$saturation" | cut -d: -f2)
+    total=$(echo "$saturation" | cut -d: -f3)
+    echo "WARN: Seed 42 housing_growth_potential=0 in ${count}/${total} recent checks — auto-build not placing Huts despite population pressure. Diagnose Hut placement priority in game/build.rs. Complements check #24 (which requires food=12 exactly)."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Seed 42 housing growth potential is not persistently saturated (or insufficient history)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
