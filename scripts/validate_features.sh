@@ -847,6 +847,71 @@ else
 fi
 
 # Summary
+# 38. features.json source files not mentioned in ARCHITECTURE.md
+# Every .rs file listed in features.json should appear in docs/ARCHITECTURE.md.
+# When a file is omitted from the architecture overview, contributors and agents
+# may miss it during analysis. Found 2026-05-08: analytical_erosion.rs (status=ok,
+# 6 tests) and scripting/mod.rs (status=stub) absent from the architecture file map.
+# For mod.rs files, checks the parent directory name (avoids false-positive from
+# other mod.rs occurrences in ARCHITECTURE.md).
+echo ""
+echo "=== ARCHITECTURE.md coverage of features.json files ==="
+ARCH_GAP=0
+while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    basename_file=$(basename "$file")
+    if [ "$basename_file" = "mod.rs" ]; then
+      search_token=$(basename "$(dirname "$file")")
+    else
+      search_token="$basename_file"
+    fi
+    if ! grep -q "$search_token" docs/ARCHITECTURE.md 2>/dev/null; then
+      echo "WARN: $file is in features.json but '$search_token' not found in docs/ARCHITECTURE.md — undocumented in architecture overview"
+      WARNINGS=$((WARNINGS + 1))
+      ARCH_GAP=1
+    fi
+  fi
+done < <(jq -r '.systems[].files[]' "$FEATURES" | grep '\.rs$')
+if [ $ARCH_GAP -eq 0 ]; then
+  echo "OK: All .rs files in features.json are mentioned in docs/ARCHITECTURE.md"
+fi
+
+# 39. Acute food crisis: food_per_cap < 1.5 in any seed in the most recent metrics entry.
+# Complements check #23 (chronic: < 2.0 in 2+ seeds for 3+ of last 5 entries).
+# Fires immediately on first occurrence of near-starvation, before chronic threshold.
+# Seed 137 food/cap has ranged 0.73–1.73 across recent runs (non-deterministic).
+echo ""
+echo "=== Acute food crisis check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  acute=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    acute = [(s, v.get('food_per_cap', 999)) for s, v in seeds.items()
+             if 'food_per_cap' in v and v['food_per_cap'] < 1.5]
+    if acute:
+        desc = ', '.join(f'seed {s}={fpc:.2f}' for s, fpc in acute)
+        print(f'acute:{len(acute)}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$acute" | grep -q "^acute:"; then
+    count=$(echo "$acute" | cut -d: -f2)
+    desc=$(echo "$acute" | cut -d: -f3-)
+    echo "WARN: ACUTE FOOD CRISIS — food_per_cap < 1.5 in ${count} seed(s): $desc — settlement approaching starvation. Diagnose farm count vs population before touching hunger constants."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: No acute food crisis (food_per_cap >= 1.5 in all seeds in last metrics entry)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
