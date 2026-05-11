@@ -912,6 +912,29 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 40. CLAUDE.md stale module structure
+# CLAUDE.md module structure section still lists 'simulation.rs' (monolith split to
+# src/simulation/ in ~2026-03-01) and omits 'world_state.rs' (added in 0D architecture
+# refactor Stages 1-4). Stale module structure misleads agents and contributors who rely on
+# CLAUDE.md as the entry point for codebase navigation — they may look for files that don't
+# exist or miss files that do. First flagged in health check 2026-05-11.
+echo ""
+echo "=== CLAUDE.md stale module structure check ==="
+CLAUDE_STALE=0
+if grep -q 'simulation\.rs' CLAUDE.md 2>/dev/null && [ ! -f "src/simulation.rs" ]; then
+  echo "WARN: CLAUDE.md module structure lists 'simulation.rs' which was split to src/simulation/ — stale. Misleads agents/contributors navigating the codebase."
+  WARNINGS=$((WARNINGS + 1))
+  CLAUDE_STALE=1
+fi
+if [ -f "src/world_state.rs" ] && ! grep -q 'world_state\.rs' CLAUDE.md 2>/dev/null; then
+  echo "WARN: CLAUDE.md module structure missing 'world_state.rs' (added in 0D architecture refactor, 74 lines — canonical simulation state). Update CLAUDE.md."
+  WARNINGS=$((WARNINGS + 1))
+  CLAUDE_STALE=1
+fi
+if [ $CLAUDE_STALE -eq 0 ]; then
+  echo "OK: CLAUDE.md module structure references match actual file structure (simulation.rs absent, world_state.rs present)"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
