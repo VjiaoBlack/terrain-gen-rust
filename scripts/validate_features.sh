@@ -935,6 +935,50 @@ if [ $CLAUDE_STALE -eq 0 ]; then
   echo "OK: CLAUDE.md module structure references match actual file structure (simulation.rs absent, world_state.rs present)"
 fi
 
+# 41. Wood skill pure-decay detection
+# woodcutting skill starts at 1.0 (game/mod.rs:381) and decays by 0.9999 each tick (game/mod.rs:1812).
+# If woodcutting_ticks=0 (no trees cut), after 6000 eval ticks: skill = 1.0 * 0.9999^6000 ≈ 0.5488.
+# Confirmed 2026-05-12: all 3 seeds show wood_skill=0.5487951708942683 to 16 decimal places.
+# Root cause: Forest biome near 0% coverage (check #32) → no trees to cut → skill pure-decays.
+# Requires 'wood_skill' field in metrics_history entries to fire.
+echo ""
+echo "=== Wood skill pure-decay detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  wood_decay=$(python3 -c "
+import json
+DECAY_EQ = 1.0 * (0.9999 ** 6000)  # ≈ 0.5488
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    decay_seeds = [s for s, v in seeds.items()
+                   if 'wood_skill' in v and abs(v['wood_skill'] - DECAY_EQ) < 0.001]
+    total = sum(1 for v in seeds.values() if 'wood_skill' in v)
+    if total == 0:
+        print('no_skill_data')
+    elif len(decay_seeds) >= 2:
+        print(f'decaying:{len(decay_seeds)}:{total}:{DECAY_EQ:.4f}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$wood_decay" | grep -q "^decaying:"; then
+    count=$(echo "$wood_decay" | cut -d: -f2)
+    total=$(echo "$wood_decay" | cut -d: -f3)
+    equil=$(echo "$wood_decay" | cut -d: -f4)
+    echo "WARN: Wood skill ≈ ${equil} (pure decay: 1.0*0.9999^6000) in ${count}/${total} seeds — zero trees cut in evaluation window. Root cause: Forest biome near 0% coverage (check #32). Settlement is wood-dependent (all buildings require wood) but no forest exists. Fix biome distribution before tuning wood-gathering behavior."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$wood_decay" | grep -q "no_skill_data"; then
+    echo "SKIP: No 'wood_skill' field in metrics_history — add it to enable zero-woodcutting detection"
+  else
+    echo "OK: Wood skill above pure-decay equilibrium (0.5488) — some woodcutting activity present"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
