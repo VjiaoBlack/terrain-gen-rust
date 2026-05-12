@@ -1350,5 +1350,67 @@
       "emergent_behavior": 2
     },
     "notes": "778/0/10 tests. 0 errors, 27 warnings (25 pre-existing + 2 from new check #40). Added check #40 (CLAUDE.md stale module structure: lists simulation.rs, missing world_state.rs). WolfSurge fired in seed 137 diagnostics run — breaks 27-run zero-event streak for that seed; 2/3 seeds still 0 events so check #36 still fires. Rabbits recovered: all 3 seeds > 0 (was 0/0/3 in 2026-05-08); check #31 does not fire. Seed 42 pop=4 food=12 25th consecutive run. PLATEAU fires: score=2.40 for 5th consecutive check. All baselines PASS."
+  },
+  {
+    "date": "2026-05-12",
+    "commit": "b35d6b1",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 14,
+        "food_per_cap": 1.27,
+        "buildings": 10,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 12,
+        "food": 19,
+        "food_per_cap": 1.58,
+        "buildings": 11,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 4,
+        "wood_skill": 0.5488
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778 passed/0 failed/10 ignored (run 1); 777 passed/1 failed (run 2, known flaky test). 0 errors, 27 warnings + check #41 added (wood skill pure-decay). Seed 42 pop=4 food=12 26th consecutive stagnation run. Score plateau 6th consecutive 2.40. Events: 0/3 seeds fired (no WolfSurge this run, was 1 last run). Rabbits: seed 42=0, 137=0, 777=3. Wood skill 0.5488 in all seeds = 1.0*(0.9999^6000) pure decay, confirming zero woodcutting across all seeds. Baselines: all PASS."
   }
 ]
