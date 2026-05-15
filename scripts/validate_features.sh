@@ -979,6 +979,51 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 42. Forest biome near-zero detection
+# Desert has been 32-49% in 2/3 evaluation seeds while Forest is <1% in all 3 seeds.
+# This directly explains wood_skill pure-decay (check #41) — no trees to cut because
+# there are no forest tiles. Root cause: biome scoring in terrain_pipeline.rs assigns
+# Desert too broadly post-WorldState refactor. First confirmed 2026-05-12 (check #41 added).
+# Seeds 42=0.3%, 137=0.1%, 777=0.7% — all below 1% threshold.
+# Complementary to check #41 (skill signal) and check #32 (flat terrain signal).
+echo ""
+echo "=== Forest biome near-zero detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  forest_check=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    low_forest = [(s, v.get('forest_pct', 999)) for s, v in seeds.items()
+                  if 'forest_pct' in v and v['forest_pct'] < 1.0]
+    total = sum(1 for v in seeds.values() if 'forest_pct' in v)
+    if total == 0:
+        print('no_forest_data')
+    elif len(low_forest) >= 2:
+        desc = ', '.join(f'seed {s}={fp:.1f}%' for s, fp in low_forest)
+        print(f'low:{len(low_forest)}:{total}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$forest_check" | grep -q "^low:"; then
+    count=$(echo "$forest_check" | cut -d: -f2)
+    total=$(echo "$forest_check" | cut -d: -f3)
+    desc=$(echo "$forest_check" | cut -d: -f4-)
+    echo "WARN: Forest biome < 1.0% in ${count}/${total} seeds (${desc}) — settlement wood-dependent but no forest exists. Root cause: biome distribution imbalance in terrain_pipeline.rs (Desert dominant). Fix biome scoring before tuning wood/skill systems. See also check #41 (wood_skill decay) and check #32 (flat terrain)."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$forest_check" | grep -q "no_forest_data"; then
+    echo "SKIP: No 'forest_pct' field in metrics_history — add it to enable forest near-zero detection"
+  else
+    echo "OK: Forest biome >= 1.0% in sufficient seeds — forest coverage adequate for woodcutting"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
