@@ -1024,6 +1024,46 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 43. Multi-seed housing growth saturation
+# Seed 42 has been at housing_growth_potential=0 for 28+ consecutive checks (check #37).
+# This check fires when 2+ evaluation seeds simultaneously show housing_growth_potential=0,
+# indicating the auto-build Hut stagnation has spread beyond seed 42 — a broadening failure mode.
+# Complements check #37 (seed 42 specific). Does not fire when only one seed is saturated.
+echo ""
+echo "=== Multi-seed housing saturation check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  multi_saturated=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    saturated = [s for s, v in seeds.items()
+                 if 'housing_growth_potential' in v and v['housing_growth_potential'] == 0]
+    total_with_data = sum(1 for v in seeds.values() if 'housing_growth_potential' in v)
+    if total_with_data == 0:
+        print('no_data')
+    elif len(saturated) >= 2:
+        print(f'multi_saturated:{len(saturated)}:{total_with_data}:{\",\".join(sorted(saturated))}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$multi_saturated" | grep -q "^multi_saturated:"; then
+    count=$(echo "$multi_saturated" | cut -d: -f2)
+    total=$(echo "$multi_saturated" | cut -d: -f3)
+    seeds_list=$(echo "$multi_saturated" | cut -d: -f4-)
+    echo "WARN: housing_growth_potential=0 in ${count}/${total} seeds (seeds ${seeds_list}) — auto-build Hut stagnation spreading beyond seed 42. Escalation from check #37. Diagnose Hut placement priority in game/build.rs."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Multi-seed housing saturation not detected (housing growth potential > 0 in 2+ seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

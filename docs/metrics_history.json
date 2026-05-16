@@ -1474,5 +1474,67 @@
       "emergent_behavior": 2
     },
     "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (no flaky test failure; yesterday had 777/1). 0 errors, 30 warnings. Check #42 (forest biome near-zero detection) actually added to validate_features.sh today \u2014 was claimed in 2026-05-14 commit but script was never updated. Seed 42 pop=4 food=12 28th consecutive stagnation run. Score plateau 8th consecutive 2.40. Events: 0/3 seeds. Rabbits: seed 42=0, 137=0, 777=9. Seed 777 wood_skill=4.84 (non-decay, found trees); seeds 42/137=0.5488 (pure decay). Non-determinism: baselines check returned seed 777 pop=11 vs diagnostic pop=13 in same session. Baselines: 3/3 PASS. Note: 2026-05-14 metrics entry was never added to history (that commit only touched health_reports/ and features.json)."
+  },
+  {
+    "date": "2026-05-16",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.8,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 31.4,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 0,
+        "food_per_cap": 0.0,
+        "buildings": 10,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "buildings": 8,
+        "water_pct": 37.9,
+        "biomes": 15,
+        "rabbits": 5,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (208s). 0 errors, 30 warnings (validate_features). Check #43 added: multi-seed housing saturation (does not fire on current data). Seed 137 food=0 \u2014 new all-time low (prev. worst food_per_cap=0.36 on 2026-04-22); Farm\u00d73 present but all food exhausted. Seed 777 wood_skill=0.5488 (pure decay) vs 4.84 yesterday \u2014 non-determinism bidirectional confirmation. Rabbits: seed 42=0, 137=0, 777=5. Prey extinction check #31 fires (2/3 seeds). Seed 42 pop=4 food=12 29th consecutive stagnation run. Score plateau 9th consecutive 2.40. Events: 0/3 seeds (28th consecutive zero-event check). Baselines: 3/3 PASS. All simulate at tick 6000. No Bakery/Smithy/Granary/Bridge in any seed."
   }
 ]
