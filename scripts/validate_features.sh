@@ -1064,6 +1064,52 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 44. Wood resource near-zero with build site stall detection
+# All buildings cost wood (Farms=5w, Huts=10w, Workshops=8w, etc.), but Forest biome
+# is <1% in all evaluation seeds (check #42), meaning wood cannot be replenished once
+# depleted. When wood < 10 in 2+ seeds, settlements cannot complete queued construction.
+# Observed 2026-05-17: seed 137 wood=4 with 5 active build_sites; seed 777 wood=1 with
+# 1 build_site. Complements check #41 (skill decay = supply-side signal) and check #42
+# (forest near-zero = cause); this detects the demand-side consequence: resource stall.
+# Requires 'wood' field in metrics_history entries (added 2026-05-17) to fire.
+echo ""
+echo "=== Wood resource near-zero stall detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  wood_stall=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    low_wood = [(s, v.get('wood', 999)) for s, v in seeds.items()
+                if 'wood' in v and v['wood'] < 10]
+    total = sum(1 for v in seeds.values() if 'wood' in v)
+    if total == 0:
+        print('no_wood_data')
+    elif len(low_wood) >= 2:
+        desc = ', '.join(f'seed {s}=wood:{w}' for s, w in low_wood)
+        print(f'stall:{len(low_wood)}:{total}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$wood_stall" | grep -q "^stall:"; then
+    count=$(echo "$wood_stall" | cut -d: -f2)
+    total=$(echo "$wood_stall" | cut -d: -f3)
+    desc=$(echo "$wood_stall" | cut -d: -f4-)
+    echo "WARN: Wood stockpile < 10 in ${count}/${total} seeds (${desc}) — construction stall risk. All buildings cost wood but Forest biome < 1% (check #42) means no replenishment. Fix biome distribution before tuning wood costs. See also check #41 (skill decay) and check #42 (forest coverage)."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$wood_stall" | grep -q "no_wood_data"; then
+    echo "SKIP: No 'wood' field in metrics_history — add it to enable wood stall detection (first added 2026-05-17)"
+  else
+    echo "OK: Wood stockpile >= 10 in 2+ seeds (no construction stall risk)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

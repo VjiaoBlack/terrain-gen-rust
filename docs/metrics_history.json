@@ -1536,5 +1536,73 @@
       "emergent_behavior": 2
     },
     "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (208s). 0 errors, 30 warnings (validate_features). Check #43 added: multi-seed housing saturation (does not fire on current data). Seed 137 food=0 \u2014 new all-time low (prev. worst food_per_cap=0.36 on 2026-04-22); Farm\u00d73 present but all food exhausted. Seed 777 wood_skill=0.5488 (pure decay) vs 4.84 yesterday \u2014 non-determinism bidirectional confirmation. Rabbits: seed 42=0, 137=0, 777=5. Prey extinction check #31 fires (2/3 seeds). Seed 42 pop=4 food=12 29th consecutive stagnation run. Score plateau 9th consecutive 2.40. Events: 0/3 seeds (28th consecutive zero-event check). Baselines: 3/3 PASS. All simulate at tick 6000. No Bakery/Smithy/Granary/Bridge in any seed."
+  },
+  {
+    "date": "2026-05-17",
+    "commit": "d9bd6c1",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "build_sites": 2,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 16,
+        "food_per_cap": 1.45,
+        "wood": 4,
+        "buildings": 9,
+        "build_sites": 5,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.4,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 14,
+        "food": 22,
+        "food_per_cap": 1.57,
+        "wood": 1,
+        "buildings": 14,
+        "build_sites": 1,
+        "water_pct": 38.1,
+        "biomes": 14,
+        "rabbits": 5,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 6,
+        "wood_skill": 2.0638
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 30 warnings (validate_features) + check #44 added. Check #44: wood resource near-zero stall (SKIP until wood field established). Seed 777 pop=14 (up from 11) but report-card run shows 11 \u2014 within-session non-determinism delta=3. Seed 777 wood_skill=2.06 (some woodcutting vs pure-decay yesterday). Seed 137: wood=4, 5 active build_sites \u2014 construction stall risk. Seed 777: wood=1, 1 build_site. Playtest default seed: GAME OVER at tick 6668, peak pop=4. 0 events all seeds (29th consecutive). Rabbits: 42=0, 137=0, 777=5. Baselines: 3/3 PASS. Score plateau: 10th consecutive 2.40."
   }
 ]
