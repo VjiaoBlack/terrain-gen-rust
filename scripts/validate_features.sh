@@ -1110,6 +1110,28 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 45. Granary auto-build food threshold impossibility gate
+# build.rs Priority 4 auto-builds Granary only when: villager_count >= 12 AND food > N.
+# Evaluation seeds have food=8-22 at tick 6000 (pop=4-12, max food ever observed: ~29).
+# If N > 40, Granary is structurally impossible to auto-build in evaluation window.
+# Since Bakery requires has_granary (build.rs Priority 5.5), Bakery is also blocked.
+# Result: bread=0 permanently, plague-prevention mechanic never activates.
+# Confirmed 2026-05-18: N=80 (build.rs:1154), eval max food=22 → threshold unreachable.
+# Mirrors check #27 (drought grain threshold impossibility) in the events system.
+echo ""
+echo "=== Granary auto-build food threshold check ==="
+granary_thresh=$(grep -E '!has_granary.*food >' src/game/build.rs 2>/dev/null | grep -oE 'food > ([0-9]+)' | grep -oE '[0-9]+$' | head -1)
+if [ -n "$granary_thresh" ]; then
+  if [ "$granary_thresh" -gt 40 ]; then
+    echo "WARN: Granary auto-build requires food > $granary_thresh (src/game/build.rs) — evaluation seeds have food=8-22 at tick 6000; threshold unreachable. Bakery also blocked (requires Granary). Production chain stalls: food→Granary→grain→Bakery→bread never activates. bread=0 in all eval seeds. Fix threshold to <=40 or scale with population."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Granary food threshold=${granary_thresh} (<=40) — reachable by evaluation populations"
+  fi
+else
+  echo "SKIP: Granary auto-build condition not found in src/game/build.rs — check may need updating"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
