@@ -1132,6 +1132,29 @@ else
   echo "SKIP: Granary auto-build condition not found in src/game/build.rs — check may need updating"
 fi
 
+# 46. ProcessingBuilding diagnostic conflation check
+# collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as "Workshop".
+# But game/mod.rs:1064-1081 spawns a PRE-BUILT Granary (FoodToGrain recipe) as a ProcessingBuilding
+# at game start — before auto-build ever runs. Result: every seed always shows Workshop:1 (or more)
+# even when no auto-built Workshop exists. 25+ health checks recorded Granary as Workshop.
+# The pre-built Granary does process food->grain when food > 15, explaining grain accumulation
+# (grain=4-20 in diagnostics) without a visible "Granary" in the building list.
+# Fix: query building_counts by recipe or marker to separate Granary/Workshop/Bakery.
+# First identified: 2026-05-19.
+echo ""
+echo "=== ProcessingBuilding diagnostic conflation check ==="
+DIAG_CONFLATION=0
+if grep -q 'workshop_count.*ProcessingBuilding' src/game/mod.rs 2>/dev/null; then
+  if grep -q 'Recipe::FoodToGrain' src/game/mod.rs 2>/dev/null; then
+    echo "WARN: collect_diagnostics() (game/mod.rs:2299) labels ALL ProcessingBuilding entities as 'Workshop' but game/mod.rs:1064-1081 spawns a pre-built Granary (FoodToGrain recipe) also as a ProcessingBuilding. Workshop count in --diagnostics is inflated by 1 (pre-built Granary). 25+ health checks have misread this as Workshop data. Fix: separate Granary/Workshop/Bakery in building_counts by querying recipe or using a distinct marker component."
+    WARNINGS=$((WARNINGS + 1))
+    DIAG_CONFLATION=1
+  fi
+fi
+if [ $DIAG_CONFLATION -eq 0 ]; then
+  echo "OK: ProcessingBuilding diagnostic conflation not detected (workshop_count separated from Granary/Bakery)"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

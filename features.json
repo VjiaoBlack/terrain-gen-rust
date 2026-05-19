@@ -16,7 +16,7 @@
         "Desert biome dominant in 2/3 evaluation seeds (32–49%) with near-zero Forest (0.1–0.7%); biome distribution imbalanced post-WorldState refactor",
         "Slope distribution is 98.4–98.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09–0.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -28,7 +28,7 @@
       "known_issues": [
         "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md — omitted from file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "pipe_water": {
       "status": "ok",
@@ -40,7 +40,7 @@
       "known_issues": [
         "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -53,7 +53,7 @@
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -68,7 +68,7 @@
         "moisture.rs is 1867 lines — largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests — only 9 are regular passing tests"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -78,7 +78,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -88,7 +88,7 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_wind": {
       "status": "ok",
@@ -98,7 +98,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_scent": {
       "status": "ok",
@@ -108,7 +108,7 @@
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -118,7 +118,7 @@
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -128,7 +128,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "simulation_maps": {
       "status": "ok",
@@ -140,7 +140,7 @@
       "known_issues": [
         "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic — exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "ecs_core": {
       "status": "ok",
@@ -169,7 +169,7 @@
         "Seed 137 food=0 recorded on 2026-05-16 diagnostic run (new all-time low; previous worst: food_per_cap=0.36 on 2026-04-22). Farm×3 present with pop=11 but entire food stockpile exhausted. Root cause: rand::rng() non-determinism in villager task assignment — on some runs fewer villagers assigned to Farming, depleting food faster than production.",
         "Within-session seed 777 population divergence confirmed 2026-05-17: diagnostics run shows pop=14, report-card run (sequential, same binary) shows pop=11 — delta of 3 in a single health-check session. Bidirectional non-determinism confirmed (pop can be higher or lower depending on run order)."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -179,7 +179,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "ecs_groups": {
       "status": "ok",
@@ -189,7 +189,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "pathfinding": {
       "status": "ok",
@@ -201,7 +201,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -222,9 +222,10 @@
         "build_site_gets_completed_in_game (tests.rs:252) is a new flaky test discovered 2026-05-05 — fails in full suite (777 passed, 1 failed) but passes in isolation. Root cause: rand::rng() in ecs/systems.rs and game/mod.rs makes villager behavior non-deterministic, so some runs don't complete the build site within 3000 ticks. Same mechanism as construction_dust_particles_spawn. Should be #[ignore]d or fixed with seeded RNG.",
         "Simulation metrics (avg_moisture, avg_vegetation, pipe_water_total, wind_moisture_total) are nested under \"terrain\" key in collect_diagnostics() output, not a \"simulation\" key — non-obvious grouping for external consumers (game/mod.rs:2445)",
         "12 compiler warnings in game/mod.rs: unused_mut (line 1220), tick_config assigned-but-never-read (lines 2135-2147 — dead event modifier chain), unused variable n, constant DIRECTIONS never used, unused methods. First counted 2026-05-01.",
-        "Flaky test confirmed 2026-05-12: cargo test --lib run 2 produced 777 passed/1 failed/10 ignored (run 1: 778/0/10). Known flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game) still not marked #[ignore]."
+        "Flaky test confirmed 2026-05-12: cargo test --lib run 2 produced 777 passed/1 failed/10 ignored (run 1: 778/0/10). Known flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game) still not marked #[ignore].",
+        "ProcessingBuilding diagnostic conflation (2026-05-19): collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed always shows Workshop:1+ even when no auto-built Workshop exists — the count includes the pre-built Granary. 25+ health checks recorded Granary as Workshop. The pre-built Granary does function (converts food->grain when food > 15), explaining grain accumulation in diagnostics. Fix: query building_counts by recipe or use distinct marker components for each processing building type."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "building_system": {
       "status": "ok",
@@ -238,7 +239,7 @@
         "game/build.rs is 2306 lines — approaching split threshold",
         "Granary auto-build threshold structurally unreachable: build.rs:1154 requires villager_count >= 12 AND food > 80. Evaluation seeds have food=8-22 at tick 6000 (pop=4-12); food > 80 is never met. Since Bakery requires has_granary (build.rs:1346), neither Granary nor Bakery is ever auto-built → bread=0 in all seeds permanently → plague-prevention mechanic never activates. Confirmed 2026-05-18 via check #45. Fix: lower food threshold to food > pop * 3 or food > 25."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "events": {
       "status": "needs_work",
@@ -254,7 +255,7 @@
         "0/3 evaluation seeds produced any events at tick 6000 — 30 consecutive zero-event health checks as of 2026-05-18. Events cannot fire effectively while tick_config modifier chain is broken (see CRITICAL note below).",
         "CRITICAL: tick_config event modifier chain is broken — game/mod.rs:2135-2148 builds tick_config with drought (rain_rate*=0.4) and harvest (rain_rate*=1.5) modifiers but step_water_cycle() signature is (bool, f64) and never receives tick_config; modifiers are silently discarded. Drought/harvest have zero effect on simulation. First identified 2026-05-01."
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "chokepoint": {
       "status": "ok",
@@ -264,7 +265,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "rendering": {
       "status": "ok",
@@ -281,7 +282,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "save_load": {
       "status": "needs_tests",
@@ -294,7 +295,7 @@
       "known_issues": [
         "No dedicated unit tests — only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "scripting": {
       "status": "stub",
@@ -307,7 +308,7 @@
         "Not fully implemented or tested",
         "src/scripting/mod.rs not documented in docs/ARCHITECTURE.md — directory not in file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "hydrology": {
       "status": "ok",
@@ -320,7 +321,7 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear — standalone research module"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     },
     "world_state": {
       "status": "needs_work",
@@ -335,7 +336,7 @@
         "No unit tests — all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-05-18"
+      "last_verified": "2026-05-19"
     }
   },
   "status_legend": {

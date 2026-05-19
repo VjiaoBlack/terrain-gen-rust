@@ -1672,5 +1672,73 @@
       "emergent_behavior": 2
     },
     "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (x2 confirmed). 0 errors, 32 warnings (validate_features) \u2014 check #45 added (Granary food>80 threshold impossibility, fires immediately). NEW FINDING: Granary auto-build requires food > 80 (build.rs:1154) \u2014 unreachable with eval food=8-22; Bakery also blocked (requires Granary) \u2192 bread=0 permanently \u2192 plague-prevention never activates. Wood skill pure-decay in all 3 seeds today (incl. seed 777=0.5488 vs 2.0638 yesterday \u2014 non-determinism extends to woodcutting path). Seed 42: pop=4 food=12 (26th consecutive stuck). Seed 137: food=8 (food/cap=0.73, Critical). Seed 777: wood=4. 0 events (30th consecutive). Rabbits: 42=0, 137=0, 777=9. Baselines: 3/3 PASS. Score plateau: 11th consecutive 2.40."
+  },
+  {
+    "date": "2026-05-19",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "build_sites": 2,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 14,
+        "food_per_cap": 1.27,
+        "wood": 4,
+        "buildings": 10,
+        "build_sites": 4,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 6,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 12,
+        "food": 15,
+        "food_per_cap": 1.25,
+        "wood": 4,
+        "buildings": 13,
+        "build_sites": 1,
+        "water_pct": 38.0,
+        "biomes": 15,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 8,
+        "wood_skill": 0.5488
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 33 warnings (validate_features) \u2014 check #46 added (ProcessingBuilding diagnostic conflation). NEW FINDING: collect_diagnostics() at game/mod.rs:2299 labels ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed shows Workshop:1+ even without an auto-built Workshop \u2014 25+ health checks misread this as Workshop data. Pre-built Granary does function (food>15 \u2192 grain+=2). Seed 42: pop=4 food=12 (27th consecutive stuck). Seed 137: food=14 (up from 8 yesterday \u2014 rand::rng() non-determinism; food/cap=1.27). Seed 777: pop=12 wood=4. 0 events (31st consecutive). Rabbits: 42=0, 137=6, 777=3. Baselines: 3/3 PASS. Score plateau: 12th consecutive 2.40."
   }
 ]
