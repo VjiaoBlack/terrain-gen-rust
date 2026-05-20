@@ -1155,6 +1155,29 @@ if [ $DIAG_CONFLATION -eq 0 ]; then
   echo "OK: ProcessingBuilding diagnostic conflation not detected (workshop_count separated from Granary/Bakery)"
 fi
 
+# 47. Bakery planks threshold impossibility (static)
+# Bakery auto-build (build.rs Priority 5.5) requires `planks >= N`.
+# Planks are produced by Workshop (2 wood -> 1 plank). With Forest biome < 1% in all
+# evaluation seeds (check #42) and wood < 10 in 2/3 seeds (check #44), Workshop never
+# produces planks. This blocks Bakery independently of the Granary issue (check #45).
+# Note: has_granary is actually TRUE from game start (pre-built FoodToGrain ProcessingBuilding
+# at game/mod.rs:1064), so the Granary check #45 diagnosis is partially stale —
+# the actual Bakery blockers are (1) planks=0 from wood starvation and (2) grain<30.
+# Confirmed 2026-05-20: plank threshold is 8 in build.rs Priority 5.5.
+echo ""
+echo "=== Bakery planks threshold impossibility check ==="
+bakery_planks=$(grep -E 'planks >= [0-9]+' src/game/build.rs 2>/dev/null | grep -oE 'planks >= [0-9]+' | head -1 | grep -oE '[0-9]+$')
+if [ -n "$bakery_planks" ]; then
+  if [ "$bakery_planks" -gt 2 ]; then
+    echo "WARN: Bakery requires planks >= $bakery_planks (src/game/build.rs Priority 5.5). Planks come from Workshop (2 wood -> 1 plank). With Forest < 1% in all eval seeds (check #42) and wood < 10 in 2/3 seeds (check #44), Workshop produces 0 planks -> Bakery blocked independently of Granary. Fix biome distribution (check #42) before tuning Bakery thresholds. Also: Bakery requires grain > 30, accumulating slowly via pre-built FoodToGrain Granary."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Bakery planks threshold=${bakery_planks} (<= 2) — reachable from low Workshop output"
+  fi
+else
+  echo "SKIP: Bakery planks condition not found in src/game/build.rs — check may need updating"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
