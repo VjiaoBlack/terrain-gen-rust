@@ -1178,6 +1178,58 @@ else
   echo "SKIP: Bakery planks condition not found in src/game/build.rs — check may need updating"
 fi
 
+# 48. Seeds 137/777 population convergence guard
+# Pillar 1 ("Geography Shapes Everything") requires different terrain to produce
+# different settlements. Seeds 137 (Desert-dominant, Forest=0.1%) and 777 (Grass/Sand,
+# Desert=0.1%) have reached nearly identical populations (diff ≤ 1) in 4/5 recent
+# health checks, despite radically different terrain biome distributions.
+# When population difference is ≤ 1 in 4+ of the last 5 entries, terrain is not
+# meaningfully shaping settlement outcomes — a direct Pillar 1 violation.
+# First formally tracked: 2026-05-21 (pattern observed in notes since 2026-05-20).
+echo ""
+echo "=== Seeds 137/777 Pillar 1 convergence guard ==="
+if [ -f "docs/metrics_history.json" ]; then
+  convergence=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 5:
+    print('insufficient_data')
+else:
+    window = data[-5:]
+    entries_with_both = [
+        e for e in window
+        if '137' in e.get('seeds', {}) and '777' in e.get('seeds', {})
+        and 'population' in e['seeds']['137'] and 'population' in e['seeds']['777']
+    ]
+    if len(entries_with_both) < 4:
+        print('insufficient_data')
+    else:
+        converged = sum(
+            1 for e in entries_with_both
+            if abs(e['seeds']['137']['population'] - e['seeds']['777']['population']) <= 1
+        )
+        if converged >= 4:
+            pops = [(e['date'], e['seeds']['137']['population'], e['seeds']['777']['population'])
+                    for e in entries_with_both]
+            summary = ', '.join(f'{d}:({p137},{p777})' for d,p137,p777 in pops[-3:])
+            print(f'convergent:{converged}:{len(entries_with_both)}:{summary}')
+        else:
+            print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$convergence" | grep -q "^convergent:"; then
+    count=$(echo "$convergence" | cut -d: -f2)
+    total=$(echo "$convergence" | cut -d: -f3)
+    desc=$(echo "$convergence" | cut -d: -f4-)
+    echo "WARN: Seeds 137 and 777 population diff <=1 in ${count}/${total} recent health checks (${desc}) — terrain not differentiating settlement outcomes. Pillar 1 ('two different maps should produce two fundamentally different settlements') violated. Root cause: biome distribution imbalance (Desert/Forest) overriding terrain variety. Fix terrain_pipeline.rs biome scoring before tuning AI behavior."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Seeds 137 and 777 show meaningful population divergence (Pillar 1 terrain differentiation functioning)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

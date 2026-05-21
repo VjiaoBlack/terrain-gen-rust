@@ -1808,5 +1808,73 @@
       "emergent_behavior": 2
     },
     "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 33 warnings (validate_features, check #47 added). Seed 137 fired WolfSurge today (events_fired=1) \u2014 first event in today's session, confirms WolfSurge partially functional. Seeds 137+777 near-identical (pop=11, food=14, wood=4) despite different terrain \u2014 possible Pillar 1 attractor. Seed 42: 28th consecutive pop=4 food=12 stuck run. NEW FINDING: Bakery blocked by planks=0 (Workshop starved, wood=0) AND grain<30 \u2014 not just Granary; pre-built Granary satisfies has_granary from start. Check #47 added (Bakery planks threshold static check). Baselines: 3/3 PASS. Score plateau: 13th consecutive 2.40."
+  },
+  {
+    "date": "2026-05-21",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "build_sites": 2,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 0,
+        "food_per_cap": 0.0,
+        "wood": 4,
+        "buildings": 9,
+        "build_sites": 5,
+        "water_pct": 17.9,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "wood": 4,
+        "buildings": 8,
+        "build_sites": 6,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 34 warnings (check #48 added: seeds 137/777 Pillar 1 convergence guard fires immediately \u2014 pop diff<=1 in 4/5 recent entries). Seed 137 food=0 again (chronic; also 0 on 2026-05-16). Seed 777 buildings dropped from 13 (2026-05-20) to 8 (today) \u2014 delta=5 via rand::rng() auto-build divergence. Seeds 137+777 pop=11,11 again (5th occurrence of near-convergence in recent runs). Seed 42: 29th consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. check_baselines.sh: 3 passed, 0 failed. Score plateau: 14th consecutive 2.40/5.0."
   }
 ]
