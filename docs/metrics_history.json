@@ -1946,5 +1946,75 @@
       "emergent_behavior": 2
     },
     "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (220s). 0 errors, 34 warnings (no new checks). Seed 137 WolfSurge fired again (events_fired=1, 2nd occurrence matching 2026-05-20). Seed 777 grain=30 + planks=6 \u2014 closest approach to Bakery threshold yet (grain>30 + planks>=8 required); still blocked by 2 planks. Seed 42: 30th consecutive pop=4 food=12 stuck run. Rabbits: 42=0, 137=4, 777=5. Baselines: 3/3 PASS. Default seed playtest: GAME OVER at tick 8830. Score plateau: 15th consecutive 2.40/5.0."
+  },
+  {
+    "date": "2026-05-23",
+    "commit": "d1f608c",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "build_sites": 2,
+        "water_pct": 30.7,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 16,
+        "food_per_cap": 1.45,
+        "wood": 3,
+        "buildings": 10,
+        "build_sites": 5,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 12,
+        "food": 20,
+        "food_per_cap": 1.67,
+        "wood": 5,
+        "buildings": 14,
+        "build_sites": 2,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 4,
+        "wood_skill": 0.5488,
+        "grain": 26,
+        "planks": 0
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (289s). 0 errors, 34 warnings (no new checks). 0 events fired in all 3 seeds (WolfSurge did not fire today, unlike 2026-05-22 \u2014 confirms non-deterministic event triggering). Seed 777 buildings=14 (up from 11 yesterday; largest observed). Seed 137 rabbits=0 today (vs 4 yesterday \u2014 extinction run). Seed 42: 31st consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. Score plateau: 16th consecutive 2.40/5.0."
   }
 ]
