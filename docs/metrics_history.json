@@ -2016,5 +2016,75 @@
       "emergent_behavior": 2
     },
     "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (289s). 0 errors, 34 warnings (no new checks). 0 events fired in all 3 seeds (WolfSurge did not fire today, unlike 2026-05-22 \u2014 confirms non-deterministic event triggering). Seed 777 buildings=14 (up from 11 yesterday; largest observed). Seed 137 rabbits=0 today (vs 4 yesterday \u2014 extinction run). Seed 42: 31st consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. Score plateau: 16th consecutive 2.40/5.0."
+  },
+  {
+    "date": "2026-05-24",
+    "commit": "df1b6a786a3eb429db274407770a985ac7808b6b",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "build_sites": 2,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 8,
+        "food_per_cap": 0.73,
+        "wood": 4,
+        "buildings": 8,
+        "build_sites": 6,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 1,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "wood": 4,
+        "buildings": 12,
+        "build_sites": 1,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 9,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "grain": 24,
+        "planks": 3
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "777 passed/1 FAILED (build_site_gets_completed_in_game flaky \u2014 known)/10 ignored (326s). 0 errors, 35 warnings. Seed 137 food=8 diagnostics (food/cap=0.73, new all-time low); report-card sequential run showed food=16 (delta=8, largest within-session food divergence documented \u2014 rand::rng() affects villager task assignment). Seed 42: 32nd consecutive pop=4/food=12 stuck run. Seed 777 pop=11 (vs 12 yesterday), buildings=12 (vs 14 yesterday). Baselines: 3/3 PASS. Score plateau: 17th consecutive 2.40/5.0."
   }
 ]
