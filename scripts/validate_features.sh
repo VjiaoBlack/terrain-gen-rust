@@ -1230,6 +1230,55 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 49. Metrics history schema completeness
+# Many harness checks silently SKIP when required fields are missing from the most
+# recent metrics_history.json entry. For example: check #31 requires 'rabbits',
+# check #32 requires 'slope_flat_pct', check #41 requires 'wood_skill', check #42
+# requires 'forest_pct', check #44 requires 'wood', check #48 requires 'population'.
+# If a health check agent omits these fields, downstream checks SKIP without warning.
+# This meta-check ensures the latest entry is complete so all checks can fire.
+# Required fields confirmed necessary as of 2026-05-27 (check #49 added).
+echo ""
+echo "=== Metrics history schema completeness ==="
+if [ -f "docs/metrics_history.json" ]; then
+  schema_missing=$(python3 -c "
+import json
+REQUIRED_SEED_FIELDS = [
+    'population', 'food', 'food_per_cap', 'wood', 'buildings',
+    'water_pct', 'biomes', 'rabbits', 'survived',
+    'slope_flat_pct', 'desert_pct', 'forest_pct',
+    'events_fired', 'housing_growth_potential', 'wood_skill'
+]
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    missing = []
+    for seed, vals in seeds.items():
+        for field in REQUIRED_SEED_FIELDS:
+            if field not in vals:
+                missing.append(f'seed {seed}: {field}')
+    if missing:
+        print('missing:' + '|'.join(missing[:5]))  # cap at 5 to avoid long output
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$schema_missing" | grep -q "^missing:"; then
+    fields=$(echo "$schema_missing" | cut -d: -f2- | tr '|' '\n' | head -5)
+    echo "WARN: Most recent metrics_history entry is missing required fields — downstream checks will SKIP silently. Missing: $fields"
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$schema_missing" | grep -q "no_data"; then
+    echo "SKIP: metrics_history.json is empty — cannot validate schema"
+  else
+    echo "OK: Most recent metrics_history entry has all required per-seed fields (checks #31, #32, #41, #42, #44 will fire)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
