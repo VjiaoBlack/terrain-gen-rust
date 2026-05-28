@@ -1279,6 +1279,45 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 50. Total starvation detection: food=0 with living population
+# food_per_cap < 1.5 (check #39) covers near-starvation, but food=0 with pop>0
+# is the sharpest crisis state — all stored food is gone; villagers die next hunger tick.
+# First confirmed: 2026-05-28 diagnostics, seed 137: food=0, pop=11 at tick 6000.
+# Pre-built FoodToGrain Granary (game/mod.rs:1064, food>15 threshold) may deplete the
+# buffer faster than farms replenish it at high population, causing apparent starvation
+# despite active farms. Complement to check #39 (food_per_cap < 1.5) and check #23 (chronic).
+echo ""
+echo "=== Total starvation detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  starvation=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    starving = [(s, v.get('population', 0)) for s, v in seeds.items()
+                if 'food' in v and v['food'] == 0 and v.get('population', 0) > 0]
+    if starving:
+        desc = ', '.join(f'seed {s} pop={p}' for s, p in starving)
+        print(f'starving:{len(starving)}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$starvation" | grep -q "^starving:"; then
+    count=$(echo "$starvation" | cut -d: -f2)
+    desc=$(echo "$starvation" | cut -d: -f3-)
+    echo "WARN: TOTAL STARVATION — food=0 with living population in ${count} seed(s): $desc — all food exhausted; villagers starve immediately. Possible causes: (1) rand::rng() task assignment causes too few farmers; (2) pre-built FoodToGrain Granary (game/mod.rs:1064, food>15) consumes buffer faster than farms replenish it at high pop. Diagnose farm yield vs Granary consumption before touching hunger constants."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: No total starvation (food > 0 or population = 0 in all seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
