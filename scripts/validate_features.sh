@@ -1318,6 +1318,28 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 51. FoodToGrain Granary processing threshold too low for high-population viability
+# src/ecs/systems.rs:979,1391: Granary fires when resources.food > N.
+# At pop >= 10, villagers consume ~0.1-0.15 food/tick each = 1-1.5/tick total.
+# If N < 20, the food buffer (N units) lasts ~70-100 ticks — insufficient to absorb
+# task-assignment fluctuations from rand::rng() (farming fraction varies each run).
+# Observed 2026-05-28: seed 137 pop=11, food=0 at tick 6000 (Granary+RNG interaction).
+# Observed 2026-05-29: seed 137 pop=11, food=15 (barely above threshold) in next run.
+# Fix: change threshold to max(N, population * 2) — buffer that scales with population.
+echo ""
+echo "=== FoodToGrain Granary threshold safety check ==="
+ftg_threshold=$(grep 'Recipe::FoodToGrain' src/ecs/systems.rs 2>/dev/null | grep -oE 'food > ([0-9]+)' | grep -oE '[0-9]+$' | head -1)
+if [ -n "$ftg_threshold" ]; then
+  if [ "$ftg_threshold" -lt 20 ]; then
+    echo "WARN: FoodToGrain Granary triggers at food > $ftg_threshold (src/ecs/systems.rs) — too low for pop >= 10 (consumption ~1-1.5/tick; buffer lasts ~70-100 ticks). rand::rng() task-assignment fluctuations can exhaust this buffer. Observed food=0 crash: 2026-05-28 seed 137 pop=11. Fix: adaptive threshold max($ftg_threshold, population*2) in both FoodToGrain processing gates."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: FoodToGrain threshold=${ftg_threshold} (>=20) — adequate food buffer for typical populations"
+  fi
+else
+  echo "SKIP: FoodToGrain threshold not found in src/ecs/systems.rs — check needs updating"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

@@ -2362,5 +2362,73 @@
       "emergent_behavior": 2
     },
     "notes": "Seed 777 pop=15 (new high; delta=+11 from yesterday's pop=4 \u2014 largest single-day positive swing documented); seed 137 food=0 pop=11 (total starvation at eval tick; new all-time low food, pre-built Granary depleting buffer); seed 777 threat_score=32.11 (new max across all eval seeds); check #50 added (total starvation detection); 778 passed 0 failed 10 ignored; baselines all pass"
+  },
+  {
+    "date": "2026-05-29",
+    "commit": "HEAD",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "build_sites": 2,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      },
+      "137": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "wood": 5,
+        "buildings": 9,
+        "build_sites": 5,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488
+      },
+      "777": {
+        "population": 4,
+        "food": 13,
+        "food_per_cap": 3.25,
+        "wood": 9,
+        "buildings": 5,
+        "build_sites": 8,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 6,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 1,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "Seed 777 WolfSurge fired in diagnostics (events_fired=1, threat_score=10.48); seed 137 food=15 (near-starvation threshold, vs food=0 yesterday \u2014 RNG favorable this run); seed 777 diagnostics pop=4 vs report-card pop=11 and baseline pop=11 (three sequential runs of same binary: pop=4/11/11, 36th+ within-session divergence); check #51 added (FoodToGrain threshold <20 safety); 778 passed 0 failed 10 ignored; baselines all pass; rubric 2.4 plateau 6+ consecutive checks"
   }
 ]
