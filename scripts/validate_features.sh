@@ -1111,19 +1111,22 @@ else
 fi
 
 # 45. Granary auto-build food threshold impossibility gate
-# build.rs Priority 4 auto-builds Granary only when: villager_count >= 12 AND food > N.
-# Evaluation seeds have food=8-22 at tick 6000 (pop=4-12, max food ever observed: ~29).
-# If N > 40, Granary is structurally impossible to auto-build in evaluation window.
-# Since Bakery requires has_granary (build.rs Priority 5.5), Bakery is also blocked.
-# Result: bread=0 permanently, plague-prevention mechanic never activates.
-# Confirmed 2026-05-18: N=80 (build.rs:1154), eval max food=22 → threshold unreachable.
+# build.rs Priority 4 auto-builds a SECOND Granary only when: villager_count >= 12 AND food > N.
+# NOTE: A pre-built FoodToGrain Granary is ALWAYS present from game start (game/mod.rs:1064),
+# so food→grain IS running. What's blocked here is auto-build of a second Granary.
+# IMPORTANT (2026-05-20 correction): has_granary=TRUE from game start via pre-built entity.
+# The actual Bakery blockers are independent: (1) planks >= 8 (check #47, Workshop output),
+# (2) grain > 30 (accumulates slowly via pre-built Granary). NOT "requires Granary" directly.
+# Evaluation seeds have food=8-22 at tick 6000 (pop=4-13). If N > 40, second Granary auto-build
+# is structurally impossible, but the pre-built Granary continues food→grain conversion.
+# Confirmed 2026-05-18: N=80 (build.rs:1154). Result: bread=0 permanently (planks=0 blocks Bakery).
 # Mirrors check #27 (drought grain threshold impossibility) in the events system.
 echo ""
 echo "=== Granary auto-build food threshold check ==="
 granary_thresh=$(grep -E '!has_granary.*food >' src/game/build.rs 2>/dev/null | grep -oE 'food > ([0-9]+)' | grep -oE '[0-9]+$' | head -1)
 if [ -n "$granary_thresh" ]; then
   if [ "$granary_thresh" -gt 40 ]; then
-    echo "WARN: Granary auto-build requires food > $granary_thresh (src/game/build.rs) — evaluation seeds have food=8-22 at tick 6000; threshold unreachable. Bakery also blocked (requires Granary). Production chain stalls: food→Granary→grain→Bakery→bread never activates. bread=0 in all eval seeds. Fix threshold to <=40 or scale with population."
+    echo "WARN: Second-Granary auto-build requires food > $granary_thresh (src/game/build.rs) — unreachable (eval food=8-22). NOTE: pre-built FoodToGrain Granary (game/mod.rs:1064) IS running, so food→grain chain works. True Bakery blockers: (1) planks >= 8 (check #47, Workshop starved of wood) and (2) grain > 30. Fix biome distribution (check #42) to unblock planks before tuning this threshold."
     WARNINGS=$((WARNINGS + 1))
   else
     echo "OK: Granary food threshold=${granary_thresh} (<=40) — reachable by evaluation populations"
