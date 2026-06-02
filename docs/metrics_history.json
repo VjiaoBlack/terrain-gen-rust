@@ -2560,5 +2560,73 @@
       "emergent_behavior": 2
     },
     "notes": "778/0/10 tests pass. All 3 baselines PASS. Seed 777 pop=13 (diagnostics) with planks=6 and grain=28 -- closest combined Bakery approach. Seeds 137/777 diverge today (pop=11/13, diff=2, check #48 not firing). Seed 42 dies ~tick 6668 (39th confirmation). Report-card seed 137 food_per_cap=0.7 vs diagnostics 1.27 -- largest within-session food divergence recorded. Score plateau: 8th consecutive 2.4. Monthly harness hygiene: check #45 warning text corrected."
+  },
+  {
+    "date": "2026-06-02",
+    "commit": "HEAD",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 43,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 4,
+        "food": 29,
+        "food_per_cap": 7.25,
+        "buildings": 4,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 3,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.0,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 15,
+        "build_sites": 8
+      },
+      "777": {
+        "population": 12,
+        "food": 21,
+        "food_per_cap": 1.75,
+        "buildings": 11,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 5,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 4,
+        "wood_skill": 0.5488,
+        "wood": 4,
+        "build_sites": 1
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "778/0/10 tests pass. All 3 baselines PASS. Seed 137 diagnostics pop=4 vs report-card pop=11 (delta=7, largest within-session pop divergence for seed 137 observed). Seed 137 had 8 build_sites with only 4 workers (ratio=2.0) \u2014 auto-build over-queuing. Check #52 added (build_site backlog ratio). Check #21 corrected: now reports villager-specific sight_range=22.0 (not wolf 25.0). Seed 42 pop=4 food=12 unchanged. Seed 777 pop=12 planks=6 grain=28. All events=0. Score plateau: 9th consecutive 2.4."
   }
 ]

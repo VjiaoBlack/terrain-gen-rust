@@ -388,7 +388,8 @@ fi
 echo ""
 echo "=== Fog-of-war triviality check ==="
 FOG_TRIVIAL=0
-sight_val=$(grep -oE 'sight_range:\s*[0-9]+(\.[0-9]+)?' src/ecs/spawn.rs 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | sort -g | tail -1)
+# Use spawn_villager-scoped grep to get villager sight_range (not wolf/prey values)
+sight_val=$(awk '/fn spawn_villager/,/^\}/' src/ecs/spawn.rs 2>/dev/null | grep -oE 'sight_range:\s*[0-9]+(\.[0-9]+)?' | grep -oE '[0-9]+(\.[0-9]+)?' | head -1)
 reveal_val=$(grep -oE 'exploration\.reveal\([^)]+,\s*[0-9]+\)' src/game/mod.rs 2>/dev/null | grep -oE ',\s*[0-9]+\)' | grep -oE '[0-9]+' | head -1)
 if [ -n "$sight_val" ] && awk "BEGIN {exit !($sight_val > 15)}"; then
   echo "WARN: sight_range=$sight_val in spawn.rs — trivially reveals a 70x25 map (exploration_pct=100% in all eval seeds). Fog-of-war not functional as game mechanic."
@@ -1341,6 +1342,55 @@ if [ -n "$ftg_threshold" ]; then
   fi
 else
   echo "SKIP: FoodToGrain threshold not found in src/ecs/systems.rs — check needs updating"
+fi
+
+# 52. Build site backlog ratio detection
+# When auto-build queues more build_sites than workers can complete, pending sites pile up.
+# Observed 2026-06-02: seed 137 diagnostics showed 8 pending build_sites with only 4 workers
+# (pop=4 due to rand::rng() low-population run) — ratio=2.0, clearly backlogged.
+# Root cause: game/build.rs auto-build scoring does not account for available worker count.
+# Threshold: build_sites / population > 1.5 in any seed = construction structurally stalled.
+# Requires 'build_sites' and 'population' fields in metrics_history entries to fire.
+echo ""
+echo "=== Build site backlog ratio detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  backlog=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    backlogged = []
+    total_with_data = sum(1 for v in seeds.values() if 'build_sites' in v and 'population' in v)
+    for s, v in seeds.items():
+        if 'build_sites' not in v or 'population' not in v:
+            continue
+        bs = v['build_sites']
+        pop = v['population']
+        if pop > 0 and bs / pop > 1.5:
+            backlogged.append(f'seed {s}: {bs} sites/{pop} workers')
+    if total_with_data == 0:
+        print('no_build_site_data')
+    elif backlogged:
+        print(f'backlogged:{len(backlogged)}:' + ','.join(backlogged))
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$backlog" | grep -q "^backlogged:"; then
+    count=$(echo "$backlog" | cut -d: -f2)
+    desc=$(echo "$backlog" | cut -d: -f3-)
+    echo "WARN: Build site backlog in ${count} seed(s) (${desc}) — auto-build queueing faster than workers can build (ratio > 1.5 sites/worker). Root cause: game/build.rs does not cap build queue relative to available population. Fix: check pending build_site count before queuing new sites. Complements check #44 (wood stall) and check #37 (housing saturation)."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$backlog" | grep -q "no_build_site_data"; then
+    echo "SKIP: No 'build_sites' field in metrics_history — add it to enable build backlog detection (first observed 2026-06-02: seed 137 had 8 sites/4 workers)"
+  else
+    echo "OK: Build site backlog within worker capacity (ratio <= 1.5 sites/worker in all seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
 fi
 
 echo ""
