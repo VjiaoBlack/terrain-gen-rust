@@ -2750,5 +2750,73 @@
     },
     "rubric_avg": 2.4,
     "notes": "11th consecutive check at 2.4. Seed 137 pop=11 diagnostics / pop=4 report-card \u2014 bidirectional non-determinism again. New within-session food divergence record: seed 137 food=12 (diagnostics) vs food~29 (report-card), delta=17. All baselines PASS. Event suppression 6/5 consecutive."
+  },
+  {
+    "date": "2026-06-05",
+    "commit": "aed8f51",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 43,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 12,
+        "food_per_cap": 1.09,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 1,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "wood": 4,
+        "build_sites": 6
+      },
+      "777": {
+        "population": 11,
+        "food": 17,
+        "food_per_cap": 1.55,
+        "buildings": 9,
+        "water_pct": 37.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488,
+        "wood": 10,
+        "build_sites": 4
+      }
+    },
+    "rubric_avg": 2.2,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 1
+    },
+    "notes": "NEW FAILURE: mining_sparkle_particles_spawn (tests.rs:2885) \u2014 probabilistic stone-mining particle spawn via rand::rng(); 50-tick window insufficient. 3 known-flaky tests failed (775 passed, 3 failed, 10 ignored). Seed 42 playtest confirms game-over at tick 6668. Event chain still broken (0 events all 3 seeds, check #36 persists). Seeds 137/777 both pop=11 (convergent despite different terrain \u2014 Pillar 1 violation). Forest<1% all seeds. Rubric drop 2.4\u21922.2: Emergent 2\u21921 (zero events this run, convergent seeds). All 3 baselines PASS. Harness review (June 2026): all 52 checks valid, no checks to retire."
   }
 ]
