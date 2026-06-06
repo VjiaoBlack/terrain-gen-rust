@@ -2818,5 +2818,73 @@
       "emergent_behavior": 1
     },
     "notes": "NEW FAILURE: mining_sparkle_particles_spawn (tests.rs:2885) \u2014 probabilistic stone-mining particle spawn via rand::rng(); 50-tick window insufficient. 3 known-flaky tests failed (775 passed, 3 failed, 10 ignored). Seed 42 playtest confirms game-over at tick 6668. Event chain still broken (0 events all 3 seeds, check #36 persists). Seeds 137/777 both pop=11 (convergent despite different terrain \u2014 Pillar 1 violation). Forest<1% all seeds. Rubric drop 2.4\u21922.2: Emergent 2\u21921 (zero events this run, convergent seeds). All 3 baselines PASS. Harness review (June 2026): all 52 checks valid, no checks to retire."
+  },
+  {
+    "date": "2026-06-06",
+    "commit": "d7cc49c",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.8,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 31.4,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 43,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 12,
+        "food_per_cap": 1.09,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 2,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.8,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "wood": 4,
+        "build_sites": 6
+      },
+      "777": {
+        "population": 14,
+        "food": 16,
+        "food_per_cap": 1.14,
+        "buildings": 12,
+        "water_pct": 38.1,
+        "biomes": 15,
+        "survived": true,
+        "rabbits": 5,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 2,
+        "wood_skill": 0.5488,
+        "wood": 0,
+        "build_sites": 3
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "Tests clean: 778 passed, 0 failed, 10 ignored (flaky tests passed today; 3 failed yesterday). Seed 777 pop=14 diagnostics / pop=11 report-card (delta=3, non-determinism). Seed 777 wood=0 (new low; 2 seeds now wood<10). Check #53 added: grain dead-end (seed 777 grain=38, planks=0). Check #48 convergence clears (seeds 137=11, 777=14, diff=3). Rubric recovery 2.2\u21922.4: Emergent 1\u21922 (better seed divergence). All 3 baselines PASS. 33 validate_features.sh warnings, 0 errors."
   }
 ]

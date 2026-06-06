@@ -1393,6 +1393,59 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 53. Grain dead-end detection
+# When FoodToGrain Granary converts food->grain but Bakery is blocked (planks=0),
+# grain accumulates as a dead-end resource: it cannot be used for anything except
+# Bakery (grain+wood->bread), which requires planks >= 8 (check #47) and grain > 30.
+# If planks=0 and bread=0, the grain pile is inaccessible — a pure resource sink.
+# Meanwhile, the Granary continues to drain the food buffer (check #51).
+# First observed 2026-06-06: seed 777 grain=38, food=16, planks=0, pop=14.
+# Requires 'grain', 'bread', 'planks' (or food_per_cap + biomes as proxy) in metrics_history.
+# Uses the diagnostics JSON directly since metrics_history doesn't store grain/planks/bread yet.
+echo ""
+echo "=== Grain dead-end detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  grain_dead=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    # Check if metrics_history has grain/planks/bread fields
+    has_grain_data = any('grain' in v for v in seeds.values())
+    if not has_grain_data:
+        print('no_grain_data')
+    else:
+        dead_ends = []
+        for s, v in seeds.items():
+            grain = v.get('grain', 0)
+            bread = v.get('bread', 0)
+            planks = v.get('planks', 0)
+            pop = v.get('population', 0)
+            if grain > 20 and bread == 0 and planks == 0 and pop >= 5:
+                dead_ends.append(f'seed {s}: grain={grain}, planks={planks}, pop={pop}')
+        if dead_ends:
+            print(f'dead_end:{len(dead_ends)}:' + ','.join(dead_ends))
+        else:
+            print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$grain_dead" | grep -q "^dead_end:"; then
+    count=$(echo "$grain_dead" | cut -d: -f2)
+    desc=$(echo "$grain_dead" | cut -d: -f3-)
+    echo "WARN: Grain dead-end in ${count} seed(s) (${desc}) — Granary converting food->grain but Bakery blocked (planks=0). Grain pile inaccessible; food buffer draining via Granary while grain cannot be used. Root cause: Forest<1% (check #42) → no wood → no Workshop output → planks=0 → Bakery structurally impossible. Fix biome distribution before tuning Granary threshold."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$grain_dead" | grep -q "no_grain_data"; then
+    echo "SKIP: No 'grain'/'planks'/'bread' fields in metrics_history — add them to enable grain dead-end detection (first observed 2026-06-06: seed 777 grain=38, planks=0)"
+  else
+    echo "OK: No grain dead-end detected (grain <= 20, or bread/planks > 0 in all seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
