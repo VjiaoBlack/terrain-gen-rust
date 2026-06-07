@@ -1446,6 +1446,25 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 54. Known-flaky test ignore guard: mining_sparkle_particles_spawn
+# Discovered 2026-06-05: fails when stone-mining villager does not produce white-blue sparkle
+# particles within 50 ticks. Root cause: probabilistic particle spawn via rand::rng(); villager
+# may transition out of Gathering{Stone} state before sparkle fires. Same mechanism as
+# construction_dust_particles_spawn (check #14) and build_site_gets_completed_in_game (check #35).
+# Should be #[ignore]d until seeded per-entity RNG is used. Documented in features.json:game_loop.
+echo ""
+echo "=== Known-flaky test ignore guard: mining_sparkle_particles_spawn ==="
+if grep -q "fn mining_sparkle_particles_spawn" src/game/tests.rs 2>/dev/null; then
+  if grep -B3 "fn mining_sparkle_particles_spawn" src/game/tests.rs | grep -q "#\[ignore"; then
+    echo "OK: Known-flaky test mining_sparkle_particles_spawn is properly marked #[ignore]"
+  else
+    echo "WARN: mining_sparkle_particles_spawn is documented as flaky (features.json:game_loop, first failed 2026-06-05) but not marked #[ignore] — false CI failures expected. Root cause: rand::rng() probabilistic particle spawn (same as construction_dust and build_site_gets_completed)."
+    WARNINGS=$((WARNINGS + 1))
+  fi
+else
+  echo "OK: mining_sparkle_particles_spawn not found (removed or renamed — update this check)"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

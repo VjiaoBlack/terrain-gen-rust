@@ -2886,5 +2886,73 @@
       "emergent_behavior": 2
     },
     "notes": "Tests clean: 778 passed, 0 failed, 10 ignored (flaky tests passed today; 3 failed yesterday). Seed 777 pop=14 diagnostics / pop=11 report-card (delta=3, non-determinism). Seed 777 wood=0 (new low; 2 seeds now wood<10). Check #53 added: grain dead-end (seed 777 grain=38, planks=0). Check #48 convergence clears (seeds 137=11, 777=14, diff=3). Rubric recovery 2.2\u21922.4: Emergent 1\u21922 (better seed divergence). All 3 baselines PASS. 33 validate_features.sh warnings, 0 errors."
+  },
+  {
+    "date": "2026-06-07",
+    "commit": "c39de99",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 11,
+        "build_sites": 3
+      },
+      "137": {
+        "population": 11,
+        "food": 14,
+        "food_per_cap": 1.27,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 3,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.4,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "wood": 4,
+        "build_sites": 6
+      },
+      "777": {
+        "population": 13,
+        "food": 13,
+        "food_per_cap": 1.0,
+        "buildings": 15,
+        "water_pct": 38.1,
+        "biomes": 15,
+        "survived": true,
+        "rabbits": 3,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 7,
+        "wood_skill": 4.78,
+        "wood": 1,
+        "build_sites": 1
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "Tests: 778 passed, 0 failed, 10 ignored (clean). Check #54 added: mining_sparkle_particles_spawn flaky test guard. Seed 42: wood 43->11 (consumed for build_sites=3). Seed 777: pop 14->13 (RNG), wood 0->1. All 3 baselines PASS. 34 validate_features.sh warnings (up 1 from check #54). Score flat at 2.4 for 2nd consecutive day."
   }
 ]
