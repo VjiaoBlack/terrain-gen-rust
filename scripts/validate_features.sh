@@ -1465,6 +1465,35 @@ else
   echo "OK: mining_sparkle_particles_spawn not found (removed or renamed — update this check)"
 fi
 
+# 55. Flaky test family unignored alert
+# All three known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game,
+# mining_sparkle_particles_spawn) are individually guarded by checks #14, #35, #54.
+# When ALL THREE are simultaneously unignored, it means the whole probabilistic-particle / rand::rng()
+# family is unguarded — giving 3x the CI false-failure rate of any single test.
+# Root cause for all three: rand::rng() in build/particle/AI paths makes outcomes non-deterministic;
+# none will be reliably fixable until seeded per-entity RNG is used (BACKLOG.md).
+# First all-three failure observed: 2026-06-05 (775 passed, 3 failed, 10 ignored).
+# Added 2026-06-08.
+echo ""
+echo "=== Flaky test family unignored alert ==="
+FLAKY_UNIGNORED_COUNT=0
+for fn_name in construction_dust_particles_spawn build_site_gets_completed_in_game mining_sparkle_particles_spawn; do
+  if grep -q "fn $fn_name" src/game/tests.rs 2>/dev/null; then
+    if ! grep -B3 "fn $fn_name" src/game/tests.rs | grep -q "#\[ignore"; then
+      FLAKY_UNIGNORED_COUNT=$((FLAKY_UNIGNORED_COUNT + 1))
+    fi
+  fi
+done
+if [ "$FLAKY_UNIGNORED_COUNT" -ge 3 ]; then
+  echo "WARN: ALL 3 known-flaky tests are simultaneously unignored (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) — 3x CI false-failure risk. All three fail due to rand::rng() non-determinism in particle/build/AI paths. Mark all three #[ignore] until seeded per-entity RNG is implemented (BACKLOG.md)."
+  WARNINGS=$((WARNINGS + 1))
+elif [ "$FLAKY_UNIGNORED_COUNT" -ge 2 ]; then
+  echo "WARN: ${FLAKY_UNIGNORED_COUNT}/3 known-flaky tests are unignored — elevated CI false-failure risk."
+  WARNINGS=$((WARNINGS + 1))
+else
+  echo "OK: Flaky test family not simultaneously unignored (0-1 of 3 at risk)"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

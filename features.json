@@ -16,7 +16,7 @@
         "Desert biome dominant in 2/3 evaluation seeds (32\u201349%) with near-zero Forest (0.1\u20130.7%); biome distribution imbalanced post-WorldState refactor",
         "Slope distribution is 98.4\u201398.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09\u20130.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -28,7 +28,7 @@
       "known_issues": [
         "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md \u2014 omitted from file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "pipe_water": {
       "status": "ok",
@@ -40,7 +40,7 @@
       "known_issues": [
         "Research prototype \u2014 volume conservation not extensively tested"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -53,7 +53,7 @@
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) \u2014 should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -68,7 +68,7 @@
         "moisture.rs is 1867 lines \u2014 largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests \u2014 only 9 are regular passing tests"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -78,7 +78,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -88,7 +88,7 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_wind": {
       "status": "ok",
@@ -98,7 +98,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_scent": {
       "status": "ok",
@@ -108,7 +108,7 @@
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -118,7 +118,7 @@
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -128,7 +128,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "simulation_maps": {
       "status": "ok",
@@ -140,7 +140,7 @@
       "known_issues": [
         "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic \u2014 exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "ecs_core": {
       "status": "ok",
@@ -190,9 +190,12 @@
         "Seed 137 build_sites=8 with pop=4 workers on 2026-06-02 (ratio=2.0) \u2014 auto-build over-queuing in low-population rand::rng() run. game/build.rs does not cap the build queue relative to available worker count. Check #52 added to detect this pattern.",
         "Seed 137 within-session food divergence delta=17 on 2026-06-04: diagnostics run showed food=12 with pop=11; report-card run (sequential, same binary) showed food~29 with pop=4. New all-time record for within-session food divergence (previous: \u00b16 on 2026-06-01). Bidirectional: diagnostics=pop11 today, diagnostics=pop4 on 2026-06-03. rand::rng() in game/build.rs drives both pop AND food divergence simultaneously.",
         "Tests clean 2026-06-06: 778 passed, 0 failed, 10 ignored. Previous day had 3 failures (flaky tests). All 3 known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) passed today \u2014 non-deterministic by nature. mining_sparkle_particles_spawn not yet added to validate_features.sh known-flaky guard (only checks construction_dust and build_site_gets_completed).",
-        "Seed 777 diagnostics pop=14 vs report-card pop=11 (delta=3) on 2026-06-06 \u2014 within-session non-determinism continues. Seed 777 wood=0 first recorded in 2026-06-06 diagnostics run (yesterday wood=10). Combined with seed 137 wood=4, now 2/3 seeds have wood<10 \u2014 check #44 will fire when metrics_history is updated."
+        "Seed 777 diagnostics pop=14 vs report-card pop=11 (delta=3) on 2026-06-06 \u2014 within-session non-determinism continues. Seed 777 wood=0 first recorded in 2026-06-06 diagnostics run (yesterday wood=10). Combined with seed 137 wood=4, now 2/3 seeds have wood<10 \u2014 check #44 will fire when metrics_history is updated.",
+        "Seed 42 report-card pop=6 vs diagnostics pop=4 on 2026-06-08 \u2014 new within-session divergence for seed 42 (was always exactly 4 in diagnostic runs; pop=6 appeared in 2026-04-28 baseline but not in diagnostics). Confirms rand::rng() occasionally places second Hut in report-card path (different call order) but not in diagnostics path. food_pc gap: diagnostics=3.0 (pop=4, food=12) vs report-card=0.3 (pop=6, food=2) \u2014 largest within-session food_per_cap divergence for seed 42 observed.",
+        "Seed 777 wood_skill oscillation confirmed 2026-06-08: 0.5488 (pure decay) today vs 4.78 on 2026-06-07. Single-day swing of 4.2 in wood_skill driven by rand::rng()-favorable wood-gathering encounter in yesterday's run. Confirms wood_skill variation is entirely RNG-driven; skill does NOT represent persistent learning.",
+        "Check #55 added 2026-06-08: flaky-test-family unignored alert \u2014 fires when all 3 known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) are simultaneously present but not #[ignore]d. All 3 currently unignored = 3x CI false-failure risk. validate_features.sh: 0 errors, 35 warnings."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -202,7 +205,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "ecs_groups": {
       "status": "ok",
@@ -212,7 +215,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "pathfinding": {
       "status": "ok",
@@ -224,7 +227,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -244,12 +247,12 @@
         "construction_dust_particles_spawn (tests.rs:2840) is a flaky test \u2014 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed. HIT on 2026-04-13 and 2026-04-15. Should be #[ignore]d.",
         "build_site_gets_completed_in_game (tests.rs:252) is a new flaky test discovered 2026-05-05 \u2014 fails in full suite (777 passed, 1 failed) but passes in isolation. Root cause: rand::rng() in ecs/systems.rs and game/mod.rs makes villager behavior non-deterministic, so some runs don't complete the build site within 3000 ticks. Same mechanism as construction_dust_particles_spawn. Should be #[ignore]d or fixed with seeded RNG.",
         "Simulation metrics (avg_moisture, avg_vegetation, pipe_water_total, wind_moisture_total) are nested under \"terrain\" key in collect_diagnostics() output, not a \"simulation\" key \u2014 non-obvious grouping for external consumers (game/mod.rs:2445)",
-        "12 compiler warnings in game/mod.rs: unused_mut (line 1220), tick_config assigned-but-never-read (lines 2135-2147 \u2014 dead event modifier chain), unused variable n, constant DIRECTIONS never used, unused methods. First counted 2026-05-01.",
+        "11 compiler warnings in game/mod.rs (down from 12 as of 2026-05-01; one resolved by 2026-06-08): primary remaining: unused_mut (line 1220), tick_config assigned-but-never-read (lines 2135-2147 \u2014 dead event modifier chain), unused variable n, DIRECTIONS constant never used.",
         "Flaky test confirmed 2026-05-12: cargo test --lib run 2 produced 777 passed/1 failed/10 ignored (run 1: 778/0/10). Known flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game) still not marked #[ignore].",
         "ProcessingBuilding diagnostic conflation (2026-05-19): collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed always shows Workshop:1+ even when no auto-built Workshop exists \u2014 the count includes the pre-built Granary. 25+ health checks recorded Granary as Workshop. The pre-built Granary does function (converts food->grain when food > 15), explaining grain accumulation in diagnostics. Fix: query building_counts by recipe or use distinct marker components for each processing building type.",
         "mining_sparkle_particles_spawn (tests.rs:2885) is a NEW flaky test first observed failing 2026-06-05 \u2014 fails when stone-mining villager does not produce white-blue sparkle particles within 50 ticks. Root cause: same as construction_dust_particles_spawn and build_site_gets_completed_in_game \u2014 particle spawning is probabilistic via rand::rng(); villager may transition out of Gathering{Stone} state before sparkle fires. Should be #[ignore]d until seeded per-entity RNG is used. Today: all 3 known-flaky tests failed simultaneously (775 passed, 3 failed, 10 ignored)."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "building_system": {
       "status": "ok",
@@ -266,7 +269,7 @@
         "Auto-build does not cap build queue relative to available worker count: seed 137 on 2026-06-02 queued 8 build_sites for only 4 workers (ratio=2.0) when rand::rng() produced a low-population run. Workers scattered among 8 sites cannot complete any in reasonable time. Fix: check len(build_sites) vs population before queuing new sites in game/build.rs auto-build logic.",
         "Grain dead-end confirmed 2026-06-06: seed 777 grain=38, food=16, planks=0, pop=14. Granary converting food->grain at food>15 threshold, but Bakery is structurally blocked (requires planks>=8, grain>30). Grain pile inaccessible \u2014 pure resource sink draining the food buffer. With grain=38 already exceeding the >30 Bakery grain threshold, the only remaining blocker is planks=0 (Workshop starved of wood). Check #53 added to detect this pattern. Fix root cause: biome distribution (check #42) to restore Forest > 5% and enable Workshop output."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "events": {
       "status": "needs_work",
@@ -281,9 +284,10 @@
         "Road auto-build (ROAD_TRAFFIC_THRESHOLD=300.0) never triggers in evaluation window \u2014 0% Road coverage at tick 6000 across all 3 seeds. Threshold too high for small populations (4-11 villagers).",
         "Event firing rare and non-deterministic: 0/3 seeds fired in most evaluation runs. Seed 137 fired WolfSurge on 2026-05-20 diagnostics run (seeds 42 and 777 still 0). WolfSurge CAN fire but requires high threat_score (seeds 137/777 show threat=19-28); drought/harvest cannot fire (grain threshold and broken tick_config chain).",
         "CRITICAL: tick_config event modifier chain is broken \u2014 game/mod.rs:2135-2148 builds tick_config with drought (rain_rate*=0.4) and harvest (rain_rate*=1.5) modifiers but step_water_cycle() signature is (bool, f64) and never receives tick_config; modifiers are silently discarded. Drought/harvest have zero effect on simulation. First identified 2026-05-01.",
-        "WolfSurge confirmed firing in diagnostics run path (2026-05-29, seed 777, threat_score=10.48, 1 wolf, 6 rabbits) \u2014 previously observed only in report-card/baseline runs. WolfSurge fires from a threat-threshold code path independent of the broken tick_config chain (which only suppresses drought/harvest)."
+        "WolfSurge confirmed firing in diagnostics run path (2026-05-29, seed 777, threat_score=10.48, 1 wolf, 6 rabbits) \u2014 previously observed only in report-card/baseline runs. WolfSurge fires from a threat-threshold code path independent of the broken tick_config chain (which only suppresses drought/harvest).",
+        "6th consecutive zero-event health check as of 2026-06-08 (2026-06-03 through 2026-06-08): events_fired=0 in all 3 seeds in every run. Root cause remains tick_config modifier chain broken (check #33). WolfSurge last observed: 2026-05-29 (sporadic, non-reproducible). Drought structurally impossible in eval window. Event system functionally dead in evaluation baseline."
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "chokepoint": {
       "status": "ok",
@@ -293,7 +297,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "rendering": {
       "status": "ok",
@@ -310,7 +314,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "save_load": {
       "status": "needs_tests",
@@ -323,7 +327,7 @@
       "known_issues": [
         "No dedicated unit tests \u2014 only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "scripting": {
       "status": "stub",
@@ -336,7 +340,7 @@
         "Not fully implemented or tested",
         "src/scripting/mod.rs not documented in docs/ARCHITECTURE.md \u2014 directory not in file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "hydrology": {
       "status": "ok",
@@ -349,7 +353,7 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear \u2014 standalone research module"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     },
     "world_state": {
       "status": "needs_work",
@@ -364,7 +368,7 @@
         "No unit tests \u2014 all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-06-07"
+      "last_verified": "2026-06-08"
     }
   },
   "status_legend": {

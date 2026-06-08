@@ -2954,5 +2954,82 @@
       "emergent_behavior": 2
     },
     "notes": "Tests: 778 passed, 0 failed, 10 ignored (clean). Check #54 added: mining_sparkle_particles_spawn flaky test guard. Seed 42: wood 43->11 (consumed for build_sites=3). Seed 777: pop 14->13 (RNG), wood 0->1. All 3 baselines PASS. 34 validate_features.sh warnings (up 1 from check #54). Score flat at 2.4 for 2nd consecutive day."
+  },
+  {
+    "date": "2026-06-08",
+    "commit": "d0ddf14",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "wood": 43,
+        "wood_skill": 0.5488,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "build_sites": 2,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0
+      },
+      "137": {
+        "population": 11,
+        "food": 12,
+        "food_per_cap": 1.09,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "wood": 4,
+        "wood_skill": 0.5488,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "build_sites": 6,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0
+      },
+      "777": {
+        "population": 11,
+        "food": 20,
+        "food_per_cap": 1.82,
+        "buildings": 13,
+        "water_pct": 38.0,
+        "biomes": 15,
+        "survived": true,
+        "rabbits": 3,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "wood": 4,
+        "wood_skill": 0.5488,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "build_sites": 1,
+        "grain": 20,
+        "planks": 3,
+        "bread": 0
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "notes": "Tests clean: 778 passed, 0 failed, 10 ignored. Score flat 2.4 (3rd consecutive day: 2026-06-06, 2026-06-07, 2026-06-08). Seed 42: pop=4/6 (diag/rc non-determinism, new for seed 42). Seed 777 wood_skill back to pure decay 0.5488 (was 4.78 yesterday, confirms RNG-driven skill). Seed 137 rabbits=0 (was 3 yesterday). All seeds 0 events (6th consecutive zero-event check). Compiler warnings: 11 (down from 12). Check #55 added: flaky-test-family unignored alert (all 3 simultaneously unignored = 3x CI risk). All 3 baselines PASS. grain/planks/bread/build_sites added to metrics schema to enable check #53 (grain dead-end detection). 35 validate_features.sh warnings, 0 errors."
   }
 ]
