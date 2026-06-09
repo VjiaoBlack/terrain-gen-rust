@@ -1494,6 +1494,57 @@ else
   echo "OK: Flaky test family not simultaneously unignored (0-1 of 3 at risk)"
 fi
 
+# 56. Bakery chain partial stall: grain > 15 with planks insufficient (< 8)
+# check #53 only fires when planks == 0 (fully blocked). This check catches partial stalls:
+# grain is accumulating (Granary working) but planks are 1-7 (Workshop producing but far below
+# Bakery's minimum of 8). With Forest < 1% (check #42), wood supply is irregular; Workshop
+# produces planks only during RNG-favorable wood-gathering runs, accumulating slowly.
+# Meanwhile FoodToGrain Granary continues draining the food buffer (check #51).
+# First observed 2026-06-09: seed 777 grain=26, planks=3, bread=0, pop=11 in diagnostics run.
+# Requires 'grain', 'planks', 'bread', 'population' fields in metrics_history entries.
+echo ""
+echo "=== Bakery chain partial stall detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  partial_stall=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    has_data = any('grain' in v and 'planks' in v and 'bread' in v for v in seeds.values())
+    if not has_data:
+        print('no_grain_data')
+    else:
+        stalled = []
+        for s, v in seeds.items():
+            grain = v.get('grain', 0)
+            bread = v.get('bread', 0)
+            planks = v.get('planks', 0)
+            pop = v.get('population', 0)
+            if grain > 15 and bread == 0 and planks < 8 and pop >= 5:
+                stalled.append(f'seed {s}: grain={grain}, planks={planks}, pop={pop}')
+        if stalled:
+            print(f'stalled:{len(stalled)}:' + ','.join(stalled))
+        else:
+            print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$partial_stall" | grep -q "^stalled:"; then
+    count=$(echo "$partial_stall" | cut -d: -f2)
+    desc=$(echo "$partial_stall" | cut -d: -f3-)
+    echo "WARN: Bakery chain partial stall in ${count} seed(s) (${desc}) — grain accumulating but planks < 8 (Bakery minimum). Workshop IS producing planks but too slowly (irregular wood supply from Forest < 1%, check #42). Granary continues draining food buffer (check #51). Fix biome distribution to stabilize wood supply before tuning Granary thresholds."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$partial_stall" | grep -q "no_grain_data"; then
+    echo "SKIP: No 'grain'/'planks'/'bread' fields in metrics_history — add them to enable partial stall detection"
+  else
+    echo "OK: No Bakery chain partial stall (grain <= 15, planks >= 8, or bread > 0 in all seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
