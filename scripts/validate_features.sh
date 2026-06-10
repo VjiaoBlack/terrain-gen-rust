@@ -1251,7 +1251,8 @@ REQUIRED_SEED_FIELDS = [
     'population', 'food', 'food_per_cap', 'wood', 'buildings',
     'water_pct', 'biomes', 'rabbits', 'survived',
     'slope_flat_pct', 'desert_pct', 'forest_pct',
-    'events_fired', 'housing_growth_potential', 'wood_skill'
+    'events_fired', 'housing_growth_potential', 'wood_skill',
+    'grain', 'planks', 'bread'
 ]
 with open('docs/metrics_history.json') as f:
     data = json.load(f)
@@ -1540,6 +1541,56 @@ else:
     echo "SKIP: No 'grain'/'planks'/'bread' fields in metrics_history — add them to enable partial stall detection"
   else
     echo "OK: No Bakery chain partial stall (grain <= 15, planks >= 8, or bread > 0 in all seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
+# 57. FoodToGrain Granary food-drain anti-pattern
+# Complements check #53 (grain dead-end, planks=0) and check #56 (partial stall, planks<8).
+# This check catches the FOOD CRISIS dimension: when food_per_cap < 2.0 AND grain > 20,
+# the Granary is actively draining the food buffer into grain even while food is scarce.
+# Unlike #53 and #56 (which focus on grain reachability for Bakery), this detects the
+# live food-drain happening right now — settlements with food Crisis AND growing grain pile.
+# At this point the Granary threshold (food > 15, systems.rs:979) is too low relative to
+# population demand; the buffer lasts < 100 ticks before another drain cycle hits.
+# Fix: adaptive threshold max(15, population*2) in systems.rs FoodToGrain gates.
+# First clearly observed: 2026-06-10, seed 777 (food/cap=1.64, grain=26).
+# Requires 'food_per_cap' and 'grain' fields in metrics_history entries.
+echo ""
+echo "=== FoodToGrain food-drain anti-pattern (low food + high grain) ==="
+if [ -f "docs/metrics_history.json" ]; then
+  ftg_drain=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    hits = [(s, v.get('food_per_cap', 999), v.get('grain', 0))
+            for s, v in seeds.items()
+            if 'food_per_cap' in v and 'grain' in v
+            and v['food_per_cap'] < 2.0 and v['grain'] > 20]
+    total = sum(1 for v in seeds.values() if 'food_per_cap' in v and 'grain' in v)
+    if total == 0:
+        print('no_grain_data')
+    elif hits:
+        desc = ', '.join(f'seed {s} food/cap={fpc:.2f} grain={gr}' for s, fpc, gr in hits)
+        print(f'drain:{len(hits)}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$ftg_drain" | grep -q "^drain:"; then
+    count=$(echo "$ftg_drain" | cut -d: -f2)
+    desc=$(echo "$ftg_drain" | cut -d: -f3-)
+    echo "WARN: FoodToGrain food-drain anti-pattern in ${count} seed(s): ${desc} — food buffer depleted while grain stockpiles. Pre-built Granary (game/mod.rs:1064, food>15 threshold) draining food at high pop while grain cannot be used (Bakery blocked). Fix: adaptive threshold max(15, population*2) in systems.rs. See check #51 (static threshold), #53 (dead-end grain), #56 (partial stall)."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$ftg_drain" | grep -q "no_grain_data"; then
+    echo "SKIP: No 'food_per_cap'/'grain' fields in metrics_history — check #49 schema completeness should catch this"
+  else
+    echo "OK: No food-drain anti-pattern (food_per_cap >= 2.0 or grain <= 20 in all seeds)"
   fi
 else
   echo "SKIP: docs/metrics_history.json not found"

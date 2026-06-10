@@ -3107,5 +3107,81 @@
       "simulation": 4,
       "emergent": 3
     }
+  },
+  {
+    "date": "2026-06-10",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 43,
+        "build_sites": 2,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0
+      },
+      "137": {
+        "population": 4,
+        "food": 29,
+        "food_per_cap": 7.25,
+        "buildings": 4,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 2,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.0,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "wood": 15,
+        "build_sites": 8,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0
+      },
+      "777": {
+        "population": 11,
+        "food": 18,
+        "food_per_cap": 1.64,
+        "buildings": 13,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 2,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "wood": 4,
+        "build_sites": 1,
+        "grain": 26,
+        "planks": 3,
+        "bread": 0
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric": {
+      "terrain": 2,
+      "settlement": 2,
+      "simulation": 4,
+      "emergent": 2
+    },
+    "notes": "Drops from 2.6 (2026-06-09) back to 2.4: events fired 0/3 seeds today (vs 2/3 yesterday — RNG-favorable run). Seed 137 REVERSED: pop=4 diag vs pop=11 report-card (delta=7), opposite of yesterday (pop=11 diag vs pop=4 report). Seed 777 Granary food-drain: grain=26, food/cap=1.64 (check #57 first fires). Seed 137 build backlog: 8 sites/4 workers (check #52). All baselines PASS. check #57 added (food-drain anti-pattern). 36 warnings, 0 errors."
   }
 ]
