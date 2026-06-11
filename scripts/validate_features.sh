@@ -1596,6 +1596,44 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+
+# 58. Recurring total starvation pattern detection
+# Total starvation (food=0 with living population) is a catastrophic event that should be rare.
+# When any seed has experienced food=0 with pop>0 in 3+ historical health checks, it indicates
+# a structural problem, not bad luck. Seed 137 confirmed: 2026-05-16, 2026-05-21, 2026-05-28
+# (all diagnostics runs with pop=11) — all driven by rand::rng() under-farming + FoodToGrain
+# Granary draining buffer. Root cause: adaptive threshold missing (systems.rs food>15 too low
+# for pop>=10). Complement to check #50 (single-run acute starvation) and check #51 (threshold).
+echo ""
+echo "=== Recurring total starvation pattern detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  recurring=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+starvation = {}
+for entry in data:
+    for seed, vals in entry.get('seeds', {}).items():
+        if vals.get('food', -1) == 0 and vals.get('population', 0) > 0:
+            starvation.setdefault(seed, []).append(entry.get('date', '?'))
+worst = [(seed, dates) for seed, dates in starvation.items() if len(dates) >= 3]
+if worst:
+    desc = '; '.join(f'seed {s}: {len(d)} times ({d[-1]})' for s, d in worst)
+    print(f'recurring:{desc}')
+else:
+    print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$recurring" | grep -q "^recurring:"; then
+    desc=$(echo "$recurring" | cut -d: -f2-)
+    echo "WARN: Recurring total starvation (food=0, pop>0) in 3+ health checks: $desc — structural food crisis, not bad luck. Root cause: FoodToGrain Granary triggers at food>15 (check #51); rand::rng() reduces farmer count; pop>=10 consumes ~1-1.5 food/tick. Fix: adaptive threshold max(15, population*2) in systems.rs FoodToGrain gates. See also check #50 (acute starvation) and check #39 (near-starvation)."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: No seed has experienced recurring total starvation (food=0) in 3+ health checks"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
