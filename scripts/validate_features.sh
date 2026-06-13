@@ -1634,6 +1634,49 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 59. Bakery chain has never produced bread in evaluation history
+# If bread=0 in ALL seeds across ALL metrics_history entries that contain bread data,
+# the Bakery production chain has NEVER functioned since bread tracking began.
+# This is a stronger signal than check #47 (static planks threshold) — it proves
+# the end product has never appeared, not just that it's currently blocked.
+# Root cause: Forest biome <1% (check #42) → no wood → Workshop starved → planks=0 → Bakery blocked.
+# Requires 'bread' field in metrics_history entries (added to schema in check #53).
+# First confirmed: bread=0 across all 5 bread-tracking entries as of 2026-06-13.
+echo ""
+echo "=== Bakery chain never-produced-bread detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  never_bread=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+entries_with_bread = [e for e in data if any('bread' in v for v in e.get('seeds', {}).values())]
+if not entries_with_bread:
+    print('no_bread_data')
+else:
+    all_zero = all(
+        v.get('bread', 0) == 0
+        for e in entries_with_bread
+        for v in e.get('seeds', {}).values()
+        if 'bread' in v
+    )
+    if all_zero:
+        print(f'never:{len(entries_with_bread)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$never_bread" | grep -q "^never:"; then
+    count=$(echo "$never_bread" | cut -d: -f2)
+    echo "WARN: Bread=0 in ALL seeds across ALL ${count} metrics_history entries with bread data — Bakery production chain has NEVER functioned in evaluation history. Root cause: Forest<1% (check #42) → no wood → Workshop starved → planks=0 → Bakery structurally impossible (check #47). Fix biome distribution in terrain_pipeline.rs before investigating Bakery recipe or thresholds."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$never_bread" | grep -q "no_bread_data"; then
+    echo "SKIP: No 'bread' field in metrics_history — check #49 schema completeness should catch this"
+  else
+    echo "OK: Bread has been produced at least once in evaluation history — Bakery chain is not permanently blocked"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
