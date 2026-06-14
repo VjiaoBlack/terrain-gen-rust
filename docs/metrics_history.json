@@ -3414,5 +3414,82 @@
       "emergent": 2
     },
     "notes": "Score drops 2.7->2.4: 0 events all 3 seeds (WolfSurge absent vs fired yesterday); food more critical in report cards (seed 137 fpc=0.7, seed 777 fpc=0.0). Seed 42 pop=4 food=12 again (36th consecutive stuck run). All 3 baselines PASS. Tests: 778 passed/0 failed/10 ignored. New check #59 added: Bakery-never-produced-bread (confirmed across all 5 bread-tracking entries). validate_features.sh: 0 errors, 39 warnings."
+  },
+  {
+    "date": "2026-06-14",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "build_sites": 2,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0
+      },
+      "137": {
+        "population": 11,
+        "food": 11,
+        "food_per_cap": 1.0,
+        "wood": 4,
+        "buildings": 10,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488,
+        "build_sites": 4,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0
+      },
+      "777": {
+        "population": 11,
+        "food": 16,
+        "food_per_cap": 1.45,
+        "wood": 4,
+        "buildings": 13,
+        "water_pct": 37.9,
+        "biomes": 15,
+        "survived": true,
+        "rabbits": 5,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "build_sites": 1,
+        "grain": 24,
+        "planks": 3,
+        "bread": 0
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric": {
+      "terrain": 2,
+      "settlement": 2,
+      "simulation": 4,
+      "emergent": 2
+    },
+    "notes": "Score stable at 2.4. 778/0/10 tests. 0 errors, 37 warnings (validate_features; down 2 from noted 39 yesterday \u2014 seed 777 planks=3 prevents check #53 grain-dead-end). All 3 baselines PASS. 0 events all seeds. Seed 42 36th consecutive pop=4 food=12 stuck run. Seed 137 grain=0 (food=11 < 15 threshold; Granary never fires this run). Seed 777 grain=24 planks=3 partial Bakery progress (Forest<1% prevents planks>=8). 2/3 seeds rabbits=0 today (check #31 will fire next run). rand::rng() within-session swing smaller today (seed 777 delta=1 vs \u00b17 last week)."
   }
 ]
