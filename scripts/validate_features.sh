@@ -1677,6 +1677,55 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 60. High seek-state ratio detection
+# Villagers in "Seek" state are searching for a task — they're idle.
+# When >80% of villagers are Seeking in a large (pop >= 8) settlement, the task
+# assignment system isn't keeping workers productively engaged.
+# Observed 2026-06-15: seed 137 seek_pct=91% (10/11 villagers idle at pop=11 with
+# 2 farms and food=8 Critical). Root causes: (1) wood=4 prevents construction (check #44);
+# (2) VillagerMemory not used in AI (check #22) limits resource discovery;
+# (3) rand::rng() task assignment doesn't reliably send workers to farms during food crisis.
+# Requires 'seek_pct' field in metrics_history entries (added 2026-06-15) to fire.
+echo ""
+echo "=== High seek-state ratio detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  seek_ratio=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    has_data = any('seek_pct' in v for v in seeds.values())
+    if not has_data:
+        print('no_seek_data')
+    else:
+        high_seek = [(s, v['seek_pct'], v.get('population',0)) for s, v in seeds.items()
+                     if 'seek_pct' in v and v.get('population', 0) >= 8 and v['seek_pct'] > 80.0]
+        total_large = sum(1 for v in seeds.values() if 'seek_pct' in v and v.get('population',0) >= 8)
+        if high_seek:
+            desc = ', '.join(f'seed {s}={sp:.0f}% (pop={p})' for s,sp,p in high_seek)
+            print(f'high:{len(high_seek)}:{total_large}:{desc}')
+        else:
+            print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$seek_ratio" | grep -q "^high:"; then
+    count=$(echo "$seek_ratio" | cut -d: -f2)
+    total=$(echo "$seek_ratio" | cut -d: -f3)
+    desc=$(echo "$seek_ratio" | cut -d: -f4-)
+    echo "WARN: High villager seek-state ratio (> 80% idle) in ${count}/${total} large settlements: $desc — workers cannot find productive tasks. Causes: (1) wood exhausted (check #44) prevents construction; (2) VillagerMemory not used in AI (check #22) limits resource discovery; (3) rand::rng() task assignment underallocates farmers during food crisis (check #23). Fix root causes before tuning task assignment priorities."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$seek_ratio" | grep -q "no_seek_data"; then
+    echo "SKIP: No 'seek_pct' field in metrics_history — add it to enable workforce utilization tracking (first observed 2026-06-15: seed 137 seek_pct=91%)"
+  else
+    echo "OK: Villager seek-state ratio within acceptable range (<= 80% in all settlements with pop >= 8)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
