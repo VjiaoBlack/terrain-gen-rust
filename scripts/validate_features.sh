@@ -1726,6 +1726,51 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 61. Building count variance guard
+# rand::rng() in game/build.rs causes large swings in auto-build output between
+# consecutive runs with the same seed. Largest observed: seed 777 buildings=13→8
+# (delta=5) on 2026-05-21. This complements check #30 (population swing) for the
+# building-placement dimension of non-determinism. A drop of >4 buildings between
+# consecutive health checks signals extreme RNG variance in auto-build scoring.
+# Requires 'buildings' field in consecutive metrics_history entries to fire.
+echo ""
+echo "=== Building count variance guard ==="
+if [ -f "docs/metrics_history.json" ]; then
+  bldg_swing=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if len(data) < 2:
+    print('insufficient_data')
+else:
+    last = data[-1].get('seeds', {})
+    prev = data[-2].get('seeds', {})
+    max_drop = 0
+    worst = ''
+    for seed in last:
+        lb = last[seed].get('buildings', 0)
+        pb = prev.get(seed, {}).get('buildings', 0)
+        delta = lb - pb  # signed
+        if pb > 0 and delta < -max_drop:
+            max_drop = abs(delta)
+            worst = f'seed {seed}: {pb}->{lb}'
+    if max_drop > 4:
+        print(f'large_drop:{max_drop}:{worst}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$bldg_swing" | grep -q "^large_drop:"; then
+    delta=$(echo "$bldg_swing" | cut -d: -f2)
+    desc=$(echo "$bldg_swing" | cut -d: -f3-)
+    echo "WARN: Building count dropped by ${delta} between last two health checks (${desc}) — extreme rand::rng() auto-build variance. Root cause: game/build.rs scoring uses rand::rng(); same seed can place ±5 buildings depending on RNG state. Fix: seeded per-entity RNG in game/build.rs. Complements check #30 (population swing)."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Building count swing between consecutive health checks within expected range (<= 4)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check building count variance"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")

@@ -3571,5 +3571,85 @@
       "emergent": 2
     },
     "notes": "Score 2.4 (6th consecutive). 778/0/10 tests. 0 errors, 40 warnings (validate_features). All 3 baselines PASS. 0 events all seeds. Seed 42 37th consecutive pop=4 food=12 stuck run. All 3 seeds rabbits=0 today (was seed777=5 yesterday). Seed 137 seek_pct=91% (10/11 villagers idle with food=8 Critical). Seed 777 buildings 13->8 (rand::rng() placed 3 Huts vs 5 yesterday); grain 24->6. New check #60 added: high seek-state ratio detection. seek_pct field added to metrics_history schema."
+  },
+  {
+    "date": "2026-06-16",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "build_sites": 2,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0
+      },
+      "137": {
+        "population": 11,
+        "food": 8,
+        "food_per_cap": 0.73,
+        "wood": 3,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 3,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "build_sites": 6,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 81.8
+      },
+      "777": {
+        "population": 11,
+        "food": 11,
+        "food_per_cap": 1.0,
+        "wood": 4,
+        "buildings": 9,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "survived": true,
+        "rabbits": 0,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488,
+        "build_sites": 5,
+        "grain": 2,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 81.8
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric": {
+      "terrain": 2,
+      "settlement": 2,
+      "simulation": 4,
+      "emergent": 2
+    },
+    "notes": "Score 2.4 (4th consecutive; 2.7 on 2026-06-12 prevents plateau). 778/0/10 tests. 0 errors, 41 warnings (validate_features; +1 from new check #61). 3/3 baselines PASS. 0 events all seeds. Seed 42 38th consecutive pop=4 food=12 stuck run. Seed 137 rabbits 0->3 (recovered). Seed 777 rabbits extinct. Both 137/777 seek_pct=82% (check #60 fires for 2/2 large settlements). Seed 137 housing_cap dropped 20->12 (rand::rng() placed 3 Huts vs 5 yesterday). New check #61: building count variance guard (fires when any seed drops >4 buildings between runs)."
   }
 ]
