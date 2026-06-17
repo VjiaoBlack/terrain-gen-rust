@@ -3651,5 +3651,74 @@
       "emergent": 2
     },
     "notes": "Score 2.4 (4th consecutive; 2.7 on 2026-06-12 prevents plateau). 778/0/10 tests. 0 errors, 41 warnings (validate_features; +1 from new check #61). 3/3 baselines PASS. 0 events all seeds. Seed 42 38th consecutive pop=4 food=12 stuck run. Seed 137 rabbits 0->3 (recovered). Seed 777 rabbits extinct. Both 137/777 seek_pct=82% (check #60 fires for 2/2 large settlements). Seed 137 housing_cap dropped 20->12 (rand::rng() placed 3 Huts vs 5 yesterday). New check #61: building count variance guard (fires when any seed drops >4 buildings between runs)."
+  },
+  {
+    "date": "2026-06-17",
+    "rubric_avg": 2.9,
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 1,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0
+      },
+      "137": {
+        "population": 4,
+        "food": 29,
+        "food_per_cap": 7.25,
+        "wood": 15,
+        "buildings": 4,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 5,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.0,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 50.0
+      },
+      "777": {
+        "population": 12,
+        "food": 18,
+        "food_per_cap": 1.5,
+        "wood": 5,
+        "buildings": 12,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 5,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 4,
+        "wood_skill": 0.5488,
+        "grain": 18,
+        "planks": 3,
+        "bread": 0,
+        "seek_pct": 41.7
+      }
+    }
   }
 ]
