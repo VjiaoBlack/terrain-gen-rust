@@ -1771,6 +1771,53 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check building count variance"
 fi
 
+# 62. Mid-range seek saturation (early warning, complement to check #60)
+# Check #60 fires when seek_pct > 80% at pop >= 8 — high-threshold, large-settlement focus.
+# This check fires when seek_pct > 65% in 2+ seeds regardless of population size.
+# Lower threshold catches the "workers broadly unable to find tasks" pattern before crisis.
+# First formally tracked 2026-06-21: seed 42=75% (3/4 Seeking), seed 137=72.7% (8/11 Seeking).
+# Root causes: wood exhausted (check #44), VillagerMemory unused (check #22), rand::rng()
+# underallocates farmers. Pre-dates check #60 firing (which requires >80% at pop>=8).
+# Requires 'seek_pct' field in metrics_history entries to fire (added 2026-06-15).
+echo ""
+echo "=== Mid-range seek saturation check ==="
+if [ -f "docs/metrics_history.json" ]; then
+  mid_seek=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    total = sum(1 for v in seeds.values() if 'seek_pct' in v)
+    if total == 0:
+        print('no_seek_data')
+    else:
+        mid_seek = [(s, v['seek_pct']) for s, v in seeds.items()
+                    if 'seek_pct' in v and v['seek_pct'] > 65.0]
+        if len(mid_seek) >= 2:
+            desc = ', '.join(f'seed {s}={sp:.0f}%' for s, sp in mid_seek)
+            print(f'saturated:{len(mid_seek)}:{total}:{desc}')
+        else:
+            print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$mid_seek" | grep -q "^saturated:"; then
+    count=$(echo "$mid_seek" | cut -d: -f2)
+    total=$(echo "$mid_seek" | cut -d: -f3)
+    desc=$(echo "$mid_seek" | cut -d: -f4-)
+    echo "WARN: seek_pct > 65% in ${count}/${total} seeds ($desc) — workers broadly idle; insufficient productive tasks. Pre-warning indicator before check #60 (>80% threshold) fires. Root causes: wood exhausted (check #44), VillagerMemory unused in AI (check #22), rand::rng() underallocates farmers. Diagnose task assignment in ecs/ai.rs before adding more build sites."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$mid_seek" | grep -q "no_seek_data"; then
+    echo "SKIP: No 'seek_pct' field in most recent metrics_history entry — add it to enable mid-range seek detection"
+  else
+    echo "OK: seek_pct <= 65% in majority of seeds (workers finding productive tasks)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
