@@ -1818,6 +1818,34 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 63. rand::rng() baseline guard for build.rs and events.rs
+# Check #28 guards rand::rng() in systems.rs, game/mod.rs, and ai.rs only.
+# build.rs:631 is the primary source of ±7 population swings between sequential runs of the same seed.
+# events.rs:341,470 drive non-deterministic WolfSurge firing.
+# Baseline established 2026-06-22: build.rs=1 call, events.rs=2 calls.
+# Fires WARN if either file accumulates additional rand::rng() calls above baseline.
+# Both files pass on 2026-06-22 code (build.rs=1, events.rs=2).
+echo ""
+echo "=== rand::rng() baseline guard (build.rs + events.rs) ==="
+if [ -f "src/game/build.rs" ] && [ -f "src/game/events.rs" ]; then
+  build_rng=$(grep -c 'rand::rng()' src/game/build.rs 2>/dev/null || echo "0")
+  events_rng=$(grep -c 'rand::rng()' src/game/events.rs 2>/dev/null || echo "0")
+  build_max=1
+  events_max=2
+  build_over=0
+  events_over=0
+  [ "$build_rng" -gt "$build_max" ] && build_over=1
+  [ "$events_rng" -gt "$events_max" ] && events_over=1
+  if [ "$build_over" -eq 1 ] || [ "$events_over" -eq 1 ]; then
+    echo "WARN: rand::rng() calls exceed 2026-06-22 baseline — build.rs=${build_rng} (baseline<=${build_max}), events.rs=${events_rng} (baseline<=${events_max}). New untracked non-determinism added. Each new rand::rng() call in these files can add ±7 population variance between sequential runs of the same seed. Fix: replace with seeded per-entity RNG before adding more calls."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: rand::rng() within baseline — build.rs=${build_rng}<=${build_max}, events.rs=${events_rng}<=${events_max}"
+  fi
+else
+  echo "SKIP: src/game/build.rs or src/game/events.rs not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
