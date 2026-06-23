@@ -4114,6 +4114,86 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "5th consecutive day at 2.4/5.0 — check #17 (score plateau) fires after this entry (last 5 entries all 2.4). Rabbits extinct in seeds 42/137 (check #31 fires). Seed 137 food/cap=1.09 (acute crisis, check #39 fires). All 3 seeds seek_pct > 65% (check #62 fires all 3: seed 42=75%, seed 137=72.7%, seed 777=66.7%). Seed 137 report-card pop=4 vs diagnostics pop=11 (delta=7, daily flip continued). Seed 777 baseline-vs-diagnostics pop=11 vs pop=12 (delta=1). Check #63 added: rand::rng() baseline guard for build.rs (<=1) and events.rs (<=2). Baseline check: all 3 PASS. validate_features.sh: 0 errors, 41 warnings."
+    "notes": "5th consecutive day at 2.4/5.0 \u2014 check #17 (score plateau) fires after this entry (last 5 entries all 2.4). Rabbits extinct in seeds 42/137 (check #31 fires). Seed 137 food/cap=1.09 (acute crisis, check #39 fires). All 3 seeds seek_pct > 65% (check #62 fires all 3: seed 42=75%, seed 137=72.7%, seed 777=66.7%). Seed 137 report-card pop=4 vs diagnostics pop=11 (delta=7, daily flip continued). Seed 777 baseline-vs-diagnostics pop=11 vs pop=12 (delta=1). Check #63 added: rand::rng() baseline guard for build.rs (<=1) and events.rs (<=2). Baseline check: all 3 PASS. validate_features.sh: 0 errors, 41 warnings."
+  },
+  {
+    "date": "2026-06-23",
+    "commit": "1fc96d7",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.8,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 31.4,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 12,
+        "food_per_cap": 1.09,
+        "wood": 4,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.8,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 81.8,
+        "build_sites": 6
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "wood": 4,
+        "buildings": 12,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 8,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "grain": 14,
+        "planks": 3,
+        "bread": 0,
+        "seek_pct": 63.6,
+        "build_sites": 1
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain": 2,
+      "settlement": 2,
+      "simulation": 4,
+      "emergent": 2
+    },
+    "notes": "6th consecutive day at 2.4/5.0. Seed 137 seek_pct=81.8% \u2014 above check #60 threshold (>80% at pop=11), 9/11 villagers in Seek. All 3 seeds events_fired=0 (6th consecutive zero-event diagnostic run, 2026-06-18 through 2026-06-23). Rabbits extinct in seeds 42/137; seed 777 rabbits=8 (up from 2 yesterday). Seed 777 grain=14, planks=3 (both down from 26/6 yesterday \u2014 rand::rng() variance). Wood=4 in seeds 137/777 (critical stall, check #44). Seed 42 38th consecutive stuck run at pop=4, wood=43. Baseline check: all 3 PASS. validate_features.sh: 0 errors, 43 warnings."
   }
 ]
