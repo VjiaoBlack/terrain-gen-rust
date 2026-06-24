@@ -10,13 +10,13 @@
       ],
       "test_count": 23,
       "known_issues": [
-        "Terrain enum has 26 variants with 10+ match blocks \u2014 should use data-driven TerrainDef structs",
+        "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs",
         "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)",
-        "terrain_pipeline.rs is 2232 lines \u2014 approaching split threshold",
-        "Desert biome dominant in 2/3 evaluation seeds (32\u201349%) with near-zero Forest (0.1\u20130.7%); biome distribution imbalanced post-WorldState refactor",
-        "Slope distribution is 98.4\u201398.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09\u20130.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
+        "terrain_pipeline.rs is 2232 lines — approaching split threshold",
+        "Desert biome dominant in 2/3 evaluation seeds (32–49%) with near-zero Forest (0.1–0.7%); biome distribution imbalanced post-WorldState refactor",
+        "Slope distribution is 98.4–98.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09–0.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -26,9 +26,9 @@
       ],
       "test_count": 6,
       "known_issues": [
-        "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md \u2014 omitted from file map (check #38 added 2026-05-08)"
+        "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md — omitted from file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "pipe_water": {
       "status": "ok",
@@ -38,26 +38,26 @@
       ],
       "test_count": 21,
       "known_issues": [
-        "Research prototype \u2014 volume conservation not extensively tested"
+        "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_water": {
       "status": "needs_cleanup",
-      "description": "Legacy WaterMap heightfield model \u2014 still runs for moisture but should be replaced by PipeWater",
+      "description": "Legacy WaterMap heightfield model — still runs for moisture but should be replaced by PipeWater",
       "files": [
         "src/simulation/water_map.rs"
       ],
       "test_count": 9,
       "known_issues": [
-        "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) \u2014 should be ONE (PipeWater)",
+        "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_moisture": {
       "status": "needs_work",
-      "description": "MoistureMap \u2014 reads from PipeWater + wind, feeds vegetation",
+      "description": "MoistureMap — reads from PipeWater + wind, feeds vegetation",
       "files": [
         "src/simulation/moisture.rs"
       ],
@@ -65,20 +65,20 @@
       "known_issues": [
         "Moisture decay/persistence rules unclear",
         "Chain: water_surface -> evaporation -> transport -> precipitation -> surface water -> vegetation moisture not fully connected",
-        "moisture.rs is 1867 lines \u2014 largest simulation module, candidate for split",
-        "9 of 18 tests are #[ignore] diagnostic tests \u2014 only 9 are regular passing tests"
+        "moisture.rs is 1867 lines — largest simulation module, candidate for split",
+        "9 of 18 tests are #[ignore] diagnostic tests — only 9 are regular passing tests"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_vegetation": {
       "status": "ok",
-      "description": "VegetationMap \u2014 growth/decay based on moisture, soil, season",
+      "description": "VegetationMap — growth/decay based on moisture, soil, season",
       "files": [
         "src/simulation/vegetation.rs"
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -88,47 +88,47 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_wind": {
       "status": "ok",
-      "description": "WindField \u2014 Stam fluid solver + curl noise",
+      "description": "WindField — Stam fluid solver + curl noise",
       "files": [
         "src/simulation/wind.rs"
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_scent": {
       "status": "ok",
-      "description": "ScentMap \u2014 danger/home scent for creature AI",
+      "description": "ScentMap — danger/home scent for creature AI",
       "files": [
         "src/simulation/scent.rs"
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_traffic": {
       "status": "ok",
-      "description": "TrafficMap \u2014 tracks entity movement for auto-road building",
+      "description": "TrafficMap — tracks entity movement for auto-road building",
       "files": [
         "src/simulation/traffic.rs"
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_soil_fertility": {
       "status": "ok",
-      "description": "SoilFertilityMap \u2014 fertility based on soil type and conditions",
+      "description": "SoilFertilityMap — fertility based on soil type and conditions",
       "files": [
         "src/simulation/soil_fertility.rs"
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "simulation_maps": {
       "status": "ok",
@@ -138,9 +138,9 @@
       ],
       "test_count": 20,
       "known_issues": [
-        "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic \u2014 exploration_pct=100.0 in all evaluation seeds."
+        "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic — exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "ecs_core": {
       "status": "ok",
@@ -154,66 +154,66 @@
       ],
       "test_count": 230,
       "known_issues": [
-        "ecs/tests.rs is 7164 lines in one file \u2014 should be split into focused test modules",
-        "VillagerMemory is written (DangerZone, ThreatReport) in systems.rs but never read in ai.rs for decisions \u2014 Phase 2 (memory-driven AI) not started; AI still reads global stockpile counts (15 occurrences in ai.rs)",
-        "Simulation non-determinism: seed 777 population at tick 6000 varies between runs (8\u201313 observed across April 2026). On 2026-04-24 three sequential runs of the same binary yielded pop=8, 11, 11 (spanning 3 values in one session). On 2026-05-04 within-session divergence reached new extreme: seed 137 showed pop=4 (--diagnostics run) vs pop=11 (--report-card run, sequential); seed 777 showed pop=7 vs pop=13 in same pair. Root cause: rand::rng() in breeding/death path \u2014 replace with seeded per-entity RNG for reproducibility.",
-        "ecs/systems.rs is 2227 lines and ecs/ai.rs is 2104 lines \u2014 both approaching split threshold",
-        "CLAUDE.md test count estimate is 4x stale \u2014 claims ~190 lib tests but cargo test --lib shows 778 passed (818 #[test] annotations in src/). Update CLAUDE.md comments.",
+        "ecs/tests.rs is 7164 lines in one file — should be split into focused test modules",
+        "VillagerMemory is written (DangerZone, ThreatReport) in systems.rs but never read in ai.rs for decisions — Phase 2 (memory-driven AI) not started; AI still reads global stockpile counts (15 occurrences in ai.rs)",
+        "Simulation non-determinism: seed 777 population at tick 6000 varies between runs (8–13 observed across April 2026). On 2026-04-24 three sequential runs of the same binary yielded pop=8, 11, 11 (spanning 3 values in one session). On 2026-05-04 within-session divergence reached new extreme: seed 137 showed pop=4 (--diagnostics run) vs pop=11 (--report-card run, sequential); seed 777 showed pop=7 vs pop=13 in same pair. Root cause: rand::rng() in breeding/death path — replace with seeded per-entity RNG for reproducibility.",
+        "ecs/systems.rs is 2227 lines and ecs/ai.rs is 2104 lines — both approaching split threshold",
+        "CLAUDE.md test count estimate is 4x stale — claims ~190 lib tests but cargo test --lib shows 778 passed (818 #[test] annotations in src/). Update CLAUDE.md comments.",
         "Seed 42 dies at tick ~6668 in playtest (pop=4 at tick 6000 is Fragile and does not survive to 12K ticks); food or housing insufficient for long-term viability at this seed",
-        "Seed 42 has been exactly pop=4 food=12 for 25 consecutive health checks (diagnostic runs) \u2014 auto-build never places second Hut in diagnostic run; BUT seed 42 showed pop=6 in the 2026-04-28 baseline run, confirming the second Hut IS placed when rand::rng() is favorable. Root cause is rand::rng() non-determinism in game/build.rs auto-build scoring, not a logic error.",
+        "Seed 42 has been exactly pop=4 food=12 for 25 consecutive health checks (diagnostic runs) — auto-build never places second Hut in diagnostic run; BUT seed 42 showed pop=6 in the 2026-04-28 baseline run, confirming the second Hut IS placed when rand::rng() is favorable. Root cause is rand::rng() non-determinism in game/build.rs auto-build scoring, not a logic error.",
         "Auto-build output itself is non-deterministic: seed 777 produces 1 Hut (pop=4, cap=4) in one run and 3 Huts (pop=11, cap=12) in the next sequential run with same binary and seed. rand::rng() affects building placement order, not just breeding/death.",
-        "Prey (rabbits) extinct in 2/3 evaluation seeds by tick 6000: seed 42 rabbits=0, seed 137 rabbits=0, seed 777 rabbits=10 (2026-04-29 diagnostics). game/mod.rs:878 notes prey are required for breeding system. Prey extinction may cause wolves to target villagers exclusively, elevating threat scores (seeds 137/777 show threat_score ~22-27 vs seed 42's 10.68). Root cause unknown \u2014 possible predator saturation or spawn density too low.",
-        "Within-session auto-build divergence confirmed 2026-05-06: seed 137 diagnostics run (1st) placed 3 Huts (capacity=12); report-card run (2nd, sequential, same binary) placed 6 Huts (capacity=24). Seed 777: diagnostics=5 Huts vs report-card=3 Huts. rand::rng() in game/build.rs produces \u00b12-3 Hut variance per run, making housing capacity highly non-deterministic.",
+        "Prey (rabbits) extinct in 2/3 evaluation seeds by tick 6000: seed 42 rabbits=0, seed 137 rabbits=0, seed 777 rabbits=10 (2026-04-29 diagnostics). game/mod.rs:878 notes prey are required for breeding system. Prey extinction may cause wolves to target villagers exclusively, elevating threat scores (seeds 137/777 show threat_score ~22-27 vs seed 42's 10.68). Root cause unknown — possible predator saturation or spawn density too low.",
+        "Within-session auto-build divergence confirmed 2026-05-06: seed 137 diagnostics run (1st) placed 3 Huts (capacity=12); report-card run (2nd, sequential, same binary) placed 6 Huts (capacity=24). Seed 777: diagnostics=5 Huts vs report-card=3 Huts. rand::rng() in game/build.rs produces ±2-3 Hut variance per run, making housing capacity highly non-deterministic.",
         "Wood skill frozen: skills.wood=0.5487951708942683 identical to 16 decimal places across all 3 evaluation seeds (42, 137, 777) in 2026-05-07 diagnostics. Farm skill varies correctly (2.77, 18.82, 25.05 per seed). Wood-gathering skill either not updated in ecs/systems.rs when wood is gathered, or not wired to any activity. Diagnose skill update path before skill-related changes.",
-        "Wood skill pure-decay confirmed 2026-05-12: wood_skill=0.5488=1.0*(0.9999^6000) in all 3 seeds, proving woodcutting_ticks=0 across entire 6000-tick evaluation window. Root cause: Forest biome coverage near 0% (0.1-0.6% in all seeds), no trees available to cut. skill.woodcutting update path verified correct (systems.rs:639, game/mod.rs:1801) \u2014 code is correct, the issue is terrain/biome imbalance. Check #41 added to validate_features.sh to detect this pattern.",
-        "Seed 137 food=0 recorded on 2026-05-16 diagnostic run (new all-time low; previous worst: food_per_cap=0.36 on 2026-04-22). Farm\u00d73 present with pop=11 but entire food stockpile exhausted. Root cause: rand::rng() non-determinism in villager task assignment \u2014 on some runs fewer villagers assigned to Farming, depleting food faster than production.",
-        "Within-session seed 777 population divergence confirmed 2026-05-17: diagnostics run shows pop=14, report-card run (sequential, same binary) shows pop=11 \u2014 delta of 3 in a single health-check session. Bidirectional non-determinism confirmed (pop can be higher or lower depending on run order).",
+        "Wood skill pure-decay confirmed 2026-05-12: wood_skill=0.5488=1.0*(0.9999^6000) in all 3 seeds, proving woodcutting_ticks=0 across entire 6000-tick evaluation window. Root cause: Forest biome coverage near 0% (0.1-0.6% in all seeds), no trees available to cut. skill.woodcutting update path verified correct (systems.rs:639, game/mod.rs:1801) — code is correct, the issue is terrain/biome imbalance. Check #41 added to validate_features.sh to detect this pattern.",
+        "Seed 137 food=0 recorded on 2026-05-16 diagnostic run (new all-time low; previous worst: food_per_cap=0.36 on 2026-04-22). Farm×3 present with pop=11 but entire food stockpile exhausted. Root cause: rand::rng() non-determinism in villager task assignment — on some runs fewer villagers assigned to Farming, depleting food faster than production.",
+        "Within-session seed 777 population divergence confirmed 2026-05-17: diagnostics run shows pop=14, report-card run (sequential, same binary) shows pop=11 — delta of 3 in a single health-check session. Bidirectional non-determinism confirmed (pop can be higher or lower depending on run order).",
         "Seeds 137 and 777 population convergence: both seeds produce pop=11 (diff<=1) in 4/5 consecutive health checks (2026-05-16 through 2026-05-21 except 2026-05-17). Despite radically different terrain (seed 137: Desert=49%, Forest=0.1%; seed 777: Grass=12.5%, Desert=0.1%), outcomes are indistinguishable. Pillar 1 violation. Root cause: biome distribution imbalance means neither seed has viable forest for wood, both settle near same resource subset. Check #48 tracks this pattern.",
-        "Seed 777 building count drop 2026-05-21: buildings=13 on 2026-05-20 vs buildings=8 on 2026-05-21 (delta=5) \u2014 largest single-run divergence observed. Confirms rand::rng() auto-build divergence exceeds the '\u00b12-3 Hut variance' prior estimate; actual variance is \u00b15 buildings or more.",
+        "Seed 777 building count drop 2026-05-21: buildings=13 on 2026-05-20 vs buildings=8 on 2026-05-21 (delta=5) — largest single-run divergence observed. Confirms rand::rng() auto-build divergence exceeds the '±2-3 Hut variance' prior estimate; actual variance is ±5 buildings or more.",
         "Seed 42: 30th consecutive pop=4 food=12 stuck run as of 2026-05-22. Auto-build never places second Hut despite wood=43 surplus. Root cause: rand::rng() in game/build.rs scoring makes Hut placement non-deterministic; only favorable RNG rolls place the second Hut (confirmed in 2026-04-28 baseline run with pop=6).",
         "WolfSurge re-fired on seed 137 on 2026-05-22 (2nd occurrence; previous: 2026-05-20). Threat_score=23.77 at tick 6000 triggers the WolfSurge path. This is partially functional event behavior but non-reproducible (depends on rand::rng()-driven population and wolf counts).",
-        "Seed 777 buildings=14 on 2026-05-23 (vs 11 on 2026-05-22, delta=3) \u2014 rand::rng() auto-build variance exceeds prior estimate again; largest single-day positive swing for this seed observed. Seed 137 WolfSurge fired on 2026-05-22 but NOT on 2026-05-23 in same-seed sequential runs \u2014 confirming rand::rng() event non-determinism is bidirectional.",
+        "Seed 777 buildings=14 on 2026-05-23 (vs 11 on 2026-05-22, delta=3) — rand::rng() auto-build variance exceeds prior estimate again; largest single-day positive swing for this seed observed. Seed 137 WolfSurge fired on 2026-05-22 but NOT on 2026-05-23 in same-seed sequential runs — confirming rand::rng() event non-determinism is bidirectional.",
         "Seed 137 food=8 in 2026-05-24 diagnostics run (food/cap=0.73, new all-time low in eval window); sequential report-card run same binary/seed produced food=16 (delta=8, largest within-session food divergence documented). Confirms rand::rng() affects villager farming task assignment, not just building placement and breeding.",
         "Seeds 137/777 population convergence: 8th consecutive diff<=1 as of 2026-05-26 (both pop=11). Check #48 fires consistently. Root cause confirmed: biome distribution imbalance means both seeds have near-identical wood/food constraints regardless of terrain.",
-        "Seed 42 rabbits=0 on 2026-05-26 (extinct again; was 1 on 2026-05-25). Rabbit population fluctuates between 0 and 1 in seed 42 \u2014 no stable recovery.",
-        "Seed 777 planks=3 on 2026-05-26 \u2014 first nonzero planks reading in eval window. Workshop produced minimal output when rand::rng() was favorable. Still far short of Bakery threshold (>=8). Seed 777 grain=26 (high; pre-built Granary processing food aggressively).",
+        "Seed 42 rabbits=0 on 2026-05-26 (extinct again; was 1 on 2026-05-25). Rabbit population fluctuates between 0 and 1 in seed 42 — no stable recovery.",
+        "Seed 777 planks=3 on 2026-05-26 — first nonzero planks reading in eval window. Workshop produced minimal output when rand::rng() was favorable. Still far short of Bakery threshold (>=8). Seed 777 grain=26 (high; pre-built Granary processing food aggressively).",
         "Wood skill: all 3 seeds at pure decay 0.5488 on 2026-05-26. Seed 777 had 2.70 on 2026-05-25 from rand::rng()-favorable forest encounter; did not repeat. Confirms wood skill variation is RNG-driven, not systematic.",
         "Seed 42 game-over confirmed in playtest on 2026-05-26: died at tick 6668, peak pop=4. Consistent across all playtest runs. 34th consecutive pop=4 food=12 stuck diagnostics run.",
-        "Seed 777 three-way within-session non-determinism observed 2026-05-27: pop=4 (diagnostics), pop=14 (report-card), pop=8 (baseline check) across three sequential runs of same binary \u2014 largest single-session variance observed. rand::rng() in game/build.rs places 1, 5, or 3 huts depending on RNG state. Evaluation metrics are unreliable until seeded per-entity RNG is used.",
-        "Seed 777 largest single-day positive swing 2026-05-28: pop=15 (delta=+11 from yesterday's pop=4 in diagnostics). buildings=13 (Farm:5, Hut:5) \u2014 5-farm expansion happened in this RNG-favorable run. threat_score=32.11 (new all-time max across all eval seeds; previous max ~27). Confirms rand::rng() building-placement variance exceeds +/-11 population units.",
+        "Seed 777 three-way within-session non-determinism observed 2026-05-27: pop=4 (diagnostics), pop=14 (report-card), pop=8 (baseline check) across three sequential runs of same binary — largest single-session variance observed. rand::rng() in game/build.rs places 1, 5, or 3 huts depending on RNG state. Evaluation metrics are unreliable until seeded per-entity RNG is used.",
+        "Seed 777 largest single-day positive swing 2026-05-28: pop=15 (delta=+11 from yesterday's pop=4 in diagnostics). buildings=13 (Farm:5, Hut:5) — 5-farm expansion happened in this RNG-favorable run. threat_score=32.11 (new all-time max across all eval seeds; previous max ~27). Confirms rand::rng() building-placement variance exceeds +/-11 population units.",
         "Seed 137 total starvation 2026-05-28: food=0 at tick 6000 with pop=11. New all-time low (previous: food=8 on 2026-05-24). Pre-built FoodToGrain Granary (game/mod.rs:1064, food>15 threshold) consumes food buffer faster than 2 farms replenish when pop>=11. rand::rng() task assignment simultaneously reduces farmer count. Check #50 added to detect this condition.",
         "Pre-built Granary food depletion interaction (2026-05-28): seed 777 shows grain=38 food=18 with Farm:5, pop=15. The FoodToGrain Granary (game/mod.rs:1064, food>15) continuously converts food->grain even at food=18 with 15 villagers (each villager eats ~1.2 food/tick), depleting food faster than farms produce it. Results in food_per_cap=1.2 (Critical) despite 5 active farms. Fix: raise Granary processing threshold to food > (pop * 3) minimum buffer.",
-        "FoodToGrain Granary triggers at food > 15 (systems.rs:979, 1391) \u2014 too low for pop >= 10. At pop=11 eating ~1-1.5 food/tick, the buffer lasts ~70-100 ticks. rand::rng() task-assignment fluctuations can exhaust it: food=0 observed 2026-05-28 (seed 137, pop=11); food=15 (barely at threshold) observed 2026-05-29 same seed. Granary fires immediately upon any spike above 15, preventing safe buffer accumulation. Fix: adaptive threshold max(15, population*2). Check #51 added 2026-05-29.",
+        "FoodToGrain Granary triggers at food > 15 (systems.rs:979, 1391) — too low for pop >= 10. At pop=11 eating ~1-1.5 food/tick, the buffer lasts ~70-100 ticks. rand::rng() task-assignment fluctuations can exhaust it: food=0 observed 2026-05-28 (seed 137, pop=11); food=15 (barely at threshold) observed 2026-05-29 same seed. Granary fires immediately upon any spike above 15, preventing safe buffer accumulation. Fix: adaptive threshold max(15, population*2). Check #51 added 2026-05-29.",
         "Seed 137 rabbits recovered to 3 in 2026-06-01 diagnostics run (was 0 on 2026-05-30); seed 777 rabbits=12 (up from 3 on 2026-05-30); seed 42 rabbits=0 (persistent). Rabbit population is non-deterministic and seed-dependent across runs.",
-        "Report-card food_per_cap=0.7 for seed 137 vs diagnostics 1.27 (same binary/seed, 2026-06-01) \u2014 largest within-session food divergence recorded. Sequential runs produced food~8 (report-card) vs food=14 (diagnostics). Confirms rand::rng() task-assignment variance affects food stockpile by \u00b16 units within a single health-check session.",
-        "Seed 137 diagnostics pop=4 (report-card run pop=11, delta=7) on 2026-06-02 \u2014 new largest within-session population divergence for seed 137. rand::rng() in game/build.rs placed 1 Hut (cap=4) vs 5 Huts (cap=20) in sequential runs of same binary/seed.",
-        "Seed 137 build_sites=8 with pop=4 workers on 2026-06-02 (ratio=2.0) \u2014 auto-build over-queuing in low-population rand::rng() run. game/build.rs does not cap the build queue relative to available worker count. Check #52 added to detect this pattern.",
-        "Seed 137 within-session food divergence delta=17 on 2026-06-04: diagnostics run showed food=12 with pop=11; report-card run (sequential, same binary) showed food~29 with pop=4. New all-time record for within-session food divergence (previous: \u00b16 on 2026-06-01). Bidirectional: diagnostics=pop11 today, diagnostics=pop4 on 2026-06-03. rand::rng() in game/build.rs drives both pop AND food divergence simultaneously.",
-        "Tests clean 2026-06-06: 778 passed, 0 failed, 10 ignored. Previous day had 3 failures (flaky tests). All 3 known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) passed today \u2014 non-deterministic by nature. mining_sparkle_particles_spawn not yet added to validate_features.sh known-flaky guard (only checks construction_dust and build_site_gets_completed).",
-        "Seed 777 diagnostics pop=14 vs report-card pop=11 (delta=3) on 2026-06-06 \u2014 within-session non-determinism continues. Seed 777 wood=0 first recorded in 2026-06-06 diagnostics run (yesterday wood=10). Combined with seed 137 wood=4, now 2/3 seeds have wood<10 \u2014 check #44 will fire when metrics_history is updated.",
-        "Seed 42 report-card pop=6 vs diagnostics pop=4 on 2026-06-08 \u2014 new within-session divergence for seed 42 (was always exactly 4 in diagnostic runs; pop=6 appeared in 2026-04-28 baseline but not in diagnostics). Confirms rand::rng() occasionally places second Hut in report-card path (different call order) but not in diagnostics path. food_pc gap: diagnostics=3.0 (pop=4, food=12) vs report-card=0.3 (pop=6, food=2) \u2014 largest within-session food_per_cap divergence for seed 42 observed.",
+        "Report-card food_per_cap=0.7 for seed 137 vs diagnostics 1.27 (same binary/seed, 2026-06-01) — largest within-session food divergence recorded. Sequential runs produced food~8 (report-card) vs food=14 (diagnostics). Confirms rand::rng() task-assignment variance affects food stockpile by ±6 units within a single health-check session.",
+        "Seed 137 diagnostics pop=4 (report-card run pop=11, delta=7) on 2026-06-02 — new largest within-session population divergence for seed 137. rand::rng() in game/build.rs placed 1 Hut (cap=4) vs 5 Huts (cap=20) in sequential runs of same binary/seed.",
+        "Seed 137 build_sites=8 with pop=4 workers on 2026-06-02 (ratio=2.0) — auto-build over-queuing in low-population rand::rng() run. game/build.rs does not cap the build queue relative to available worker count. Check #52 added to detect this pattern.",
+        "Seed 137 within-session food divergence delta=17 on 2026-06-04: diagnostics run showed food=12 with pop=11; report-card run (sequential, same binary) showed food~29 with pop=4. New all-time record for within-session food divergence (previous: ±6 on 2026-06-01). Bidirectional: diagnostics=pop11 today, diagnostics=pop4 on 2026-06-03. rand::rng() in game/build.rs drives both pop AND food divergence simultaneously.",
+        "Tests clean 2026-06-06: 778 passed, 0 failed, 10 ignored. Previous day had 3 failures (flaky tests). All 3 known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) passed today — non-deterministic by nature. mining_sparkle_particles_spawn not yet added to validate_features.sh known-flaky guard (only checks construction_dust and build_site_gets_completed).",
+        "Seed 777 diagnostics pop=14 vs report-card pop=11 (delta=3) on 2026-06-06 — within-session non-determinism continues. Seed 777 wood=0 first recorded in 2026-06-06 diagnostics run (yesterday wood=10). Combined with seed 137 wood=4, now 2/3 seeds have wood<10 — check #44 will fire when metrics_history is updated.",
+        "Seed 42 report-card pop=6 vs diagnostics pop=4 on 2026-06-08 — new within-session divergence for seed 42 (was always exactly 4 in diagnostic runs; pop=6 appeared in 2026-04-28 baseline but not in diagnostics). Confirms rand::rng() occasionally places second Hut in report-card path (different call order) but not in diagnostics path. food_pc gap: diagnostics=3.0 (pop=4, food=12) vs report-card=0.3 (pop=6, food=2) — largest within-session food_per_cap divergence for seed 42 observed.",
         "Seed 777 wood_skill oscillation confirmed 2026-06-08: 0.5488 (pure decay) today vs 4.78 on 2026-06-07. Single-day swing of 4.2 in wood_skill driven by rand::rng()-favorable wood-gathering encounter in yesterday's run. Confirms wood_skill variation is entirely RNG-driven; skill does NOT represent persistent learning.",
-        "Check #55 added 2026-06-08: flaky-test-family unignored alert \u2014 fires when all 3 known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) are simultaneously present but not #[ignore]d. All 3 currently unignored = 3x CI false-failure risk. validate_features.sh: 0 errors, 35 warnings.",
-        "Seed 777 within-session divergence 2026-06-09: diagnostics pop=11, housing_cap=20 vs report-card pop=4, housing_cap=4 (delta=7). rand::rng() in game/build.rs placed 5 Huts in diagnostics run but only 1 Hut in report-card run. Seed 137 food/cap=1.0 (food=11, pop=11) in diagnostics \u2014 near-starvation; grain=0 confirms Granary not yet processing (food barely at threshold).",
-        "Seed 137 diagnostics reversed 2026-06-10: pop=4 (diagnostics) vs pop=11 (report-card), delta=7 \u2014 opposite of 2026-06-09 which was pop=11 (diag) vs pop=4 (report-card). Direction flips between sessions, confirming bidirectional rand::rng() non-determinism in game/build.rs.",
-        "Seed 137 total starvation 2026-06-11: food=0, pop=11, WolfSurge active \u2014 4th documented starvation event (prev: 2026-05-16, 2026-05-21, 2026-05-28). Concurrent with seed 777 pop=11\u21924 collapse (rand::rng() placed 1 Hut today vs 5 yesterday). Confirms bidirectional non-determinism is worsening or at stable bad equilibrium: in any 2-run session, pop divergence is routinely \u00b17.",
+        "Check #55 added 2026-06-08: flaky-test-family unignored alert — fires when all 3 known-flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game, mining_sparkle_particles_spawn) are simultaneously present but not #[ignore]d. All 3 currently unignored = 3x CI false-failure risk. validate_features.sh: 0 errors, 35 warnings.",
+        "Seed 777 within-session divergence 2026-06-09: diagnostics pop=11, housing_cap=20 vs report-card pop=4, housing_cap=4 (delta=7). rand::rng() in game/build.rs placed 5 Huts in diagnostics run but only 1 Hut in report-card run. Seed 137 food/cap=1.0 (food=11, pop=11) in diagnostics — near-starvation; grain=0 confirms Granary not yet processing (food barely at threshold).",
+        "Seed 137 diagnostics reversed 2026-06-10: pop=4 (diagnostics) vs pop=11 (report-card), delta=7 — opposite of 2026-06-09 which was pop=11 (diag) vs pop=4 (report-card). Direction flips between sessions, confirming bidirectional rand::rng() non-determinism in game/build.rs.",
+        "Seed 137 total starvation 2026-06-11: food=0, pop=11, WolfSurge active — 4th documented starvation event (prev: 2026-05-16, 2026-05-21, 2026-05-28). Concurrent with seed 777 pop=11→4 collapse (rand::rng() placed 1 Hut today vs 5 yesterday). Confirms bidirectional non-determinism is worsening or at stable bad equilibrium: in any 2-run session, pop divergence is routinely ±7.",
         "Seeds 137/777 bidirectional daily flip confirmed as stable bad equilibrium on 2026-06-12: both seeds show pop=11 today (was seed 777 pop=4, seed 137 pop=11 yesterday in 2026-06-11 diag). Seed 137 food recovers 0->16 (yesterday total starvation, today food_per_cap=1.45). 0 events fired all 3 seeds (WolfSurge absent; was present yesterday in seed 137). rand::rng() continues to drive +/-7 population swings and +/-11 food swings between consecutive daily runs. Seed 777 grain=22, planks=3 (Bakery partial progress; Bakery still blocked at planks<8). Non-determinism is not improving over time; only fix is seeded per-entity RNG in game/build.rs.",
         "Within-session food divergence new record 2026-06-13: seed 777 report-card fpc=0.0 (food=0, pop=8) vs diagnostics fpc=1.18 (food=13, pop=11). Seed 137 report-card fpc=0.7 vs diagnostics fpc=1.36. rand::rng() affects both population (via Hut placement) and food (via farmer task assignment) simultaneously. FoodToGrain Granary food>15 threshold drives food=0 in report-card run for seed 777 when pop=8 and farmers underassigned.",
-        "Within-session swing smaller 2026-06-14: seed 777 report-card pop=12 vs diagnostics pop=11 (delta=1) \u2014 smaller than prior week range of \u00b17. 2/3 seeds rabbits=0 today (seed 42 persistent extinction, seed 137 fluctuating 0/5/0 across recent runs).",
+        "Within-session swing smaller 2026-06-14: seed 777 report-card pop=12 vs diagnostics pop=11 (delta=1) — smaller than prior week range of ±7. 2/3 seeds rabbits=0 today (seed 42 persistent extinction, seed 137 fluctuating 0/5/0 across recent runs).",
         "All 3 seeds rabbits=0 in 2026-06-15 diagnostics run (first time all three simultaneously extinct; seed 777 was 5 yesterday). Seed 137 seek_pct=91% first recorded: 10/11 villagers in Seek state at pop=11 with food=8 (Critical) and 2 active farms. High seek ratio suggests rand::rng() task assignment fails to route workers to farms during food crisis. New metric seek_pct added to metrics_history; check #60 added to validate_features.sh.",
         "Seed 137 rabbits recovered 0->3 on 2026-06-16 (non-deterministic; was 0 on 2026-06-15, 3 two days prior). Seed 777 rabbits=0 persists (2nd consecutive day). Rabbit population continues to fluctuate with rand::rng(). Check #60 fires for 2/2 large settlements today: seed 137=82% seek, seed 777=82% seek (check threshold >80% pop>=8).",
-        "Seed 137 diagnostics pop=4 (vs pop=11 yesterday) with food=29 (vs food=8 yesterday) on 2026-06-17 \u2014 rand::rng() in game/build.rs placed 1 Hut (cap=4) today vs 3 Huts (cap=12) yesterday. New record high food for seed 137 (food=29) driven by inverse relationship: 4 mouths consume far less than 11. Bidirectional non-determinism confirmed again. All 3 seeds have rabbits today (seed 42=3, seed 137=5, seed 777=5) \u2014 first time all 3 have non-zero rabbits since at least 2026-06-09. WolfSurge fired in seed 42 (threat_score=10.68, wolves=1, rabbits=3). check #60 does NOT fire today: seek_pct = 75%, 50%, 42% \u2014 all below 80% threshold. Seed 777 seek_pct=42% is the lowest recorded for that seed.",
-        "Seed 137 rand::rng() daily oscillation as stable bad equilibrium confirmed 2026-06-18: pop=11 today vs pop=4 yesterday vs pop=11 (2026-06-16) \u2014 daily bidirectional flip now documented for 5+ consecutive day-pairs. Both directions observed every other day. rand::rng() in game/build.rs places 1 Hut or 3 Huts purely on RNG state; housing_cap swings between 4 and 12 each diagnostic run. Rabbits extinct again in 2/3 seeds (42=0, 137=0, 777=5) after all-3-nonzero on 2026-06-17 \u2014 single-day rabbit rebound followed by extinction is now the observed pattern. Seek_pct: seed 137=63.6%, 777=54.5% \u2014 both below 80% threshold (check #60 does not fire). Zero events all 3 seeds; event suppression continues (check #36 fires 5/5). Seed 777 grain=24 (up from 18 yesterday) \u2014 Granary accumulating grain; planks=0 blocks Bakery chain (check #47 fires). validate_features.sh: 0 errors, 39 warnings.",
-        "Seed 777 diagnostics pop=13 vs report-card pop=11 (delta=+2) on 2026-06-19 \u2014 within-session divergence continues. Breeding/death rand::rng() path responsible (both runs placed 4 Huts; population difference is spawning/death variance, not Hut-placement variance).",
+        "Seed 137 diagnostics pop=4 (vs pop=11 yesterday) with food=29 (vs food=8 yesterday) on 2026-06-17 — rand::rng() in game/build.rs placed 1 Hut (cap=4) today vs 3 Huts (cap=12) yesterday. New record high food for seed 137 (food=29) driven by inverse relationship: 4 mouths consume far less than 11. Bidirectional non-determinism confirmed again. All 3 seeds have rabbits today (seed 42=3, seed 137=5, seed 777=5) — first time all 3 have non-zero rabbits since at least 2026-06-09. WolfSurge fired in seed 42 (threat_score=10.68, wolves=1, rabbits=3). check #60 does NOT fire today: seek_pct = 75%, 50%, 42% — all below 80% threshold. Seed 777 seek_pct=42% is the lowest recorded for that seed.",
+        "Seed 137 rand::rng() daily oscillation as stable bad equilibrium confirmed 2026-06-18: pop=11 today vs pop=4 yesterday vs pop=11 (2026-06-16) — daily bidirectional flip now documented for 5+ consecutive day-pairs. Both directions observed every other day. rand::rng() in game/build.rs places 1 Hut or 3 Huts purely on RNG state; housing_cap swings between 4 and 12 each diagnostic run. Rabbits extinct again in 2/3 seeds (42=0, 137=0, 777=5) after all-3-nonzero on 2026-06-17 — single-day rabbit rebound followed by extinction is now the observed pattern. Seek_pct: seed 137=63.6%, 777=54.5% — both below 80% threshold (check #60 does not fire). Zero events all 3 seeds; event suppression continues (check #36 fires 5/5). Seed 777 grain=24 (up from 18 yesterday) — Granary accumulating grain; planks=0 blocks Bakery chain (check #47 fires). validate_features.sh: 0 errors, 39 warnings.",
+        "Seed 777 diagnostics pop=13 vs report-card pop=11 (delta=+2) on 2026-06-19 — within-session divergence continues. Breeding/death rand::rng() path responsible (both runs placed 4 Huts; population difference is spawning/death variance, not Hut-placement variance).",
         "Seed 777 planks=6 in 2026-06-19 diagnostics (was 0 on 2026-06-18). Workshop(s) converted wood to planks; 2 short of Bakery threshold (>=8). Non-deterministic: next run may show 0 if wood exhausted or Workshop task assignment unfavorable.",
         "Seed 137 seek_pct=81.8% in 2026-06-20 diagnostics run (9/11 villagers in Seek state, above 80% check #60 threshold at pop=11). Combined with wood=4 (construction stalled) and grain=0 (Granary not firing at food=12). Pattern: task assignment fails to allocate workers to farms during low-food + low-wood conditions.",
-        "Seed 137 within-session divergence 2026-06-21: diagnostics pop=11, report-card pop=4 (delta=7) \u2014 rand::rng() in game/build.rs placed 4 Huts in diagnostics run vs 1 Hut in sequential report-card run. Seek_pct improved to 72.7% (was 81.8% on 2026-06-20) \u2014 daily variation, not a trend. Seed 777 baseline check (3rd sequential run) showed pop=15 vs diagnostics pop=11 (delta=4). Score plateau confirmed: 4th consecutive 2.4/5.0 (2026-06-18 through 2026-06-21).",
+        "Seed 137 within-session divergence 2026-06-21: diagnostics pop=11, report-card pop=4 (delta=7) — rand::rng() in game/build.rs placed 4 Huts in diagnostics run vs 1 Hut in sequential report-card run. Seek_pct improved to 72.7% (was 81.8% on 2026-06-20) — daily variation, not a trend. Seed 777 baseline check (3rd sequential run) showed pop=15 vs diagnostics pop=11 (delta=4). Score plateau confirmed: 4th consecutive 2.4/5.0 (2026-06-18 through 2026-06-21).",
         "Rabbits extinct in seeds 42/137 in 2026-06-22 diagnostics run (seed 42=0, seed 137=0, seed 777=2). Rebounds to non-zero are non-deterministic. Seed 42: 37th consecutive stuck diagnostics run at pop=4, food=12, wood=43 surplus unused. housing_growth_potential=0 (Hut:1, cap=4). Auto-build never places second Hut in this RNG state.",
-        "Seed 137 within-session divergence 2026-06-22: diagnostics pop=11, report-card pop=4 (delta=7) \u2014 daily flip confirmed again. Seed 777 baseline pop=11 vs diagnostics pop=12 (delta=1). All 3 seeds now above seek_pct=65% threshold simultaneously (seed 42=75%, seed 137=72.7%, seed 777=66.7%).",
-        "Seed 137 seek_pct=81.8% in 2026-06-23 diagnostics run \u2014 above check #60 threshold (>80% at pop=11). 9/11 villagers in Seek state with 2 active Farms and food/cap=1.09 (Critical). Task assignment failing to route workers to food production during food crisis. Seed 42=75%, seed 777=63.6% (check #62 mid-range fires all 3). 38th consecutive stuck run for seed 42 at pop=4, food=12.",
-        "6th consecutive zero-event diagnostic run as of 2026-06-23 (2026-06-18 through 2026-06-23). Events suppressed in all 3 seeds every day this week. tick_config chain remains broken (check #33); drought threshold impossible (check #27); WolfSurge not observed in diagnostics path since 2026-06-09. All 3 seeds events_fired=0. Seed 777 grain=14, planks=3 today \u2014 both down from 26/6 on 2026-06-22 (rand::rng() variance, not a trend). validate_features.sh: 0 errors, 43 warnings."
+        "Seed 137 within-session divergence 2026-06-22: diagnostics pop=11, report-card pop=4 (delta=7) — daily flip confirmed again. Seed 777 baseline pop=11 vs diagnostics pop=12 (delta=1). All 3 seeds now above seek_pct=65% threshold simultaneously (seed 42=75%, seed 137=72.7%, seed 777=66.7%).",
+        "Seed 137 seek_pct=81.8% in 2026-06-23 diagnostics run — above check #60 threshold (>80% at pop=11). 9/11 villagers in Seek state with 2 active Farms and food/cap=1.09 (Critical). Task assignment failing to route workers to food production during food crisis. Seed 42=75%, seed 777=63.6% (check #62 mid-range fires all 3). 38th consecutive stuck run for seed 42 at pop=4, food=12.",
+        "6th consecutive zero-event diagnostic run as of 2026-06-23 (2026-06-18 through 2026-06-23). Events suppressed in all 3 seeds every day this week. tick_config chain remains broken (check #33); drought threshold impossible (check #27); WolfSurge not observed in diagnostics path since 2026-06-09. All 3 seeds events_fired=0. Seed 777 grain=14, planks=3 today — both down from 26/6 on 2026-06-22 (rand::rng() variance, not a trend). validate_features.sh: 0 errors, 43 warnings."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -223,7 +223,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "ecs_groups": {
       "status": "ok",
@@ -233,7 +233,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "pathfinding": {
       "status": "ok",
@@ -245,7 +245,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -260,17 +260,17 @@
       ],
       "test_count": 107,
       "known_issues": [
-        "game/mod.rs is 2592 lines \u2014 grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
+        "game/mod.rs is 2592 lines — grew by ~200 lines with Stage 4 of 0D refactor (WorldState integration). File split was done (input, water_cycle, fire, particles extracted) but mod.rs remains large",
         "fire.rs, water_cycle.rs, particles.rs have 0 tests each",
-        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test \u2014 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed. HIT on 2026-04-13 and 2026-04-15. Should be #[ignore]d.",
-        "build_site_gets_completed_in_game (tests.rs:252) is a new flaky test discovered 2026-05-05 \u2014 fails in full suite (777 passed, 1 failed) but passes in isolation. Root cause: rand::rng() in ecs/systems.rs and game/mod.rs makes villager behavior non-deterministic, so some runs don't complete the build site within 3000 ticks. Same mechanism as construction_dust_particles_spawn. Should be #[ignore]d or fixed with seeded RNG.",
-        "Simulation metrics (avg_moisture, avg_vegetation, pipe_water_total, wind_moisture_total) are nested under \"terrain\" key in collect_diagnostics() output, not a \"simulation\" key \u2014 non-obvious grouping for external consumers (game/mod.rs:2445)",
-        "11 compiler warnings in game/mod.rs (down from 12 as of 2026-05-01; one resolved by 2026-06-08): primary remaining: unused_mut (line 1220), tick_config assigned-but-never-read (lines 2135-2147 \u2014 dead event modifier chain), unused variable n, DIRECTIONS constant never used.",
+        "construction_dust_particles_spawn (tests.rs:2840) is a flaky test — 1/4 probability particle spawn over 20 ticks gives ~0.3% false-failure rate; needs more ticks or deterministic seed. HIT on 2026-04-13 and 2026-04-15. Should be #[ignore]d.",
+        "build_site_gets_completed_in_game (tests.rs:252) is a new flaky test discovered 2026-05-05 — fails in full suite (777 passed, 1 failed) but passes in isolation. Root cause: rand::rng() in ecs/systems.rs and game/mod.rs makes villager behavior non-deterministic, so some runs don't complete the build site within 3000 ticks. Same mechanism as construction_dust_particles_spawn. Should be #[ignore]d or fixed with seeded RNG.",
+        "Simulation metrics (avg_moisture, avg_vegetation, pipe_water_total, wind_moisture_total) are nested under \"terrain\" key in collect_diagnostics() output, not a \"simulation\" key — non-obvious grouping for external consumers (game/mod.rs:2445)",
+        "11 compiler warnings in game/mod.rs (down from 12 as of 2026-05-01; one resolved by 2026-06-08): primary remaining: unused_mut (line 1220), tick_config assigned-but-never-read (lines 2135-2147 — dead event modifier chain), unused variable n, DIRECTIONS constant never used.",
         "Flaky test confirmed 2026-05-12: cargo test --lib run 2 produced 777 passed/1 failed/10 ignored (run 1: 778/0/10). Known flaky tests (construction_dust_particles_spawn, build_site_gets_completed_in_game) still not marked #[ignore].",
-        "ProcessingBuilding diagnostic conflation (2026-05-19): collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed always shows Workshop:1+ even when no auto-built Workshop exists \u2014 the count includes the pre-built Granary. 25+ health checks recorded Granary as Workshop. The pre-built Granary does function (converts food->grain when food > 15), explaining grain accumulation in diagnostics. Fix: query building_counts by recipe or use distinct marker components for each processing building type.",
-        "mining_sparkle_particles_spawn (tests.rs:2885) is a NEW flaky test first observed failing 2026-06-05 \u2014 fails when stone-mining villager does not produce white-blue sparkle particles within 50 ticks. Root cause: same as construction_dust_particles_spawn and build_site_gets_completed_in_game \u2014 particle spawning is probabilistic via rand::rng(); villager may transition out of Gathering{Stone} state before sparkle fires. Should be #[ignore]d until seeded per-entity RNG is used. Today: all 3 known-flaky tests failed simultaneously (775 passed, 3 failed, 10 ignored)."
+        "ProcessingBuilding diagnostic conflation (2026-05-19): collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed always shows Workshop:1+ even when no auto-built Workshop exists — the count includes the pre-built Granary. 25+ health checks recorded Granary as Workshop. The pre-built Granary does function (converts food->grain when food > 15), explaining grain accumulation in diagnostics. Fix: query building_counts by recipe or use distinct marker components for each processing building type.",
+        "mining_sparkle_particles_spawn (tests.rs:2885) is a NEW flaky test first observed failing 2026-06-05 — fails when stone-mining villager does not produce white-blue sparkle particles within 50 ticks. Root cause: same as construction_dust_particles_spawn and build_site_gets_completed_in_game — particle spawning is probabilistic via rand::rng(); villager may transition out of Gathering{Stone} state before sparkle fires. Should be #[ignore]d until seeded per-entity RNG is used. Today: all 3 known-flaky tests failed simultaneously (775 passed, 3 failed, 10 ignored)."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "building_system": {
       "status": "ok",
@@ -281,17 +281,17 @@
       "test_count": 0,
       "test_note": "Tests live in src/game/tests.rs, counted under game_loop",
       "known_issues": [
-        "game/build.rs is 2306 lines \u2014 approaching split threshold",
+        "game/build.rs is 2306 lines — approaching split threshold",
         "Granary auto-build threshold structurally unreachable: build.rs:1154 requires villager_count >= 12 AND food > 80. Evaluation seeds have food=8-22 at tick 6000; threshold never met. IMPORTANT CORRECTION (2026-05-20): has_granary IS True from game start (pre-built FoodToGrain ProcessingBuilding at game/mod.rs:1064). Bakery actual blockers: (1) planks >= 8 required (build.rs Priority 5.5) but planks=0 because Workshop is starved of wood (Forest <1%, check #42); (2) grain > 30 required, but grain accumulates slowly via pre-built Granary to ~4-20 in eval window. Fix both: biome distribution (forest coverage) for planks chain, and grain threshold reduction.",
-        "Seed 777 closest approach to Bakery threshold on 2026-05-22: grain=30 (at '>30' boundary), planks=6 (2 short of >=8), wood=4. Non-deterministic \u2014 depends on rand::rng() Workshop scheduling.",
+        "Seed 777 closest approach to Bakery threshold on 2026-05-22: grain=30 (at '>30' boundary), planks=6 (2 short of >=8), wood=4. Non-deterministic — depends on rand::rng() Workshop scheduling.",
         "Auto-build does not cap build queue relative to available worker count: seed 137 on 2026-06-02 queued 8 build_sites for only 4 workers (ratio=2.0) when rand::rng() produced a low-population run. Workers scattered among 8 sites cannot complete any in reasonable time. Fix: check len(build_sites) vs population before queuing new sites in game/build.rs auto-build logic.",
-        "Grain dead-end confirmed 2026-06-06: seed 777 grain=38, food=16, planks=0, pop=14. Granary converting food->grain at food>15 threshold, but Bakery is structurally blocked (requires planks>=8, grain>30). Grain pile inaccessible \u2014 pure resource sink draining the food buffer. With grain=38 already exceeding the >30 Bakery grain threshold, the only remaining blocker is planks=0 (Workshop starved of wood). Check #53 added to detect this pattern. Fix root cause: biome distribution (check #42) to restore Forest > 5% and enable Workshop output.",
-        "FoodToGrain Granary food-drain anti-pattern confirmed 2026-06-10: seed 777 grain=26 food=18 food_per_cap=1.64. Granary actively converting food\u2192grain (food=18>15 threshold) while food/cap at Critical level. Check #57 added to detect food_per_cap<2.0 AND grain>20. Root fix: adaptive threshold max(15, population*2) in systems.rs.",
-        "Housing capacity swing between consecutive health checks: seed 137 dropped from housing_cap=20 (5 Huts) to housing_cap=12 (3 Huts) between 2026-06-15 and 2026-06-16. Seed 777 gained cap=12->16 (3->4 Huts) same window. rand::rng() in game/build.rs places \u00b12 Huts per run, making housing capacity volatile day-to-day.",
+        "Grain dead-end confirmed 2026-06-06: seed 777 grain=38, food=16, planks=0, pop=14. Granary converting food->grain at food>15 threshold, but Bakery is structurally blocked (requires planks>=8, grain>30). Grain pile inaccessible — pure resource sink draining the food buffer. With grain=38 already exceeding the >30 Bakery grain threshold, the only remaining blocker is planks=0 (Workshop starved of wood). Check #53 added to detect this pattern. Fix root cause: biome distribution (check #42) to restore Forest > 5% and enable Workshop output.",
+        "FoodToGrain Granary food-drain anti-pattern confirmed 2026-06-10: seed 777 grain=26 food=18 food_per_cap=1.64. Granary actively converting food→grain (food=18>15 threshold) while food/cap at Critical level. Check #57 added to detect food_per_cap<2.0 AND grain>20. Root fix: adaptive threshold max(15, population*2) in systems.rs.",
+        "Housing capacity swing between consecutive health checks: seed 137 dropped from housing_cap=20 (5 Huts) to housing_cap=12 (3 Huts) between 2026-06-15 and 2026-06-16. Seed 777 gained cap=12->16 (3->4 Huts) same window. rand::rng() in game/build.rs places ±2 Huts per run, making housing capacity volatile day-to-day.",
         "Seed 777 auto-build placed 2nd Workshop on 2026-06-19 (now Workshop:2 in diagnostics). With Forest<1% and wood=4, second Workshop may deplete remaining wood faster than planks threshold (>=8) can accumulate.",
         "Seed 777 planks=6 in 2026-06-22 diagnostics run (up from 3 on 2026-05-26, last nonzero reading). Two short of Bakery threshold (>=8). Non-deterministic: next run may show 0 if Workshop task assignment unfavorable or wood exhausted (wood=4 remaining). Grain=26 already exceeds Bakery grain threshold (>30 not yet met but approaching)."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "events": {
       "status": "needs_work",
@@ -303,18 +303,18 @@
       "known_issues": [
         "Drought event structurally impossible at 12K ticks: grain>=pop*5 threshold never met in evaluation runs (Summer just starts at tick 12K)",
         "WolfSurge is non-deterministic: fires based on threat thresholds, not tick_config modifier chain. Confirmed firing: seed 777 on 2026-05-02, seed 137 on 2026-05-11, seed 137 again on 2026-05-20. WolfSurge CAN fire (partial event functionality); drought is the structurally impossible case. Seed 42 threat_score=10.68 (too low for WolfSurge threshold). Same-seed runs are non-reproducible.",
-        "Road auto-build (ROAD_TRAFFIC_THRESHOLD=300.0) never triggers in evaluation window \u2014 0% Road coverage at tick 6000 across all 3 seeds. Threshold too high for small populations (4-11 villagers).",
+        "Road auto-build (ROAD_TRAFFIC_THRESHOLD=300.0) never triggers in evaluation window — 0% Road coverage at tick 6000 across all 3 seeds. Threshold too high for small populations (4-11 villagers).",
         "Event firing rare and non-deterministic: 0/3 seeds fired in most evaluation runs. Seed 137 fired WolfSurge on 2026-05-20 diagnostics run (seeds 42 and 777 still 0). WolfSurge CAN fire but requires high threat_score (seeds 137/777 show threat=19-28); drought/harvest cannot fire (grain threshold and broken tick_config chain).",
-        "CRITICAL: tick_config event modifier chain is broken \u2014 game/mod.rs:2135-2148 builds tick_config with drought (rain_rate*=0.4) and harvest (rain_rate*=1.5) modifiers but step_water_cycle() signature is (bool, f64) and never receives tick_config; modifiers are silently discarded. Drought/harvest have zero effect on simulation. First identified 2026-05-01.",
-        "WolfSurge confirmed firing in diagnostics run path (2026-05-29, seed 777, threat_score=10.48, 1 wolf, 6 rabbits) \u2014 previously observed only in report-card/baseline runs. WolfSurge fires from a threat-threshold code path independent of the broken tick_config chain (which only suppresses drought/harvest).",
+        "CRITICAL: tick_config event modifier chain is broken — game/mod.rs:2135-2148 builds tick_config with drought (rain_rate*=0.4) and harvest (rain_rate*=1.5) modifiers but step_water_cycle() signature is (bool, f64) and never receives tick_config; modifiers are silently discarded. Drought/harvest have zero effect on simulation. First identified 2026-05-01.",
+        "WolfSurge confirmed firing in diagnostics run path (2026-05-29, seed 777, threat_score=10.48, 1 wolf, 6 rabbits) — previously observed only in report-card/baseline runs. WolfSurge fires from a threat-threshold code path independent of the broken tick_config chain (which only suppresses drought/harvest).",
         "6th consecutive zero-event health check as of 2026-06-08 (2026-06-03 through 2026-06-08): events_fired=0 in all 3 seeds in every run. Root cause remains tick_config modifier chain broken (check #33). WolfSurge last observed: 2026-05-29 (sporadic, non-reproducible). Drought structurally impossible in eval window. Event system functionally dead in evaluation baseline.",
-        "WolfSurge fired in 2/3 seeds in 2026-06-09 diagnostics run: seed 42 (threat_score=10.68, active_events=1) and seed 777 (threat_score=28.24, active_events=1); seed 137 (threat_score=25.73) did NOT fire. Breaks 6-consecutive-zero-event streak. NOTE: seed 42 WolfSurge at threat=10.68 contradicts the prior note 'too low for WolfSurge threshold' in this file \u2014 actual threshold appears lower than previously assumed, or rand::rng() allows WolfSurge to fire probabilistically below threshold. Drought/harvest remain structurally impossible (tick_config chain still broken, check #33).",
-        "WolfSurge fired in seed 137 on 2026-06-11 (threat_score=23.69, pop=11) \u2014 notable because the same run showed food=0 (total starvation). WolfSurge + starvation simultaneously active is the worst observed crisis state. Drought and harvest modifiers still broken (check #33). WolfSurge fires sporadically from threat-based path; all other events remain suppressed.",
-        "WolfSurge fired in seed 42 on 2026-06-17 (threat_score=10.68, active_events=1, wolves=1). Breaks 6-day zero-event streak (2026-06-11 through 2026-06-16). Second WolfSurge for seed 42 (prior: 2026-06-09 with threat=10.68 \u2014 same score, same wolf count). Seeds 137 and 777 remain event-free (0 events). Drought structurally impossible in eval window (check #27); harvest modifier chain broken (check #33). WolfSurge fires from threat-based code path independent of broken tick_config chain.",
+        "WolfSurge fired in 2/3 seeds in 2026-06-09 diagnostics run: seed 42 (threat_score=10.68, active_events=1) and seed 777 (threat_score=28.24, active_events=1); seed 137 (threat_score=25.73) did NOT fire. Breaks 6-consecutive-zero-event streak. NOTE: seed 42 WolfSurge at threat=10.68 contradicts the prior note 'too low for WolfSurge threshold' in this file — actual threshold appears lower than previously assumed, or rand::rng() allows WolfSurge to fire probabilistically below threshold. Drought/harvest remain structurally impossible (tick_config chain still broken, check #33).",
+        "WolfSurge fired in seed 137 on 2026-06-11 (threat_score=23.69, pop=11) — notable because the same run showed food=0 (total starvation). WolfSurge + starvation simultaneously active is the worst observed crisis state. Drought and harvest modifiers still broken (check #33). WolfSurge fires sporadically from threat-based path; all other events remain suppressed.",
+        "WolfSurge fired in seed 42 on 2026-06-17 (threat_score=10.68, active_events=1, wolves=1). Breaks 6-day zero-event streak (2026-06-11 through 2026-06-16). Second WolfSurge for seed 42 (prior: 2026-06-09 with threat=10.68 — same score, same wolf count). Seeds 137 and 777 remain event-free (0 events). Drought structurally impossible in eval window (check #27); harvest modifier chain broken (check #33). WolfSurge fires from threat-based code path independent of broken tick_config chain.",
         "5th consecutive zero-event diagnostic run as of 2026-06-22 (2026-06-18 through 2026-06-22): events_fired=0 in all 3 seeds in every run. tick_config modifier chain remains broken (check #33). WolfSurge last observed in report-card run on 2026-06-17 (non-reproducible). Drought structurally impossible in eval window. All 3 seeds seek_pct>65% and food_per_cap<2.0 but events system produces no responses.",
-        "6th consecutive zero-event diagnostic run as of 2026-06-23 (2026-06-18 through 2026-06-23). WolfSurge last observed in diagnostics path: 2026-06-09. tick_config modifier chain remains broken (check #33). Drought structurally impossible in eval window (check #27). 5 of 5 recent harness check #36 entries show suppressed event system. Events visible only in report-card/baseline paths (different rand::rng() state) \u2014 not reproducible."
+        "6th consecutive zero-event diagnostic run as of 2026-06-23 (2026-06-18 through 2026-06-23). WolfSurge last observed in diagnostics path: 2026-06-09. tick_config modifier chain remains broken (check #33). Drought structurally impossible in eval window (check #27). 5 of 5 recent harness check #36 entries show suppressed event system. Events visible only in report-card/baseline paths (different rand::rng() state) — not reproducible."
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "chokepoint": {
       "status": "ok",
@@ -324,7 +324,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "rendering": {
       "status": "ok",
@@ -337,11 +337,11 @@
       ],
       "test_count": 61,
       "known_issues": [
-        "Three color truth sources (Terrain::fg/bg, SoilType::ground_fg, vegetation_color_from_conditions) \u2014 should be unified",
+        "Three color truth sources (Terrain::fg/bg, SoilType::ground_fg, vegetation_color_from_conditions) — should be unified",
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "save_load": {
       "status": "needs_tests",
@@ -352,9 +352,9 @@
       ],
       "test_count": 0,
       "known_issues": [
-        "No dedicated unit tests \u2014 only implicit coverage via integration tests"
+        "No dedicated unit tests — only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "scripting": {
       "status": "stub",
@@ -365,9 +365,9 @@
       "test_count": 5,
       "known_issues": [
         "Not fully implemented or tested",
-        "src/scripting/mod.rs not documented in docs/ARCHITECTURE.md \u2014 directory not in file map (check #38 added 2026-05-08)"
+        "src/scripting/mod.rs not documented in docs/ARCHITECTURE.md — directory not in file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "hydrology": {
       "status": "ok",
@@ -378,24 +378,24 @@
       "test_count": 5,
       "known_issues": [
         "Not referenced in ARCHITECTURE.md file map",
-        "Integration with terrain_pipeline unclear \u2014 standalone research module"
+        "Integration with terrain_pipeline unclear — standalone research module"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     },
     "world_state": {
       "status": "needs_work",
-      "description": "WorldState struct \u2014 canonical simulation state (heights, water, moisture, vegetation, wind). Introduced in 0D architecture refactor Stages 1-4.",
+      "description": "WorldState struct — canonical simulation state (heights, water, moisture, vegetation, wind). Introduced in 0D architecture refactor Stages 1-4.",
       "files": [
         "src/world_state.rs"
       ],
       "test_count": 0,
       "known_issues": [
         "Not documented in ARCHITECTURE.md or design docs",
-        "WaterMap still coexists in Game struct \u2014 WorldState.water (PipeWater) should eventually be the only water source",
-        "No unit tests \u2014 all coverage is indirect through integration tests",
+        "WaterMap still coexists in Game struct — WorldState.water (PipeWater) should eventually be the only water source",
+        "No unit tests — all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-06-23"
+      "last_verified": "2026-06-24"
     }
   },
   "status_legend": {
