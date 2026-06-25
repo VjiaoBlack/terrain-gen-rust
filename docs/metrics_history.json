@@ -4275,5 +4275,85 @@
       "emergent": 2
     },
     "notes": "7th consecutive day at 2.4/5.0. Known-flaky test construction_dust_particles_spawn FAILED (777 passed, 1 failed, 10 ignored) \u2014 expected ~0.3% rate, not a regression. Seed 777 seek_pct flipped 63.6%\u219281.8% (bidirectional RNG); seed 137 dropped 81.8%\u219272.7%. Seed 777 planks: 3\u21920, grain: 14\u21926 (rand::rng() Workshop output variance). 7th consecutive zero-event diagnostic run (2026-06-18 through 2026-06-24). Seed 42 rabbits bounced 0\u21921 (non-deterministic). Seed 42 39th consecutive stuck run at pop=4, food=12, wood=43. Baseline check: all 3 PASS (seed 777 baseline pop=14 vs diagnostics pop=11 \u2014 within-session RNG delta=3). validate_features.sh: 0 errors, 42 warnings."
+  },
+  {
+    "date": "2026-06-25",
+    "commit": "239f3d4",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 8,
+        "food_per_cap": 0.73,
+        "wood": 3,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 81.8,
+        "build_sites": 6
+      },
+      "777": {
+        "population": 11,
+        "food": 16,
+        "food_per_cap": 1.45,
+        "wood": 10,
+        "buildings": 10,
+        "water_pct": 37.9,
+        "biomes": 15,
+        "rabbits": 6,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 90.9,
+        "build_sites": 3
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain": 2,
+      "settlement": 2,
+      "simulation": 4,
+      "emergent": 2
+    },
+    "notes": "8th consecutive day at 2.4/5.0. Tests: 778 passed, 0 failed, 10 ignored (clean). Baselines: 3/3 PASS. Seed 137 acute food crisis: food=8, fpc=0.73 (lowest in recent window; check #39 fires). Seed 777 seek_pct=90.9% (10/11 idle, new diagnostic-run high). Seeds 137/777 both pop=11 for 9th consecutive run (Pillar 1 violation confirmed). 8th consecutive zero-event diagnostic run (2026-06-18 through 2026-06-25). Seed 42 40th consecutive stuck run (pop=4, food=12, wood=43). Wood=3 for seed 137 (below check #44 stall threshold). validate_features.sh: 0 errors, 41 warnings."
   }
 ]
