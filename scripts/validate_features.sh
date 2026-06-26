@@ -1846,6 +1846,55 @@ else
   echo "SKIP: src/game/build.rs or src/game/events.rs not found"
 fi
 
+# 64. Desert biome dominant detection
+# Desert has been 32-49% in evaluation seeds 42/137 while Forest is <1%.
+# A Desert%>40% in any seed signals the biome distribution is pathologically skewed —
+# not just Forest-poor but actively Desert-dominant. Complements check #42 (Forest<1%)
+# by flagging the positive side of imbalance. First confirmed: seed 137 Desert=48.7%
+# (stable across all evaluation runs). Root cause: biome scoring in terrain_pipeline.rs.
+# Added 2026-06-26.
+echo ""
+echo "=== Desert biome dominant detection ==="
+if [ -f "docs/metrics_history.json" ] && command -v python3 &>/dev/null; then
+  result=$(python3 -c "
+import json, sys
+d=json.load(open('docs/metrics_history.json'))
+if not d:
+    print('SKIP:no-entries')
+    sys.exit(0)
+last=d[-1]
+seeds=last.get('seeds',{})
+desert_thresh=40.0
+offenders=[]
+for sid, s in seeds.items():
+    dp=s.get('desert_pct', 0)
+    if dp > desert_thresh:
+        offenders.append(f'seed {sid}={dp}%')
+if offenders:
+    print('WARN:' + ', '.join(offenders))
+else:
+    print('OK')
+" 2>/dev/null)
+  case "$result" in
+    WARN:*)
+      desc="${result#WARN:}"
+      echo "WARN: Desert biome > 40% in most recent health check: ${desc}. Biome distribution pathologically skewed — Desert dominant crowds out Forest, Grass, and Scrubland. Root cause: biome scoring in terrain_pipeline.rs. Fix: reduce Desert scoring weight or add moisture-based biome correction. See also check #42 (Forest<1%), check #48 (Pillar 1 convergence)."
+      WARNINGS=$((WARNINGS + 1))
+      ;;
+    SKIP:*)
+      echo "SKIP: no metrics_history entries to check"
+      ;;
+    OK)
+      echo "OK: No Desert biome dominance (all seeds Desert <= 40% in last health check)"
+      ;;
+    *)
+      echo "SKIP: could not parse metrics_history"
+      ;;
+  esac
+else
+  echo "SKIP: metrics_history.json not found or python3 unavailable"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
