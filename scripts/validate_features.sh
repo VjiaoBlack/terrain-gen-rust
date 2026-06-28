@@ -1895,6 +1895,50 @@ else
   echo "SKIP: metrics_history.json not found or python3 unavailable"
 fi
 
+# 63. Food crisis + seek-task correlation detector
+# When seek_pct >= 70% AND food_per_cap < 1.5 in any seed with pop >= 8,
+# the AI task assignment is failing to route workers to food production during a food crisis.
+# This is a Pillar 2 violation — agents should respond to low food by increasing farming.
+# First observed: 2026-06-28, seed 137: seek_pct=81.8%, food_per_cap=0.73, pop=11.
+# Complements check #60 (seek > 80%) and check #39 (food_per_cap < 1.5) by correlating both.
+echo ""
+echo "=== Food crisis + seek-task correlation detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  seek_food_crisis=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    hits = [
+        (s, v.get('seek_pct', 0), v.get('food_per_cap', 999), v.get('population', 0))
+        for s, v in seeds.items()
+        if v.get('seek_pct', 0) >= 70.0
+        and v.get('food_per_cap', 999) < 1.5
+        and v.get('population', 0) >= 8
+        and 'seek_pct' in v and 'food_per_cap' in v
+    ]
+    if hits:
+        desc = ', '.join(f'seed {s}: seek={sp:.1f}% fpc={fpc:.2f} pop={pop}' for s, sp, fpc, pop in hits)
+        print(f'crisis_seek:{len(hits)}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$seek_food_crisis" | grep -q "^crisis_seek:"; then
+    count=$(echo "$seek_food_crisis" | cut -d: -f2)
+    desc=$(echo "$seek_food_crisis" | cut -d: -f3-)
+    echo "WARN: Food crisis AND high seek-state simultaneously in ${count} seed(s): ${desc}. AI task assignment routing workers away from farming during food crisis — Pillar 2 violation. Check ecs/ai.rs villager task priority logic. Root fix: VillagerMemory in AI (check #22) + seeded RNG (check #15)."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: No food-crisis + seek-task correlation detected (workers routed to farming when food is low)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
