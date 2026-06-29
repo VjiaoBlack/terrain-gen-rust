@@ -1939,6 +1939,44 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 65. Seed 42 food-independent population stagnation guard
+# Check #24 requires pop=4 AND food=12 exactly — too narrow when food varies (12 or 15 observed).
+# Check #37 requires housing_growth_potential=0 — correct but a derived metric.
+# This check fires when seed 42 population has been exactly 4 in ALL 5 of the last 5 entries,
+# regardless of food value. Seed 42 has been pop=4 since initial evaluation (44th consecutive
+# run as of 2026-06-29). Root cause: rand::rng() in game/build.rs:631 never places second Hut
+# in this RNG state; only rare favorable rolls (seen in 2026-04-28 baseline) produce pop=6.
+# First added: 2026-06-29.
+echo ""
+echo "=== Seed 42 food-independent population stagnation guard ==="
+if [ -f "docs/metrics_history.json" ]; then
+  pop_stagnation=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+entries_with_data = [e for e in data if 'population' in e.get('seeds', {}).get('42', {})]
+if len(entries_with_data) < 5:
+    print('insufficient_data')
+else:
+    recent = entries_with_data[-5:]
+    stuck = sum(1 for e in recent if e.get('seeds', {}).get('42', {}).get('population') == 4)
+    if stuck >= 5:
+        print(f'stuck:{stuck}:{len(recent)}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$pop_stagnation" | grep -q "^stuck:"; then
+    count=$(echo "$pop_stagnation" | cut -d: -f2)
+    total=$(echo "$pop_stagnation" | cut -d: -f3)
+    echo "WARN: Seed 42 population has been exactly 4 for ${count}/${total} consecutive health checks (food-independent, more robust than check #24). Auto-build never places second Hut despite wood=43 surplus — rand::rng() in game/build.rs:631 requires favorable RNG state. Root fix: seeded per-entity RNG. Complements check #24 (food=12 required) and check #37 (housing_growth_potential=0)."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    echo "OK: Seed 42 population has changed within recent history (pop != 4 in at least 1 of last 5 entries)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
