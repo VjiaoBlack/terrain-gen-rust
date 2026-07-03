@@ -1252,7 +1252,8 @@ REQUIRED_SEED_FIELDS = [
     'water_pct', 'biomes', 'rabbits', 'survived',
     'slope_flat_pct', 'desert_pct', 'forest_pct',
     'events_fired', 'housing_growth_potential', 'wood_skill',
-    'grain', 'planks', 'bread'
+    'grain', 'planks', 'bread',
+    'seek_pct', 'build_sites'
 ]
 with open('docs/metrics_history.json') as f:
     data = json.load(f)

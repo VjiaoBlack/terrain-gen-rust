@@ -16,7 +16,7 @@
         "Desert biome dominant in 2/3 evaluation seeds (32\u201349%) with near-zero Forest (0.1\u20130.7%); biome distribution imbalanced post-WorldState refactor",
         "Slope distribution is 98.4\u201398.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09\u20130.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -28,7 +28,7 @@
       "known_issues": [
         "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md \u2014 omitted from file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "pipe_water": {
       "status": "ok",
@@ -40,7 +40,7 @@
       "known_issues": [
         "Research prototype \u2014 volume conservation not extensively tested"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -53,7 +53,7 @@
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) \u2014 should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -68,7 +68,7 @@
         "moisture.rs is 1867 lines \u2014 largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests \u2014 only 9 are regular passing tests"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -78,7 +78,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -88,7 +88,7 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_wind": {
       "status": "ok",
@@ -98,7 +98,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_scent": {
       "status": "ok",
@@ -108,7 +108,7 @@
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -118,7 +118,7 @@
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -128,7 +128,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "simulation_maps": {
       "status": "ok",
@@ -140,7 +140,7 @@
       "known_issues": [
         "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic \u2014 exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "ecs_core": {
       "status": "ok",
@@ -218,7 +218,7 @@
         "Seed 42: 43rd consecutive stuck diagnostic run at pop=4, food=15, wood=43, housing_growth_potential=0 as of 2026-06-28. Seeds 137/777 both pop=11 (diff=0) for 12th consecutive diagnostic run (diagnostic path). Seed 137 seek_pct=81.8% \u2014 task assignment failure, 9/11 villagers in Seek state despite food=8 (Critical, fpc=0.73) and 2 active Farms. New check #63 added to detect seek+food-crisis correlation. Seed 777 pop=13 (diagnostics) vs pop=11 (report-card, baseline) \u2014 3-way within-session RNG divergence. Seed 777 grain=32 (exceeds Bakery grain threshold >30, first time); wood=1 (near-exhausted); planks=0 \u2014 Bakery chain now grain-ready but permanently blocked by wood exhaustion. Tests CLEAN: 778/0/10.",
         "Seed 42: 44th consecutive stuck diagnostic run at pop=4, food=15, wood=43, housing_growth_potential=0 as of 2026-06-29. Seeds 137/777: seed 137 pop=11, seed 777 pop=12 in diagnostics (delta=1, within convergence threshold); baseline run shows both at pop=11. Seed 777 pop=12 diagnostics vs pop=11 baseline = within-session RNG divergence in breeding/death path (distinct from build.rs Hut-placement variance). Seed 777 planks=6 in diagnostics (up from 0 in 2026-06-28 metrics_history entry) \u2014 Workshop produced planks in this RNG-favorable run; non-deterministic. Check #65 added: food-independent population stagnation guard for seed 42 (fires when pop=4 in 5/5 last entries regardless of food value; more robust than check #24 which requires food=12 exactly). Tests CLEAN: 778/0/10."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -228,7 +228,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "ecs_groups": {
       "status": "ok",
@@ -238,7 +238,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "pathfinding": {
       "status": "ok",
@@ -250,7 +250,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -275,7 +275,7 @@
         "ProcessingBuilding diagnostic conflation (2026-05-19): collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed always shows Workshop:1+ even when no auto-built Workshop exists \u2014 the count includes the pre-built Granary. 25+ health checks recorded Granary as Workshop. The pre-built Granary does function (converts food->grain when food > 15), explaining grain accumulation in diagnostics. Fix: query building_counts by recipe or use distinct marker components for each processing building type.",
         "mining_sparkle_particles_spawn (tests.rs:2885) is a NEW flaky test first observed failing 2026-06-05 \u2014 fails when stone-mining villager does not produce white-blue sparkle particles within 50 ticks. Root cause: same as construction_dust_particles_spawn and build_site_gets_completed_in_game \u2014 particle spawning is probabilistic via rand::rng(); villager may transition out of Gathering{Stone} state before sparkle fires. Should be #[ignore]d until seeded per-entity RNG is used. Today: all 3 known-flaky tests failed simultaneously (775 passed, 3 failed, 10 ignored)."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "building_system": {
       "status": "ok",
@@ -294,9 +294,10 @@
         "FoodToGrain Granary food-drain anti-pattern confirmed 2026-06-10: seed 777 grain=26 food=18 food_per_cap=1.64. Granary actively converting food\u2192grain (food=18>15 threshold) while food/cap at Critical level. Check #57 added to detect food_per_cap<2.0 AND grain>20. Root fix: adaptive threshold max(15, population*2) in systems.rs.",
         "Housing capacity swing between consecutive health checks: seed 137 dropped from housing_cap=20 (5 Huts) to housing_cap=12 (3 Huts) between 2026-06-15 and 2026-06-16. Seed 777 gained cap=12->16 (3->4 Huts) same window. rand::rng() in game/build.rs places \u00b12 Huts per run, making housing capacity volatile day-to-day.",
         "Seed 777 auto-build placed 2nd Workshop on 2026-06-19 (now Workshop:2 in diagnostics). With Forest<1% and wood=4, second Workshop may deplete remaining wood faster than planks threshold (>=8) can accumulate.",
-        "Seed 777 planks=6 in 2026-06-22 diagnostics run (up from 3 on 2026-05-26, last nonzero reading). Two short of Bakery threshold (>=8). Non-deterministic: next run may show 0 if Workshop task assignment unfavorable or wood exhausted (wood=4 remaining). Grain=26 already exceeds Bakery grain threshold (>30 not yet met but approaching)."
+        "Seed 777 planks=6 in 2026-06-22 diagnostics run (up from 3 on 2026-05-26, last nonzero reading). Two short of Bakery threshold (>=8). Non-deterministic: next run may show 0 if Workshop task assignment unfavorable or wood exhausted (wood=4 remaining). Grain=26 already exceeds Bakery grain threshold (>30 not yet met but approaching).",
+        "Seed 777 Workshop:2 confirmed in 2026-07-03 diagnostics (also seen 2026-06-19). has_workshop present 11 times in build.rs but does not cap Workshop count at 1. With wood=4 and Forest=0.6%, second Workshop depletes remaining wood without proportional plank output (Bakery still blocked at planks=6 < threshold 8). Grain=30 at Bakery grain threshold boundary."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "events": {
       "status": "needs_work",
@@ -321,9 +322,10 @@
         "8th consecutive zero-event diagnostic run as of 2026-06-25 (2026-06-18 through 2026-06-25). WolfSurge last observed in diagnostics path: 2026-06-09. tick_config modifier chain remains broken (check #33). Drought structurally impossible in eval window (check #27). All 3 seeds events_fired=0 for 8 straight diagnostic runs. Events visible only in report-card/baseline paths (different rand::rng() state) \u2014 not reproducible.",
         "9th consecutive zero-event diagnostic run as of 2026-06-26 (2026-06-18 through 2026-06-26). tick_config modifier chain remains broken (check #33). WolfSurge last observed in diagnostics path: 2026-06-09. Drought structurally impossible in eval window. All 3 seeds events_fired=0 for 9 straight diagnostic runs.",
         "11th consecutive zero-event diagnostic run as of 2026-06-28 (2026-06-18 through 2026-06-28). tick_config modifier chain remains broken (check #33). WolfSurge last observed in diagnostics path: 2026-06-09. Drought structurally impossible in eval window. All 3 seeds events_fired=0 for 10 straight diagnostic runs.",
-        "WolfSurge broke zero-event diagnostic streak on 2026-06-29: seed 777 WolfSurge active (threat_score=26.92, wolves=2, rabbits=3, events=[WolfSurge]). Seeds 42 and 137 remain at 0 events. This is the first WolfSurge in the diagnostics path since 2026-06-09 (20-day gap). WolfSurge fires from threat-based code path independent of broken tick_config chain (check #33); drought/harvest remain structurally impossible. Non-deterministic: next diagnostics run of seed 777 may show 0 events depending on rand::rng() state. 12-day zero-event streak (2026-06-18 through 2026-06-29) is now broken for seed 777 only."
+        "WolfSurge broke zero-event diagnostic streak on 2026-06-29: seed 777 WolfSurge active (threat_score=26.92, wolves=2, rabbits=3, events=[WolfSurge]). Seeds 42 and 137 remain at 0 events. This is the first WolfSurge in the diagnostics path since 2026-06-09 (20-day gap). WolfSurge fires from threat-based code path independent of broken tick_config chain (check #33); drought/harvest remain structurally impossible. Non-deterministic: next diagnostics run of seed 777 may show 0 events depending on rand::rng() state. 12-day zero-event streak (2026-06-18 through 2026-06-29) is now broken for seed 777 only.",
+        "Zero events in all 3 seeds in 2026-07-03 diagnostics: seed 777 WolfSurge (2026-06-29) did not repeat. Seed 137 seek_pct=81.8% (9/11 villagers Seeking) at food=8 (Critical) — check #60 threshold exceeded; check fires from next metrics_history update. Seed 42: 45th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0."
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "chokepoint": {
       "status": "ok",
@@ -333,7 +335,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "rendering": {
       "status": "ok",
@@ -350,7 +352,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "save_load": {
       "status": "needs_tests",
@@ -363,7 +365,7 @@
       "known_issues": [
         "No dedicated unit tests \u2014 only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "scripting": {
       "status": "stub",
@@ -376,7 +378,7 @@
         "Not fully implemented or tested",
         "src/scripting/mod.rs not documented in docs/ARCHITECTURE.md \u2014 directory not in file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "hydrology": {
       "status": "ok",
@@ -389,7 +391,7 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear \u2014 standalone research module"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     },
     "world_state": {
       "status": "needs_work",
@@ -404,7 +406,7 @@
         "No unit tests \u2014 all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-06-29"
+      "last_verified": "2026-07-03"
     }
   },
   "status_legend": {
