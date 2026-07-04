@@ -16,7 +16,7 @@
         "Desert biome dominant in 2/3 evaluation seeds (32–49%) with near-zero Forest (0.1–0.7%); biome distribution imbalanced post-WorldState refactor",
         "Slope distribution is 98.4–98.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09–0.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -28,7 +28,7 @@
       "known_issues": [
         "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md — omitted from file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "pipe_water": {
       "status": "ok",
@@ -40,7 +40,7 @@
       "known_issues": [
         "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -53,7 +53,7 @@
         "THREE water systems exist (WaterMap, PipeWater, Terrain::Water) — should be ONE (PipeWater)",
         "0D refactor (Stages 1-4) introduced WorldState.water (PipeWater) and unified rendering, but WaterMap still coexists in Game struct (game/mod.rs:396, 431). Cleanup not yet complete."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_moisture": {
       "status": "needs_work",
@@ -68,7 +68,7 @@
         "moisture.rs is 1867 lines — largest simulation module, candidate for split",
         "9 of 18 tests are #[ignore] diagnostic tests — only 9 are regular passing tests"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_vegetation": {
       "status": "ok",
@@ -78,7 +78,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_day_night": {
       "status": "ok",
@@ -88,7 +88,7 @@
       ],
       "test_count": 21,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_wind": {
       "status": "ok",
@@ -98,7 +98,7 @@
       ],
       "test_count": 22,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_scent": {
       "status": "ok",
@@ -108,7 +108,7 @@
       ],
       "test_count": 11,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_traffic": {
       "status": "ok",
@@ -118,7 +118,7 @@
       ],
       "test_count": 14,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_soil_fertility": {
       "status": "ok",
@@ -128,7 +128,7 @@
       ],
       "test_count": 6,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "simulation_maps": {
       "status": "ok",
@@ -140,7 +140,7 @@
       "known_issues": [
         "ExplorationMap reveals 100% of map trivially by tick 6000: initial reveal radius=15 (game/mod.rs:1369) + villager sight_range=22 covers a 70x25 map in ~200 ticks. Fog-of-war not functioning as a meaningful game mechanic — exploration_pct=100.0 in all evaluation seeds."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "ecs_core": {
       "status": "ok",
@@ -220,9 +220,10 @@
         "Seed 42: 45th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0 as of 2026-06-30. Seeds 137: pop=4 (diagnostics) vs pop=11 (report-card) — daily bidirectional flip confirmed; rand::rng() in game/build.rs placed 1 Hut (cap=4) in diagnostics run vs 4 Huts (cap=16) in sequential report-card run. Seed 777: pop=11, grain regression 28→12 and planks regression 6→3 (rand::rng() unfavorable task assignment; Workshop did not produce as many planks). Seed 777 seek_pct=81.8% (9/11 villagers in Seek state) — above check #60 threshold; will fire on next harness run. Tests: 777 passed / 1 failed (build_site_gets_completed_in_game, known flaky) / 10 ignored — flaky test family hit today confirms risk of unignored flaky tests.",
         "Seed 42: 46th consecutive stuck diagnostic run at pop=4, food=15, wood=43, housing_growth_potential=0 as of 2026-07-01. Seed 137 reversed from yesterday pop=4 (1 Hut) to pop=8 (2 Huts) in diagnostics — daily bidirectional flip continues. Within-session divergence today: seed 42 diag=4 vs rc=6 (Δ2); seed 137 diag=8 vs rc=11 (Δ3); seed 777 diag=12 vs rc=8 (Δ4). Seed 777 rabbits=4 recovered (was 0 on 2026-06-30). Tests CLEAN: 778/0/10. validate_features.sh: 0 errors, 45 warnings.",
         "Seed 137 daily bidirectional flip confirmed 2026-07-02: pop=11 (diagnostics) vs pop=4 (report-card, delta=7); rand::rng() in game/build.rs placed 3 Huts (cap=12) in diagnostics vs 1 Hut (cap=4) in report-card. Seed 137 seek_pct=81.8% (9/11 villagers in Seek state) with food=12 (Critical) and 2 active Farms — task assignment failing to route workers to food production.",
-        "Seed 42: 48th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0 as of 2026-07-03 (45th=2026-06-30, 46th=2026-07-01, 47th=2026-07-02 per prior entries). Seed 137 seek_pct=81.8% (9/11 villagers Seeking) in 2026-07-03 diagnostics run with food=8 (Critical) and 2 active Farms; check #60 threshold exceeded. Seeds 137/777 pop convergence: pop=11 vs pop=12 (diff=1), 46th+ consecutive health check at score 2.40/5.0."
+        "Seed 42: 48th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0 as of 2026-07-03 (45th=2026-06-30, 46th=2026-07-01, 47th=2026-07-02 per prior entries). Seed 137 seek_pct=81.8% (9/11 villagers Seeking) in 2026-07-03 diagnostics run with food=8 (Critical) and 2 active Farms; check #60 threshold exceeded. Seeds 137/777 pop convergence: pop=11 vs pop=12 (diff=1), 46th+ consecutive health check at score 2.40/5.0.",
+        "Seed 42: 49th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0 as of 2026-07-04. Seed 137 food recovered 8→14; seek_pct improved to 72.7% (was 81.8% on 2026-07-03) — check #60 does NOT fire today (below 80% threshold). Seed 777 seek_pct=50% (best reading in recent history; was 75% on 2026-07-03) — rand::rng()-favorable task assignment. All 3 seeds events_fired=0 (16th+ consecutive zero-event diagnostic run). validate_features.sh: 0 errors, 45 warnings."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -232,7 +233,7 @@
       ],
       "test_count": 17,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "ecs_groups": {
       "status": "ok",
@@ -242,7 +243,7 @@
       ],
       "test_count": 32,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "pathfinding": {
       "status": "ok",
@@ -254,7 +255,7 @@
       ],
       "test_count": 40,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "game_loop": {
       "status": "needs_refactor",
@@ -279,7 +280,7 @@
         "ProcessingBuilding diagnostic conflation (2026-05-19): collect_diagnostics() at game/mod.rs:2299 counts ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed always shows Workshop:1+ even when no auto-built Workshop exists — the count includes the pre-built Granary. 25+ health checks recorded Granary as Workshop. The pre-built Granary does function (converts food->grain when food > 15), explaining grain accumulation in diagnostics. Fix: query building_counts by recipe or use distinct marker components for each processing building type.",
         "mining_sparkle_particles_spawn (tests.rs:2885) is a NEW flaky test first observed failing 2026-06-05 — fails when stone-mining villager does not produce white-blue sparkle particles within 50 ticks. Root cause: same as construction_dust_particles_spawn and build_site_gets_completed_in_game — particle spawning is probabilistic via rand::rng(); villager may transition out of Gathering{Stone} state before sparkle fires. Should be #[ignore]d until seeded per-entity RNG is used. Today: all 3 known-flaky tests failed simultaneously (775 passed, 3 failed, 10 ignored)."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "building_system": {
       "status": "ok",
@@ -301,7 +302,7 @@
         "Seed 777 planks=6 in 2026-06-22 diagnostics run (up from 3 on 2026-05-26, last nonzero reading). Two short of Bakery threshold (>=8). Non-deterministic: next run may show 0 if Workshop task assignment unfavorable or wood exhausted (wood=4 remaining). Grain=26 already exceeds Bakery grain threshold (>30 not yet met but approaching).",
         "Seed 777 Workshop:2 confirmed in 2026-07-03 diagnostics (also seen 2026-06-19). has_workshop present 11 times in build.rs but does not cap Workshop count at 1. With wood=4 and Forest=0.6%, second Workshop depletes remaining wood without proportional plank output (Bakery still blocked at planks=6 < threshold 8). Grain=30 at Bakery grain threshold boundary."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "events": {
       "status": "needs_work",
@@ -332,7 +333,7 @@
         "15th consecutive zero-event diagnostic run as of 2026-07-02 (2026-06-18 through 2026-07-02). tick_config modifier chain remains broken (check #33). WolfSurge last observed in diagnostics path: 2026-06-09. Drought structurally impossible in eval window (check #27). All 3 seeds events_fired=0 for 15 straight diagnostic runs.",
         "Zero events in all 3 seeds in 2026-07-03 diagnostics: seed 777 WolfSurge (2026-06-29) did not repeat. Seed 137 seek_pct=81.8% (9/11 villagers Seeking) at food=8 (Critical) — check #60 threshold exceeded; check fires from next metrics_history update. Seed 42: 45th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0."
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "chokepoint": {
       "status": "ok",
@@ -342,7 +343,7 @@
       ],
       "test_count": 10,
       "known_issues": [],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "rendering": {
       "status": "ok",
@@ -359,7 +360,7 @@
         "features.json test_count was 62; actual count is 61 (all in render/mod.rs)",
         "render/mod.rs is still 1300 lines after split; render/shared.rs is 865 lines"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "save_load": {
       "status": "needs_tests",
@@ -372,7 +373,7 @@
       "known_issues": [
         "No dedicated unit tests — only implicit coverage via integration tests"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "scripting": {
       "status": "stub",
@@ -385,7 +386,7 @@
         "Not fully implemented or tested",
         "src/scripting/mod.rs not documented in docs/ARCHITECTURE.md — directory not in file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "hydrology": {
       "status": "ok",
@@ -398,7 +399,7 @@
         "Not referenced in ARCHITECTURE.md file map",
         "Integration with terrain_pipeline unclear — standalone research module"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     },
     "world_state": {
       "status": "needs_work",
@@ -413,7 +414,7 @@
         "No unit tests — all coverage is indirect through integration tests",
         "State-driven architecture design doc (docs/design/cross_cutting/state_driven_architecture.md) describes the intent but implementation is not complete"
       ],
-      "last_verified": "2026-07-03"
+      "last_verified": "2026-07-04"
     }
   },
   "status_legend": {
