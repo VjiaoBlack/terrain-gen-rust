@@ -5059,5 +5059,84 @@
         "build_sites": 1
       }
     }
+  },
+  {
+    "date": "2026-07-05",
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 15,
+        "food_per_cap": 3.75,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.9,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 30.2,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 50.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 16,
+        "food_per_cap": 1.45,
+        "wood": 4,
+        "buildings": 10,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.7,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 63.6,
+        "build_sites": 4
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "wood": 4,
+        "buildings": 8,
+        "water_pct": 37.9,
+        "biomes": 15,
+        "rabbits": 4,
+        "survived": true,
+        "slope_flat_pct": 98.6,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "grain": 6,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 72.7,
+        "build_sites": 6
+      }
+    },
+    "notes": "50th consecutive seed-42 stuck run (pop=4, food=15, wood=43). Seek_pct improved vs yesterday: seed42=50% (was 75%), seed137=63.6% (was 72.7%). Seed 777 Bakery chain regression: grain 28->6, planks 6->0. All 3 seeds events_fired=0 (18th consecutive zero-event run from 2026-06-18). Test: 777 passed / 1 failed (build_site_gets_completed_in_game known flaky) / 10 ignored. Baselines: 3/3 passed. Harness: 0 errors, 44 warnings. Score plateau: 6th consecutive 2.4/5.0."
   }
 ]
