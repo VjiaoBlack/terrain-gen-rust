@@ -1978,6 +1978,47 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 66. Extended zero-event streak length escalation
+# Check #36 fires when 5/5 recent entries show events_fired=0 in 2+ seeds (chronic suppression).
+# This check fires when the TOTAL consecutive zero-event streak from tail of history exceeds 15,
+# providing urgency escalation beyond the 5-entry window of check #36.
+# At 18+ consecutive entries (2026-07-06), the event system is effectively dead in diagnostics.
+# Root cause: tick_config modifier chain broken (check #33). WolfSurge still fires sporadically
+# via threat-based path; drought/harvest are structurally impossible in eval window (check #27).
+# First added: 2026-07-06.
+echo ""
+echo "=== Extended zero-event streak escalation ==="
+if [ -f "docs/metrics_history.json" ]; then
+  streak=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+streak = 0
+for entry in reversed(data):
+    seeds = entry.get('seeds', {})
+    total_with_data = sum(1 for s in seeds.values() if 'events_fired' in s)
+    zero_seeds = sum(1 for s in seeds.values() if 'events_fired' in s and s.get('events_fired', -1) == 0)
+    if total_with_data >= 2 and zero_seeds >= 2:
+        streak += 1
+    else:
+        break
+if streak > 15:
+    print(f'long_streak:{streak}')
+else:
+    print(f'ok:{streak}')
+" 2>/dev/null || echo "ok:0")
+  if echo "$streak" | grep -q "^long_streak:"; then
+    count=$(echo "$streak" | cut -d: -f2)
+    echo "WARN: Zero-event diagnostic streak has reached ${count} consecutive health checks — event system effectively dead (escalation above check #36's 5-entry window). Root cause: tick_config event modifiers (game/mod.rs:2135-2148) never passed to step_water_cycle (check #33). WolfSurge fires sporadically via threat-based path; drought/harvest structurally impossible in eval window (check #27). Priority fix: wire tick_config rain_rate modifier through to step_water_cycle signature."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    count=$(echo "$streak" | cut -d: -f2)
+    echo "OK: Zero-event streak is ${count} consecutive entries (below 15-entry escalation threshold)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
