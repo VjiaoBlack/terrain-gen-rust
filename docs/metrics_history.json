@@ -5217,5 +5217,83 @@
       }
     },
     "notes": "51st consecutive seed-42 stuck run (pop=4, food=12, wood=43, housing_growth_potential=0). Seeds 137/777 housing_cap=20 in diagnostics (5 Huts each, rand::rng() favorable; yesterday was 4 Huts / 3 Huts). Within-session fpc divergence: seed 137 diag=1.09 vs rc=0.4; seed 777 diag=1.55 vs rc=1.3. All 3 seeds events_fired=0 (19th consecutive zero-event diagnostic run from 2026-06-18). Tests: Run1=777/1/10 (construction_dust_particles_spawn flaky), Run2=778/0/10 (CLEAN). Baselines: 3/3 PASS (seed 777 baseline pop=12 vs diag pop=11, delta=1). Harness: 0 errors, 43 warnings. New check #66 added (extended zero-event streak escalation, fires when streak>15; fires at 19 entries). Score plateau: 7th consecutive 2.4/5.0."
+  },
+  {
+    "date": "2026-07-07",
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 4,
+      "emergent_behavior": 2
+    },
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 15,
+        "food_per_cap": 3.75,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.9,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 30.2,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 50.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 14,
+        "food_per_cap": 1.27,
+        "wood": 4,
+        "buildings": 11,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 4,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 63.6,
+        "build_sites": 3
+      },
+      "777": {
+        "population": 11,
+        "food": 14,
+        "food_per_cap": 1.27,
+        "wood": 5,
+        "buildings": 10,
+        "water_pct": 37.9,
+        "biomes": 15,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.7,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5488,
+        "grain": 12,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 72.7,
+        "build_sites": 4
+      }
+    }
   }
 ]

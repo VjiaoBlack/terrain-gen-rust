@@ -2019,6 +2019,52 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 67. Extended score plateau escalation
+# Check #17 fires when the last 5 entries show rubric_avg flat (within 0.10).
+# This check fires when the TOTAL tail streak of identical rubric_avg (within 0.05)
+# exceeds 40 consecutive entries — escalating urgency when the score has not improved
+# for over a month of daily health checks. The current rubric_avg=2.4 has been stable
+# since at least 2026-04 (47+ entries). Root cause: biome distribution (Forest<1%,
+# Desert dominant) and non-deterministic rand::rng() auto-build block all improvement paths.
+# Complements check #17 (5-entry plateau) analogously to check #66 complementing check #36.
+# First added: 2026-07-07.
+echo ""
+echo "=== Extended score plateau escalation ==="
+if [ -f "docs/metrics_history.json" ]; then
+  long_plateau=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+streak = 0
+ref = None
+for entry in reversed(data):
+    avg = entry.get('rubric_avg') or entry.get('score')
+    if avg is None:
+        break
+    if ref is None:
+        ref = avg
+    if abs(avg - ref) <= 0.05:
+        streak += 1
+    else:
+        break
+if streak >= 20:
+    print(f'long_plateau:{streak}:{ref}')
+else:
+    print(f'ok:{streak}')
+" 2>/dev/null || echo "ok:0")
+  if echo "$long_plateau" | grep -q "^long_plateau:"; then
+    count=$(echo "$long_plateau" | cut -d: -f2)
+    score=$(echo "$long_plateau" | cut -d: -f3)
+    echo "WARN: Rubric score plateau at ${score}/5.0 for ${count}+ consecutive health checks (escalation above check #17's 5-entry window) — no improvement in over a month. Root causes: (1) biome distribution — Forest<1% blocks Bakery chain, wood skill, road formation (check #42); (2) rand::rng() non-determinism prevents reliable auto-build (check #15); (3) tick_config event chain broken (check #33). Fix biome distribution in terrain_pipeline.rs to break plateau."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    count=$(echo "$long_plateau" | cut -d: -f2)
+    echo "OK: Score plateau streak is ${count} entries (below 20-entry escalation threshold)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found — cannot check long plateau"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
