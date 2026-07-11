@@ -5532,5 +5532,85 @@
       }
     },
     "notes": "Tests clean: 778/0/10 both runs. Score flat 2.4 (23rd consecutive; check #67 fires). rubric_breakdown shift: simulation_health=5 (up from 4 yesterday), emergent_behavior=1 (down from 2) \u2014 net same 2.4. Seed 42: 55th consecutive stuck diagnostic run at pop=4, food=12, wood=43. Seed 137: fpc=1.00 (Critical; food=11, pop=11) \u2014 worst fpc for this seed in recent history; housing_cap=20 (5 Huts, rand::rng() favorable). Seed 777: Workshop:2, grain=14, planks=3 (non-deterministic). All 3 seeds events_fired=0 (23rd consecutive zero-event day). seek_pct improved vs yesterday: seed137=63.6% (was 72.7%), seed777=63.6% (was 72.7%) \u2014 rand::rng() favorable task assignment today, not structural fix. validate_features.sh: 0 errors, 46 warnings."
+  },
+  {
+    "date": "2026-07-11",
+    "commit": "a170492",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 13,
+        "food_per_cap": 1.18,
+        "wood": 4,
+        "buildings": 9,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 49.4,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "grain": 10,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 63.6,
+        "build_sites": 5
+      },
+      "777": {
+        "population": 11,
+        "food": 18,
+        "food_per_cap": 1.64,
+        "wood": 4,
+        "buildings": 12,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 6,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5488,
+        "grain": 14,
+        "planks": 3,
+        "bread": 0,
+        "seek_pct": 63.6,
+        "build_sites": 1
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 5,
+      "emergent_behavior": 1
+    },
+    "notes": "Tests clean: 778/0/10. Score flat 2.4 (24th consecutive; checks #66, #67 fire). Seed 42: 56th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: fpc=1.18 (up from 1.00 yesterday) \u2014 improved but still Critical; housing_cap=12 (3 Huts, rand::rng()); rabbits=0 (extinct, was 4 yesterday); growth_potential=1. Seed 777: fpc=1.64 (up from 1.36); rabbits=6 (up from 4); housing_cap=20 (5 Huts, rand::rng()-favorable). All 3 seeds events_fired=0 (24th consecutive zero-event diagnostic run). validate_features.sh: 0 errors, 44 warnings (down from 46). Baselines: 3/3 PASS. No new design drift vs 2026-07-10."
   }
 ]
