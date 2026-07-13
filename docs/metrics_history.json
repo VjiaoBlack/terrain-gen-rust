@@ -5691,5 +5691,85 @@
       "simulation_health": 5,
       "emergent_behavior": 2
     }
+  },
+  {
+    "date": "2026-07-13",
+    "commit": "pending",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5488,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 8,
+        "food_per_cap": 0.73,
+        "wood": 3,
+        "buildings": 8,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 1,
+        "wood_skill": 0.5488,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 81.8,
+        "build_sites": 6
+      },
+      "777": {
+        "population": 12,
+        "food": 13,
+        "food_per_cap": 1.08,
+        "wood": 4,
+        "buildings": 11,
+        "water_pct": 38.0,
+        "biomes": 15,
+        "rabbits": 3,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 4,
+        "wood_skill": 0.5488,
+        "grain": 28,
+        "planks": 6,
+        "bread": 0,
+        "seek_pct": 75.0,
+        "build_sites": 1
+      }
+    },
+    "rubric_avg": 2.4,
+    "rubric_breakdown": {
+      "terrain_quality": 2,
+      "settlement_viability": 2,
+      "simulation_health": 5,
+      "emergent_behavior": 1
+    },
+    "notes": "Tests clean: 778/0/10 (both runs). Score drops 2.6\u21922.4: WolfSurge from 2026-07-12 (seeds 42/137) non-reproducible \u2014 all 3 seeds events_fired=0 today. Seed 42: 58th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: food=8 (fpc=0.73, Critical; worst recent), seek_pct=81.8% (9/11 Seeking, check #60 fires), wood=3, grain=0. Seed 777: pop=12 (vs 13 yesterday), planks=6, grain=28. Within-session: seed 137 report-card housing_cap=20 (5 Huts) vs diagnostic 12 (3 Huts, rand::rng()). Baselines: 3/3 PASS. validate_features.sh: 0 errors, 44 warnings."
   }
 ]
