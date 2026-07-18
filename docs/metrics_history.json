@@ -202,7 +202,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 pass (flaky test did not fire). All 3 baselines PASS. No code changes since April 13. Seed 137 food=16 (was 4 on April 13 \u2014 thread_rng non-determinism confirmed). Added checks #15 (rand::rng() non-determinism guard) and #16 (metrics_history freshness) to validate_features.sh."
+    "notes": "778/0/10 pass (flaky test did not fire). All 3 baselines PASS. No code changes since April 13. Seed 137 food=16 (was 4 on April 13 — thread_rng non-determinism confirmed). Added checks #15 (rand::rng() non-determinism guard) and #16 (metrics_history freshness) to validate_features.sh."
   },
   {
     "date": "2026-04-15",
@@ -243,7 +243,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "777/1/10 tests \u2014 construction_dust_particles_spawn fired (probabilistic, 2nd time; needs #[ignore]). No code changes since April 12. Seed 137 food=11 (was 16 on April 14 \u2014 rand::rng() variance). 0 events all seeds. All baselines PASS. Added check #17 (score plateau detection) \u2014 fires for 5 consecutive entries at 2.90."
+    "notes": "777/1/10 tests — construction_dust_particles_spawn fired (probabilistic, 2nd time; needs #[ignore]). No code changes since April 12. Seed 137 food=11 (was 16 on April 14 — rand::rng() variance). 0 events all seeds. All baselines PASS. Added check #17 (score plateau detection) — fires for 5 consecutive entries at 2.90."
   },
   {
     "date": "2026-04-16",
@@ -284,7 +284,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 events all seeds. Seed 137 food=8 (rand::rng() variance \u2014 was 11 on Apr 15). construction_dust_particles_spawn still not #[ignore]. Added check #18 (needs_work zero-test \u2014 fires for world_state). Score 2.9 \u2014 6 consecutive plateau. All baselines PASS. 4 priority actions: fix flaky test, lower road threshold, investigate seed 42 pop stuck, fix biome distribution."
+    "notes": "778/0/10 tests. 0 events all seeds. Seed 137 food=8 (rand::rng() variance — was 11 on Apr 15). construction_dust_particles_spawn still not #[ignore]. Added check #18 (needs_work zero-test — fires for world_state). Score 2.9 — 6 consecutive plateau. All baselines PASS. 4 priority actions: fix flaky test, lower road threshold, investigate seed 42 pop stuck, fix biome distribution."
   },
   {
     "date": "2026-04-17",
@@ -325,7 +325,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 818 #[test] annotations (CLAUDE.md ~190 estimate stale). 0 events all seeds. All baselines PASS. Added check #19 (test suite size regression guard >=700). Updated all last_verified to 2026-04-17. Score 2.9 \u2014 7th consecutive plateau. Priority: fix flaky test, lower road threshold, fix biome distribution, fix seed 42 pop stuck."
+    "notes": "778/0/10 tests. 818 #[test] annotations (CLAUDE.md ~190 estimate stale). 0 events all seeds. All baselines PASS. Added check #19 (test suite size regression guard >=700). Updated all last_verified to 2026-04-17. Score 2.9 — 7th consecutive plateau. Priority: fix flaky test, lower road threshold, fix biome distribution, fix seed 42 pop stuck."
   },
   {
     "date": "2026-04-18",
@@ -366,7 +366,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 6 warnings validate_features. All 3 baselines PASS. New finding: half_speed_base=true in screenshot mode makes --ticks 12000 yield game.tick=6000 (all history evaluated at tick 6000). Added check #20 (screenshot half_speed_base guard). Diagnostics sim fields under .terrain not .simulation key. food_per_cap differs between diag/report-card runs (rand::rng non-determinism: 3 in systems.rs, 3 in mod.rs). Score 2.9 \u2014 8th consecutive plateau."
+    "notes": "778/0/10 tests. 0 errors, 6 warnings validate_features. All 3 baselines PASS. New finding: half_speed_base=true in screenshot mode makes --ticks 12000 yield game.tick=6000 (all history evaluated at tick 6000). Added check #20 (screenshot half_speed_base guard). Diagnostics sim fields under .terrain not .simulation key. food_per_cap differs between diag/report-card runs (rand::rng non-determinism: 3 in systems.rs, 3 in mod.rs). Score 2.9 — 8th consecutive plateau."
   },
   {
     "date": "2026-04-19",
@@ -407,7 +407,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 8 warnings validate_features (6 existing + 2 from new check #21 fog-of-war triviality). All 3 baselines PASS. Non-determinism confirmed: seed 777 yielded pop=4/11/12 in 3 sequential diagnostic runs today. 0 events all seeds. Added harness check #21 (fog-of-war triviality: sight_range=25.0>15, reveal_radius=15>10). Score 2.9 \u2014 9th consecutive plateau."
+    "notes": "778/0/10 tests. 0 errors, 8 warnings validate_features (6 existing + 2 from new check #21 fog-of-war triviality). All 3 baselines PASS. Non-determinism confirmed: seed 777 yielded pop=4/11/12 in 3 sequential diagnostic runs today. 0 events all seeds. Added harness check #21 (fog-of-war triviality: sight_range=25.0>15, reveal_radius=15>10). Score 2.9 — 9th consecutive plateau."
   },
   {
     "date": "2026-04-20",
@@ -448,7 +448,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. Seed 42 observed dying at tick 6668 in playtest (GAME OVER). Food Critical in 2/3 seeds. Added check #22 (VillagerMemory Pillar 2 gap). 9 validate_features warnings. Score 2.9 \u2014 9th consecutive plateau. All baselines PASS. sight_range now 25.0 (up from 22). Priority: diagnose seed 42 death, fix food crisis, lower road threshold."
+    "notes": "778/0/10 tests. Seed 42 observed dying at tick 6668 in playtest (GAME OVER). Food Critical in 2/3 seeds. Added check #22 (VillagerMemory Pillar 2 gap). 9 validate_features warnings. Score 2.9 — 9th consecutive plateau. All baselines PASS. sight_range now 25.0 (up from 22). Priority: diagnose seed 42 death, fix food crisis, lower road threshold."
   },
   {
     "date": "2026-04-21",
@@ -489,7 +489,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 10 warnings (added check #23: persistent food crisis). Seed 42 dies at tick 6668 in playtest. WolfSurge on seed 777 (non-determinism: was seed 137 yesterday). Food Critical in 2/3 seeds (4/5 recent entries). Score 2.9 \u2014 10th consecutive plateau. All baselines PASS."
+    "notes": "778/0/10 tests. 0 errors, 10 warnings (added check #23: persistent food crisis). Seed 42 dies at tick 6668 in playtest. WolfSurge on seed 777 (non-determinism: was seed 137 yesterday). Food Critical in 2/3 seeds (4/5 recent entries). Score 2.9 — 10th consecutive plateau. All baselines PASS."
   },
   {
     "date": "2026-04-22",
@@ -530,7 +530,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 11 warnings (added check #24: seed 42 stagnation \u2014 fires 5/5). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 11 consecutive entries. Non-determinism confirmed: RC runs show seed 137 pop=4 vs diag pop=11. Food Critical on seed 137 (food_per_cap=0.36). 0 events all seeds. Score 2.9 \u2014 11th consecutive plateau."
+    "notes": "778/0/10 tests. 0 errors, 11 warnings (added check #24: seed 42 stagnation — fires 5/5). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 11 consecutive entries. Non-determinism confirmed: RC runs show seed 137 pop=4 vs diag pop=11. Food Critical on seed 137 (food_per_cap=0.36). 0 events all seeds. Score 2.9 — 11th consecutive plateau."
   },
   {
     "date": "2026-04-23",
@@ -571,7 +571,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 12 warnings (added check #25: ROAD_TRAFFIC_THRESHOLD=300.0 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 13 consecutive entries. save_load/event_serial race conditions RESOLVED (dynamic tmp paths). 0 events all seeds. Score 2.9 \u2014 13th consecutive plateau at 2.9."
+    "notes": "778/0/10 tests. 0 errors, 12 warnings (added check #25: ROAD_TRAFFIC_THRESHOLD=300.0 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 13 consecutive entries. save_load/event_serial race conditions RESOLVED (dynamic tmp paths). 0 events all seeds. Score 2.9 — 13th consecutive plateau at 2.9."
   },
   {
     "date": "2026-04-24",
@@ -612,7 +612,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 15 warnings (added check #26: fire/water_cycle/particles have 0 tests \u2014 fires 3\u00d7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 14 consecutive entries. Non-determinism severity: seed 777 yielded pop=8 (diag), 11 (report card), 11 (baselines) in same session \u2014 widest same-session spread to date. 0 events all seeds. Score 2.9 \u2014 14th consecutive plateau at 2.9."
+    "notes": "778/0/10 tests. 0 errors, 15 warnings (added check #26: fire/water_cycle/particles have 0 tests — fires 3×). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 14 consecutive entries. Non-determinism severity: seed 777 yielded pop=8 (diag), 11 (report card), 11 (baselines) in same session — widest same-session spread to date. 0 events all seeds. Score 2.9 — 14th consecutive plateau at 2.9."
   },
   {
     "date": "2026-04-25",
@@ -653,7 +653,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 16 warnings (added check #27: drought grain threshold impossibility \u2014 fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 15 consecutive entries. Seeds 137/777 pop higher than yesterday (non-determinism: rand::rng()). 0 events all seeds. Score 2.9 \u2014 15th consecutive plateau at 2.9."
+    "notes": "778/0/10 tests. 0 errors, 16 warnings (added check #27: drought grain threshold impossibility — fires). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 15 consecutive entries. Seeds 137/777 pop higher than yesterday (non-determinism: rand::rng()). 0 events all seeds. Score 2.9 — 15th consecutive plateau at 2.9."
   },
   {
     "date": "2026-04-26",
@@ -694,7 +694,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 16 warnings. Added check #28 (rand::rng() count growth guard \u2014 OK, counts at baseline). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 16 consecutive entries. Seed 777 non-determinism: diag pop=4 vs report card pop=11. Seed 137 food=12 (was 16 yesterday \u2014 rand::rng() variance). 0 events all seeds. Score 2.9 \u2014 16th consecutive plateau at 2.9."
+    "notes": "778/0/10 tests. 0 errors, 16 warnings. Added check #28 (rand::rng() count growth guard — OK, counts at baseline). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 16 consecutive entries. Seed 777 non-determinism: diag pop=4 vs report card pop=11. Seed 137 food=12 (was 16 yesterday — rand::rng() variance). 0 events all seeds. Score 2.9 — 16th consecutive plateau at 2.9."
   },
   {
     "date": "2026-04-27",
@@ -735,7 +735,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 17 warnings. Added check #29 (CLAUDE.md test count staleness \u2014 fires: claims ~190, actual 818). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 17 consecutive entries. Seed 777 non-determinism: diag pop=11 vs report-card pop=4 (auto-build path also affected by rand::rng()). Default seed dies GAME OVER at tick 6668 (confirmed playtest). 0 events all seeds. Score 2.9 \u2014 17th consecutive plateau at 2.9."
+    "notes": "778/0/10 tests. 0 errors, 17 warnings. Added check #29 (CLAUDE.md test count staleness — fires: claims ~190, actual 818). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 17 consecutive entries. Seed 777 non-determinism: diag pop=11 vs report-card pop=4 (auto-build path also affected by rand::rng()). Default seed dies GAME OVER at tick 6668 (confirmed playtest). 0 events all seeds. Score 2.9 — 17th consecutive plateau at 2.9."
   },
   {
     "date": "2026-04-28",
@@ -776,7 +776,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 18 warnings (added check #30: population swing detection \u2014 fires: seed 777 Apr26->Apr27 delta=7). Seed 42 stuck pop=4 food=12 for 18 consecutive diagnostic entries; BUT baseline run shows pop=6 \u2014 confirms second Hut IS placed when rand::rng() favorable; auto-build logic correct, only non-determinism blocks it. Report-card: seeds 137/777 Healthy pop=11, food Critical. All 3 baselines PASS (seed 42 pop=6, 137 pop=11, 777 pop=11 in baseline runs). 0 events in diagnostic runs; seeds 137/777 threat=Growing in RC. Score 2.9 \u2014 18th consecutive plateau."
+    "notes": "778/0/10 tests. 0 errors, 18 warnings (added check #30: population swing detection — fires: seed 777 Apr26->Apr27 delta=7). Seed 42 stuck pop=4 food=12 for 18 consecutive diagnostic entries; BUT baseline run shows pop=6 — confirms second Hut IS placed when rand::rng() favorable; auto-build logic correct, only non-determinism blocks it. Report-card: seeds 137/777 Healthy pop=11, food Critical. All 3 baselines PASS (seed 42 pop=6, 137 pop=11, 777 pop=11 in baseline runs). 0 events in diagnostic runs; seeds 137/777 threat=Growing in RC. Score 2.9 — 18th consecutive plateau."
   },
   {
     "date": "2026-04-29",
@@ -820,7 +820,7 @@
       "simulation_health": 4,
       "emergent_behavior": 3
     },
-    "notes": "778/0/10 tests. 0 errors, 19 warnings (added check #31: prey extinction guard \u2014 fires: rabbits=0 in 2/3 seeds). New finding: prey extinct in seeds 42/137, only seed 777 has rabbits=10. Added 'rabbits' field to tracking. Check #30 (population swing) fires: seed 137 pop=4->11 (delta=7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 19 consecutive diagnostic entries. Non-determinism: seed 137 food=29 (Apr28) vs 16 (today); seed 777 pop=12 (Apr28) vs 11 (today). 0 events all seeds. Score 2.9 \u2014 19th consecutive plateau."
+    "notes": "778/0/10 tests. 0 errors, 19 warnings (added check #31: prey extinction guard — fires: rabbits=0 in 2/3 seeds). New finding: prey extinct in seeds 42/137, only seed 777 has rabbits=10. Added 'rabbits' field to tracking. Check #30 (population swing) fires: seed 137 pop=4->11 (delta=7). All 3 baselines PASS. Seed 42 stuck pop=4 food=12 for 19 consecutive diagnostic entries. Non-determinism: seed 137 food=29 (Apr28) vs 16 (today); seed 777 pop=12 (Apr28) vs 11 (today). 0 events all seeds. Score 2.9 — 19th consecutive plateau."
   },
   {
     "date": "2026-04-30",
@@ -879,7 +879,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests. 0 errors, 19 warnings (+check #32: flat terrain detection \u2014 fires immediately; slope_flat_pct=98.4-98.7% in all 3 seeds). NEW: slope data added to metrics_history. Seed 42 pop=4 food=12 for 20th consecutive run. Food critical in 2/3 seeds (137: 1.2/cap, 777: 1.4/cap). Seed 137 Desert=48.7% (worst biome imbalance measured). All 3 baselines PASS. 0 events all seeds \u2014 20th consecutive health check with zero events. Score 2.7 (down from 2.9; emergent scored 2 vs 3 due to identical building mix across all seeds)."
+    "notes": "778/0/10 tests. 0 errors, 19 warnings (+check #32: flat terrain detection — fires immediately; slope_flat_pct=98.4-98.7% in all 3 seeds). NEW: slope data added to metrics_history. Seed 42 pop=4 food=12 for 20th consecutive run. Food critical in 2/3 seeds (137: 1.2/cap, 777: 1.4/cap). Seed 137 Desert=48.7% (worst biome imbalance measured). All 3 baselines PASS. 0 events all seeds — 20th consecutive health check with zero events. Score 2.7 (down from 2.9; emergent scored 2 vs 3 due to identical building mix across all seeds)."
   },
   {
     "date": "2026-05-01",
@@ -938,7 +938,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests. 0 errors, 19 warnings (added check #33: event modifier chain dead code guard \u2014 fires; tick_config built with drought/harvest rain_rate mods but never passed to step_water_cycle). NEW CRITICAL FINDING: drought/harvest events have zero simulation effect even if they fire. Seed 42 pop=4 food=12 for 21st consecutive run. Seed 777 rabbits=15 (up from 2 on Apr-30 \u2014 rabbit recovery). Seed 137 Desert=49.1% (worst measured). Non-determinism: seed 777 RC=pop4 vs diag=pop12 vs baseline=pop7 in same session. All 3 baselines PASS. 0 events all seeds \u2014 21st consecutive zero-event check. Score 2.7 unchanged."
+    "notes": "778/0/10 tests. 0 errors, 19 warnings (added check #33: event modifier chain dead code guard — fires; tick_config built with drought/harvest rain_rate mods but never passed to step_water_cycle). NEW CRITICAL FINDING: drought/harvest events have zero simulation effect even if they fire. Seed 42 pop=4 food=12 for 21st consecutive run. Seed 777 rabbits=15 (up from 2 on Apr-30 — rabbit recovery). Seed 137 Desert=49.1% (worst measured). Non-determinism: seed 777 RC=pop4 vs diag=pop12 vs baseline=pop7 in same session. All 3 baselines PASS. 0 events all seeds — 21st consecutive zero-event check. Score 2.7 unchanged."
   },
   {
     "date": "2026-05-02",
@@ -997,7 +997,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests. 0 errors, 19 warnings (validate_features.sh). Added check #34: WorldState 0D architecture regression guard (OK). Seed 42 pop=4 food=12 for 22nd consecutive run (structural auto-build failure). Seed 137 rabbits=2 (partial recovery from extinction on 2026-05-01). Seed 777 WolfSurge fired (non-deterministic \u2014 was 0 events on 2026-05-01). All 3 baselines PASS. Persistent food crisis: f/cap < 2.0 in seeds 137 (1.36) and 777 (1.18). Score 2.7 unchanged (4th consecutive)."
+    "notes": "778/0/10 tests. 0 errors, 19 warnings (validate_features.sh). Added check #34: WorldState 0D architecture regression guard (OK). Seed 42 pop=4 food=12 for 22nd consecutive run (structural auto-build failure). Seed 137 rabbits=2 (partial recovery from extinction on 2026-05-01). Seed 777 WolfSurge fired (non-deterministic — was 0 events on 2026-05-01). All 3 baselines PASS. Persistent food crisis: f/cap < 2.0 in seeds 137 (1.36) and 777 (1.18). Score 2.7 unchanged (4th consecutive)."
   },
   {
     "date": "2026-05-04",
@@ -1054,7 +1054,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests. 0 errors, 19 warnings (prey extinction fires: seed 137 rabbits=0, seed 42 rabbits=0) (was 19; WorldState check now passes). Non-determinism: most extreme within-session divergence observed \u2014 seed 137 diag=pop4 vs RC=pop11, seed 777 diag=pop7 vs RC=pop13 (sequential runs, same session, same binary). Seed 42 pop=4/food=15 (food up from persistent 12; stagnation check still fires on metrics_history). Seed 137 Desert=49.0% (near max). 0 events all seeds \u2014 23rd consecutive zero-event check. All 3 baselines PASS. Score 2.7 unchanged (5th consecutive at 2.7/5.0)."
+    "notes": "778/0/10 tests. 0 errors, 19 warnings (prey extinction fires: seed 137 rabbits=0, seed 42 rabbits=0) (was 19; WorldState check now passes). Non-determinism: most extreme within-session divergence observed — seed 137 diag=pop4 vs RC=pop11, seed 777 diag=pop7 vs RC=pop13 (sequential runs, same session, same binary). Seed 42 pop=4/food=15 (food up from persistent 12; stagnation check still fires on metrics_history). Seed 137 Desert=49.0% (near max). 0 events all seeds — 23rd consecutive zero-event check. All 3 baselines PASS. Score 2.7 unchanged (5th consecutive at 2.7/5.0)."
   },
   {
     "date": "2026-05-05",
@@ -1113,7 +1113,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "777 passed, 1 FAILED (build_site_gets_completed_in_game \u2014 NEW FLAKY, passes in isolation, rand::rng() root cause), 10 ignored. 0 errors, 19 warnings (validate_features). NEW: check #35 added for build_site_gets_completed_in_game. Baselines 3/3 PASS. Seed 137 rabbits=3 (recovered from 0 yesterday \u2014 rand::rng() variation). Score re-calibrated: terrain downgraded from 3\u21922 because 98%+ flat contradicts Pillar 1 directly. Score 2.4 (down from 2.7 \u2014 scoring correction, not regression). 24th consecutive zero-event check. Seed 42 food=12 (back to persistent baseline after 15 yesterday)."
+    "notes": "777 passed, 1 FAILED (build_site_gets_completed_in_game — NEW FLAKY, passes in isolation, rand::rng() root cause), 10 ignored. 0 errors, 19 warnings (validate_features). NEW: check #35 added for build_site_gets_completed_in_game. Baselines 3/3 PASS. Seed 137 rabbits=3 (recovered from 0 yesterday — rand::rng() variation). Score re-calibrated: terrain downgraded from 3→2 because 98%+ flat contradicts Pillar 1 directly. Score 2.4 (down from 2.7 — scoring correction, not regression). 24th consecutive zero-event check. Seed 42 food=12 (back to persistent baseline after 15 yesterday)."
   },
   {
     "date": "2026-05-06",
@@ -1172,7 +1172,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests (build_site_gets_completed_in_game passed today \u2014 flaky). 0 errors, 20 warnings (validate_features; +1 new check #36 event suppression fires immediately). Baselines 3/3 PASS. Seed 137 rabbits=0 (was 3 yesterday \u2014 back to extinct, rand::rng() variation). NEW: within-session auto-build divergence documented \u2014 seed 137 diag=3 Huts vs RC=6 Huts, seed 777 diag=5 Huts vs RC=3 Huts (same binary, same seed, sequential runs). 25th consecutive zero-event check \u2014 check #36 added to harness. Score 2.4/5.0 (2nd consecutive at corrected score). Seed 42 pop=4 food=12 (5th consecutive stagnation)."
+    "notes": "778/0/10 tests (build_site_gets_completed_in_game passed today — flaky). 0 errors, 20 warnings (validate_features; +1 new check #36 event suppression fires immediately). Baselines 3/3 PASS. Seed 137 rabbits=0 (was 3 yesterday — back to extinct, rand::rng() variation). NEW: within-session auto-build divergence documented — seed 137 diag=3 Huts vs RC=6 Huts, seed 777 diag=5 Huts vs RC=3 Huts (same binary, same seed, sequential runs). 25th consecutive zero-event check — check #36 added to harness. Score 2.4/5.0 (2nd consecutive at corrected score). Seed 42 pop=4 food=12 (5th consecutive stagnation)."
   },
   {
     "date": "2026-05-07",
@@ -1231,7 +1231,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests. 0 errors, 21 warnings (added check #37: seed 42 housing saturation guard \u2014 fires 3/3; incorporated remote checks #35 build_site flaky guard + #36 event suppression detector from May 4-6 health checks). NEW FINDING: skills.wood=0.5487951708942683 identical to 16 decimal places in all 3 seeds \u2014 wood skill frozen, farm skill develops normally; diagnose skill update path in ecs/systems.rs. Seed 42 food=15 (was 12 on 2026-05-02 \u2014 rand::rng() non-determinism; pop still =4, housing_growth_potential still 0). Terrain Quality re-scored as 2 (consistent with 2026-05-05 recalibration: 98%+ flat is Pillar 1 direct violation). Seed 777 events_fired=0 (WolfSurge did not fire this run). All 3 baselines PASS. Persistent food crisis: f/cap < 2.0 in seeds 137 (1.36) and 777 (1.73). 0 events all seeds \u2014 26th consecutive zero-event check. Score 2.4 consistent with May 5-6."
+    "notes": "778/0/10 tests. 0 errors, 21 warnings (added check #37: seed 42 housing saturation guard — fires 3/3; incorporated remote checks #35 build_site flaky guard + #36 event suppression detector from May 4-6 health checks). NEW FINDING: skills.wood=0.5487951708942683 identical to 16 decimal places in all 3 seeds — wood skill frozen, farm skill develops normally; diagnose skill update path in ecs/systems.rs. Seed 42 food=15 (was 12 on 2026-05-02 — rand::rng() non-determinism; pop still =4, housing_growth_potential still 0). Terrain Quality re-scored as 2 (consistent with 2026-05-05 recalibration: 98%+ flat is Pillar 1 direct violation). Seed 777 events_fired=0 (WolfSurge did not fire this run). All 3 baselines PASS. Persistent food crisis: f/cap < 2.0 in seeds 137 (1.36) and 777 (1.73). 0 events all seeds — 26th consecutive zero-event check. Score 2.4 consistent with May 5-6."
   },
   {
     "date": "2026-05-08",
@@ -1349,7 +1349,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests. 0 errors, 27 warnings (25 pre-existing + 2 from new check #40). Added check #40 (CLAUDE.md stale module structure: lists simulation.rs, missing world_state.rs). WolfSurge fired in seed 137 diagnostics run \u2014 breaks 27-run zero-event streak for that seed; 2/3 seeds still 0 events so check #36 still fires. Rabbits recovered: all 3 seeds > 0 (was 0/0/3 in 2026-05-08); check #31 does not fire. Seed 42 pop=4 food=12 25th consecutive run. PLATEAU fires: score=2.40 for 5th consecutive check. All baselines PASS."
+    "notes": "778/0/10 tests. 0 errors, 27 warnings (25 pre-existing + 2 from new check #40). Added check #40 (CLAUDE.md stale module structure: lists simulation.rs, missing world_state.rs). WolfSurge fired in seed 137 diagnostics run — breaks 27-run zero-event streak for that seed; 2/3 seeds still 0 events so check #36 still fires. Rabbits recovered: all 3 seeds > 0 (was 0/0/3 in 2026-05-08); check #31 does not fire. Seed 42 pop=4 food=12 25th consecutive run. PLATEAU fires: score=2.40 for 5th consecutive check. All baselines PASS."
   },
   {
     "date": "2026-05-12",
@@ -1473,7 +1473,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (no flaky test failure; yesterday had 777/1). 0 errors, 30 warnings. Check #42 (forest biome near-zero detection) actually added to validate_features.sh today \u2014 was claimed in 2026-05-14 commit but script was never updated. Seed 42 pop=4 food=12 28th consecutive stagnation run. Score plateau 8th consecutive 2.40. Events: 0/3 seeds. Rabbits: seed 42=0, 137=0, 777=9. Seed 777 wood_skill=4.84 (non-decay, found trees); seeds 42/137=0.5488 (pure decay). Non-determinism: baselines check returned seed 777 pop=11 vs diagnostic pop=13 in same session. Baselines: 3/3 PASS. Note: 2026-05-14 metrics entry was never added to history (that commit only touched health_reports/ and features.json)."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (no flaky test failure; yesterday had 777/1). 0 errors, 30 warnings. Check #42 (forest biome near-zero detection) actually added to validate_features.sh today — was claimed in 2026-05-14 commit but script was never updated. Seed 42 pop=4 food=12 28th consecutive stagnation run. Score plateau 8th consecutive 2.40. Events: 0/3 seeds. Rabbits: seed 42=0, 137=0, 777=9. Seed 777 wood_skill=4.84 (non-decay, found trees); seeds 42/137=0.5488 (pure decay). Non-determinism: baselines check returned seed 777 pop=11 vs diagnostic pop=13 in same session. Baselines: 3/3 PASS. Note: 2026-05-14 metrics entry was never added to history (that commit only touched health_reports/ and features.json)."
   },
   {
     "date": "2026-05-16",
@@ -1535,7 +1535,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (208s). 0 errors, 30 warnings (validate_features). Check #43 added: multi-seed housing saturation (does not fire on current data). Seed 137 food=0 \u2014 new all-time low (prev. worst food_per_cap=0.36 on 2026-04-22); Farm\u00d73 present but all food exhausted. Seed 777 wood_skill=0.5488 (pure decay) vs 4.84 yesterday \u2014 non-determinism bidirectional confirmation. Rabbits: seed 42=0, 137=0, 777=5. Prey extinction check #31 fires (2/3 seeds). Seed 42 pop=4 food=12 29th consecutive stagnation run. Score plateau 9th consecutive 2.40. Events: 0/3 seeds (28th consecutive zero-event check). Baselines: 3/3 PASS. All simulate at tick 6000. No Bakery/Smithy/Granary/Bridge in any seed."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (208s). 0 errors, 30 warnings (validate_features). Check #43 added: multi-seed housing saturation (does not fire on current data). Seed 137 food=0 — new all-time low (prev. worst food_per_cap=0.36 on 2026-04-22); Farm×3 present but all food exhausted. Seed 777 wood_skill=0.5488 (pure decay) vs 4.84 yesterday — non-determinism bidirectional confirmation. Rabbits: seed 42=0, 137=0, 777=5. Prey extinction check #31 fires (2/3 seeds). Seed 42 pop=4 food=12 29th consecutive stagnation run. Score plateau 9th consecutive 2.40. Events: 0/3 seeds (28th consecutive zero-event check). Baselines: 3/3 PASS. All simulate at tick 6000. No Bakery/Smithy/Granary/Bridge in any seed."
   },
   {
     "date": "2026-05-17",
@@ -1603,7 +1603,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 30 warnings (validate_features) + check #44 added. Check #44: wood resource near-zero stall (SKIP until wood field established). Seed 777 pop=14 (up from 11) but report-card run shows 11 \u2014 within-session non-determinism delta=3. Seed 777 wood_skill=2.06 (some woodcutting vs pure-decay yesterday). Seed 137: wood=4, 5 active build_sites \u2014 construction stall risk. Seed 777: wood=1, 1 build_site. Playtest default seed: GAME OVER at tick 6668, peak pop=4. 0 events all seeds (29th consecutive). Rabbits: 42=0, 137=0, 777=5. Baselines: 3/3 PASS. Score plateau: 10th consecutive 2.40."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN. 0 errors, 30 warnings (validate_features) + check #44 added. Check #44: wood resource near-zero stall (SKIP until wood field established). Seed 777 pop=14 (up from 11) but report-card run shows 11 — within-session non-determinism delta=3. Seed 777 wood_skill=2.06 (some woodcutting vs pure-decay yesterday). Seed 137: wood=4, 5 active build_sites — construction stall risk. Seed 777: wood=1, 1 build_site. Playtest default seed: GAME OVER at tick 6668, peak pop=4. 0 events all seeds (29th consecutive). Rabbits: 42=0, 137=0, 777=5. Baselines: 3/3 PASS. Score plateau: 10th consecutive 2.40."
   },
   {
     "date": "2026-05-18",
@@ -1671,7 +1671,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (x2 confirmed). 0 errors, 32 warnings (validate_features) \u2014 check #45 added (Granary food>80 threshold impossibility, fires immediately). NEW FINDING: Granary auto-build requires food > 80 (build.rs:1154) \u2014 unreachable with eval food=8-22; Bakery also blocked (requires Granary) \u2192 bread=0 permanently \u2192 plague-prevention never activates. Wood skill pure-decay in all 3 seeds today (incl. seed 777=0.5488 vs 2.0638 yesterday \u2014 non-determinism extends to woodcutting path). Seed 42: pop=4 food=12 (26th consecutive stuck). Seed 137: food=8 (food/cap=0.73, Critical). Seed 777: wood=4. 0 events (30th consecutive). Rabbits: 42=0, 137=0, 777=9. Baselines: 3/3 PASS. Score plateau: 11th consecutive 2.40."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (x2 confirmed). 0 errors, 32 warnings (validate_features) — check #45 added (Granary food>80 threshold impossibility, fires immediately). NEW FINDING: Granary auto-build requires food > 80 (build.rs:1154) — unreachable with eval food=8-22; Bakery also blocked (requires Granary) → bread=0 permanently → plague-prevention never activates. Wood skill pure-decay in all 3 seeds today (incl. seed 777=0.5488 vs 2.0638 yesterday — non-determinism extends to woodcutting path). Seed 42: pop=4 food=12 (26th consecutive stuck). Seed 137: food=8 (food/cap=0.73, Critical). Seed 777: wood=4. 0 events (30th consecutive). Rabbits: 42=0, 137=0, 777=9. Baselines: 3/3 PASS. Score plateau: 11th consecutive 2.40."
   },
   {
     "date": "2026-05-19",
@@ -1739,7 +1739,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 33 warnings (validate_features) \u2014 check #46 added (ProcessingBuilding diagnostic conflation). NEW FINDING: collect_diagnostics() at game/mod.rs:2299 labels ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed shows Workshop:1+ even without an auto-built Workshop \u2014 25+ health checks misread this as Workshop data. Pre-built Granary does function (food>15 \u2192 grain+=2). Seed 42: pop=4 food=12 (27th consecutive stuck). Seed 137: food=14 (up from 8 yesterday \u2014 rand::rng() non-determinism; food/cap=1.27). Seed 777: pop=12 wood=4. 0 events (31st consecutive). Rabbits: 42=0, 137=6, 777=3. Baselines: 3/3 PASS. Score plateau: 12th consecutive 2.40."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN. 0 errors, 33 warnings (validate_features) — check #46 added (ProcessingBuilding diagnostic conflation). NEW FINDING: collect_diagnostics() at game/mod.rs:2299 labels ALL ProcessingBuilding entities as 'Workshop', but the pre-built Granary (FoodToGrain recipe, game/mod.rs:1064-1081) is also a ProcessingBuilding. Every seed shows Workshop:1+ even without an auto-built Workshop — 25+ health checks misread this as Workshop data. Pre-built Granary does function (food>15 → grain+=2). Seed 42: pop=4 food=12 (27th consecutive stuck). Seed 137: food=14 (up from 8 yesterday — rand::rng() non-determinism; food/cap=1.27). Seed 777: pop=12 wood=4. 0 events (31st consecutive). Rabbits: 42=0, 137=6, 777=3. Baselines: 3/3 PASS. Score plateau: 12th consecutive 2.40."
   },
   {
     "date": "2026-05-20",
@@ -1807,7 +1807,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 33 warnings (validate_features, check #47 added). Seed 137 fired WolfSurge today (events_fired=1) \u2014 first event in today's session, confirms WolfSurge partially functional. Seeds 137+777 near-identical (pop=11, food=14, wood=4) despite different terrain \u2014 possible Pillar 1 attractor. Seed 42: 28th consecutive pop=4 food=12 stuck run. NEW FINDING: Bakery blocked by planks=0 (Workshop starved, wood=0) AND grain<30 \u2014 not just Granary; pre-built Granary satisfies has_granary from start. Check #47 added (Bakery planks threshold static check). Baselines: 3/3 PASS. Score plateau: 13th consecutive 2.40."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN. 0 errors, 33 warnings (validate_features, check #47 added). Seed 137 fired WolfSurge today (events_fired=1) — first event in today's session, confirms WolfSurge partially functional. Seeds 137+777 near-identical (pop=11, food=14, wood=4) despite different terrain — possible Pillar 1 attractor. Seed 42: 28th consecutive pop=4 food=12 stuck run. NEW FINDING: Bakery blocked by planks=0 (Workshop starved, wood=0) AND grain<30 — not just Granary; pre-built Granary satisfies has_granary from start. Check #47 added (Bakery planks threshold static check). Baselines: 3/3 PASS. Score plateau: 13th consecutive 2.40."
   },
   {
     "date": "2026-05-21",
@@ -1875,7 +1875,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN. 0 errors, 34 warnings (check #48 added: seeds 137/777 Pillar 1 convergence guard fires immediately \u2014 pop diff<=1 in 4/5 recent entries). Seed 137 food=0 again (chronic; also 0 on 2026-05-16). Seed 777 buildings dropped from 13 (2026-05-20) to 8 (today) \u2014 delta=5 via rand::rng() auto-build divergence. Seeds 137+777 pop=11,11 again (5th occurrence of near-convergence in recent runs). Seed 42: 29th consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. check_baselines.sh: 3 passed, 0 failed. Score plateau: 14th consecutive 2.40/5.0."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN. 0 errors, 34 warnings (check #48 added: seeds 137/777 Pillar 1 convergence guard fires immediately — pop diff<=1 in 4/5 recent entries). Seed 137 food=0 again (chronic; also 0 on 2026-05-16). Seed 777 buildings dropped from 13 (2026-05-20) to 8 (today) — delta=5 via rand::rng() auto-build divergence. Seeds 137+777 pop=11,11 again (5th occurrence of near-convergence in recent runs). Seed 42: 29th consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. check_baselines.sh: 3 passed, 0 failed. Score plateau: 14th consecutive 2.40/5.0."
   },
   {
     "date": "2026-05-22",
@@ -1945,7 +1945,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (220s). 0 errors, 34 warnings (no new checks). Seed 137 WolfSurge fired again (events_fired=1, 2nd occurrence matching 2026-05-20). Seed 777 grain=30 + planks=6 \u2014 closest approach to Bakery threshold yet (grain>30 + planks>=8 required); still blocked by 2 planks. Seed 42: 30th consecutive pop=4 food=12 stuck run. Rabbits: 42=0, 137=4, 777=5. Baselines: 3/3 PASS. Default seed playtest: GAME OVER at tick 8830. Score plateau: 15th consecutive 2.40/5.0."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (220s). 0 errors, 34 warnings (no new checks). Seed 137 WolfSurge fired again (events_fired=1, 2nd occurrence matching 2026-05-20). Seed 777 grain=30 + planks=6 — closest approach to Bakery threshold yet (grain>30 + planks>=8 required); still blocked by 2 planks. Seed 42: 30th consecutive pop=4 food=12 stuck run. Rabbits: 42=0, 137=4, 777=5. Baselines: 3/3 PASS. Default seed playtest: GAME OVER at tick 8830. Score plateau: 15th consecutive 2.40/5.0."
   },
   {
     "date": "2026-05-23",
@@ -2015,7 +2015,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (289s). 0 errors, 34 warnings (no new checks). 0 events fired in all 3 seeds (WolfSurge did not fire today, unlike 2026-05-22 \u2014 confirms non-deterministic event triggering). Seed 777 buildings=14 (up from 11 yesterday; largest observed). Seed 137 rabbits=0 today (vs 4 yesterday \u2014 extinction run). Seed 42: 31st consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. Score plateau: 16th consecutive 2.40/5.0."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (289s). 0 errors, 34 warnings (no new checks). 0 events fired in all 3 seeds (WolfSurge did not fire today, unlike 2026-05-22 — confirms non-deterministic event triggering). Seed 777 buildings=14 (up from 11 yesterday; largest observed). Seed 137 rabbits=0 today (vs 4 yesterday — extinction run). Seed 42: 31st consecutive pop=4 food=12 stuck run. Baselines: 3/3 PASS. Score plateau: 16th consecutive 2.40/5.0."
   },
   {
     "date": "2026-05-24",
@@ -2085,7 +2085,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "777 passed/1 FAILED (build_site_gets_completed_in_game flaky \u2014 known)/10 ignored (326s). 0 errors, 35 warnings. Seed 137 food=8 diagnostics (food/cap=0.73, new all-time low); report-card sequential run showed food=16 (delta=8, largest within-session food divergence documented \u2014 rand::rng() affects villager task assignment). Seed 42: 32nd consecutive pop=4/food=12 stuck run. Seed 777 pop=11 (vs 12 yesterday), buildings=12 (vs 14 yesterday). Baselines: 3/3 PASS. Score plateau: 17th consecutive 2.40/5.0."
+    "notes": "777 passed/1 FAILED (build_site_gets_completed_in_game flaky — known)/10 ignored (326s). 0 errors, 35 warnings. Seed 137 food=8 diagnostics (food/cap=0.73, new all-time low); report-card sequential run showed food=16 (delta=8, largest within-session food divergence documented — rand::rng() affects villager task assignment). Seed 42: 32nd consecutive pop=4/food=12 stuck run. Seed 777 pop=11 (vs 12 yesterday), buildings=12 (vs 14 yesterday). Baselines: 3/3 PASS. Score plateau: 17th consecutive 2.40/5.0."
   },
   {
     "date": "2026-05-25",
@@ -2157,7 +2157,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (267s). 0 errors, 34 warnings (down from 35; acute food crisis check #39 does not fire for seed 777 at food/cap=1.64). Seed 777 wood_skill=2.70 (first non-pure-decay reading; rand::rng()-favorable run cut trees from 0.7% Forest). Seed 137 buildings jumped from 8 to 11 (+3, largest single-day increase for this seed). Seed 42: 33rd consecutive pop=4/food=12 stuck run. Seed 137 rabbits=0 (extinct again; seed 42 rabbits=1 recovered). Baseline check: seed 777 pop=12 (vs diagnostics pop=11, non-determinism). Validate: 0 errors, 34 warnings. Score plateau: 18th consecutive 2.40/5.0."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (267s). 0 errors, 34 warnings (down from 35; acute food crisis check #39 does not fire for seed 777 at food/cap=1.64). Seed 777 wood_skill=2.70 (first non-pure-decay reading; rand::rng()-favorable run cut trees from 0.7% Forest). Seed 137 buildings jumped from 8 to 11 (+3, largest single-day increase for this seed). Seed 42: 33rd consecutive pop=4/food=12 stuck run. Seed 137 rabbits=0 (extinct again; seed 42 rabbits=1 recovered). Baseline check: seed 777 pop=12 (vs diagnostics pop=11, non-determinism). Validate: 0 errors, 34 warnings. Score plateau: 18th consecutive 2.40/5.0."
   },
   {
     "date": "2026-05-26",
@@ -2231,7 +2231,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778 passed/0 failed/10 ignored \u2014 CLEAN RUN (535s). 0 errors, 34 warnings (unchanged). Seed 42 rabbits=0 (extinct again; was 1 yesterday). Seed 777 grain=26 (Granary active), planks=3 (first nonzero planks in eval window). Seed 137 food=15 (up from 12 yesterday), housing_cap=16. Wood skill: all 3 seeds at pure decay 0.5488 (seed 777 2.70 yesterday was RNG outlier). Seeds 137/777 8th consecutive convergence (both pop=11). Seed 42 game-over at tick 6668 confirmed in playtest. Check #39 fires for 2 seeds (137=1.36, 777=1.18 both below 1.5). Chronic food crisis check #23 fires: 5/5 recent entries. Baseline check: seed 42 pop=6 (vs diagnostics pop=4, rand::rng() placed 2nd Hut). 3/3 baselines PASS. Score plateau: 19th consecutive 2.40/5.0."
+    "notes": "778 passed/0 failed/10 ignored — CLEAN RUN (535s). 0 errors, 34 warnings (unchanged). Seed 42 rabbits=0 (extinct again; was 1 yesterday). Seed 777 grain=26 (Granary active), planks=3 (first nonzero planks in eval window). Seed 137 food=15 (up from 12 yesterday), housing_cap=16. Wood skill: all 3 seeds at pure decay 0.5488 (seed 777 2.70 yesterday was RNG outlier). Seeds 137/777 8th consecutive convergence (both pop=11). Seed 42 game-over at tick 6668 confirmed in playtest. Check #39 fires for 2 seeds (137=1.36, 777=1.18 both below 1.5). Chronic food crisis check #23 fires: 5/5 recent entries. Baseline check: seed 42 pop=6 (vs diagnostics pop=4, rand::rng() placed 2nd Hut). 3/3 baselines PASS. Score plateau: 19th consecutive 2.40/5.0."
   },
   {
     "date": "2026-05-27",
@@ -2293,7 +2293,7 @@
       }
     },
     "rubric_avg": 2.4,
-    "notes": "Seed 777 three-way within-session non-determinism: pop=4 (diagnostics), pop=14 (report-card), pop=8 (baseline) in single session \u2014 largest within-session variance observed; seed 42 continues 35th+ consecutive pop=4 food=12; seed 137 food/cap=1.0 (acute crisis); check #49 added (metrics schema guard); 35 validate_features warnings, 0 errors"
+    "notes": "Seed 777 three-way within-session non-determinism: pop=4 (diagnostics), pop=14 (report-card), pop=8 (baseline) in single session — largest within-session variance observed; seed 42 continues 35th+ consecutive pop=4 food=12; seed 137 food/cap=1.0 (acute crisis); check #49 added (metrics schema guard); 35 validate_features warnings, 0 errors"
   },
   {
     "date": "2026-05-28",
@@ -2361,7 +2361,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "Seed 777 pop=15 (new high; delta=+11 from yesterday's pop=4 \u2014 largest single-day positive swing documented); seed 137 food=0 pop=11 (total starvation at eval tick; new all-time low food, pre-built Granary depleting buffer); seed 777 threat_score=32.11 (new max across all eval seeds); check #50 added (total starvation detection); 778 passed 0 failed 10 ignored; baselines all pass"
+    "notes": "Seed 777 pop=15 (new high; delta=+11 from yesterday's pop=4 — largest single-day positive swing documented); seed 137 food=0 pop=11 (total starvation at eval tick; new all-time low food, pre-built Granary depleting buffer); seed 777 threat_score=32.11 (new max across all eval seeds); check #50 added (total starvation detection); 778 passed 0 failed 10 ignored; baselines all pass"
   },
   {
     "date": "2026-05-29",
@@ -2429,7 +2429,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "Seed 777 WolfSurge fired in diagnostics (events_fired=1, threat_score=10.48); seed 137 food=15 (near-starvation threshold, vs food=0 yesterday \u2014 RNG favorable this run); seed 777 diagnostics pop=4 vs report-card pop=11 and baseline pop=11 (three sequential runs of same binary: pop=4/11/11, 36th+ within-session divergence); check #51 added (FoodToGrain threshold <20 safety); 778 passed 0 failed 10 ignored; baselines all pass; rubric 2.4 plateau 6+ consecutive checks"
+    "notes": "Seed 777 WolfSurge fired in diagnostics (events_fired=1, threat_score=10.48); seed 137 food=15 (near-starvation threshold, vs food=0 yesterday — RNG favorable this run); seed 777 diagnostics pop=4 vs report-card pop=11 and baseline pop=11 (three sequential runs of same binary: pop=4/11/11, 36th+ within-session divergence); check #51 added (FoodToGrain threshold <20 safety); 778 passed 0 failed 10 ignored; baselines all pass; rubric 2.4 plateau 6+ consecutive checks"
   },
   {
     "date": "2026-05-30",
@@ -2627,7 +2627,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "778/0/10 tests pass. All 3 baselines PASS. Seed 137 diagnostics pop=4 vs report-card pop=11 (delta=7, largest within-session pop divergence for seed 137 observed). Seed 137 had 8 build_sites with only 4 workers (ratio=2.0) \u2014 auto-build over-queuing. Check #52 added (build_site backlog ratio). Check #21 corrected: now reports villager-specific sight_range=22.0 (not wolf 25.0). Seed 42 pop=4 food=12 unchanged. Seed 777 pop=12 planks=6 grain=28. All events=0. Score plateau: 9th consecutive 2.4."
+    "notes": "778/0/10 tests pass. All 3 baselines PASS. Seed 137 diagnostics pop=4 vs report-card pop=11 (delta=7, largest within-session pop divergence for seed 137 observed). Seed 137 had 8 build_sites with only 4 workers (ratio=2.0) — auto-build over-queuing. Check #52 added (build_site backlog ratio). Check #21 corrected: now reports villager-specific sight_range=22.0 (not wolf 25.0). Seed 42 pop=4 food=12 unchanged. Seed 777 pop=12 planks=6 grain=28. All events=0. Score plateau: 9th consecutive 2.4."
   },
   {
     "date": "2026-06-03",
@@ -2749,7 +2749,7 @@
       }
     },
     "rubric_avg": 2.4,
-    "notes": "11th consecutive check at 2.4. Seed 137 pop=11 diagnostics / pop=4 report-card \u2014 bidirectional non-determinism again. New within-session food divergence record: seed 137 food=12 (diagnostics) vs food~29 (report-card), delta=17. All baselines PASS. Event suppression 6/5 consecutive."
+    "notes": "11th consecutive check at 2.4. Seed 137 pop=11 diagnostics / pop=4 report-card — bidirectional non-determinism again. New within-session food divergence record: seed 137 food=12 (diagnostics) vs food~29 (report-card), delta=17. All baselines PASS. Event suppression 6/5 consecutive."
   },
   {
     "date": "2026-06-05",
@@ -2817,7 +2817,7 @@
       "simulation_health": 4,
       "emergent_behavior": 1
     },
-    "notes": "NEW FAILURE: mining_sparkle_particles_spawn (tests.rs:2885) \u2014 probabilistic stone-mining particle spawn via rand::rng(); 50-tick window insufficient. 3 known-flaky tests failed (775 passed, 3 failed, 10 ignored). Seed 42 playtest confirms game-over at tick 6668. Event chain still broken (0 events all 3 seeds, check #36 persists). Seeds 137/777 both pop=11 (convergent despite different terrain \u2014 Pillar 1 violation). Forest<1% all seeds. Rubric drop 2.4\u21922.2: Emergent 2\u21921 (zero events this run, convergent seeds). All 3 baselines PASS. Harness review (June 2026): all 52 checks valid, no checks to retire."
+    "notes": "NEW FAILURE: mining_sparkle_particles_spawn (tests.rs:2885) — probabilistic stone-mining particle spawn via rand::rng(); 50-tick window insufficient. 3 known-flaky tests failed (775 passed, 3 failed, 10 ignored). Seed 42 playtest confirms game-over at tick 6668. Event chain still broken (0 events all 3 seeds, check #36 persists). Seeds 137/777 both pop=11 (convergent despite different terrain — Pillar 1 violation). Forest<1% all seeds. Rubric drop 2.4→2.2: Emergent 2→1 (zero events this run, convergent seeds). All 3 baselines PASS. Harness review (June 2026): all 52 checks valid, no checks to retire."
   },
   {
     "date": "2026-06-06",
@@ -2885,7 +2885,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "Tests clean: 778 passed, 0 failed, 10 ignored (flaky tests passed today; 3 failed yesterday). Seed 777 pop=14 diagnostics / pop=11 report-card (delta=3, non-determinism). Seed 777 wood=0 (new low; 2 seeds now wood<10). Check #53 added: grain dead-end (seed 777 grain=38, planks=0). Check #48 convergence clears (seeds 137=11, 777=14, diff=3). Rubric recovery 2.2\u21922.4: Emergent 1\u21922 (better seed divergence). All 3 baselines PASS. 33 validate_features.sh warnings, 0 errors."
+    "notes": "Tests clean: 778 passed, 0 failed, 10 ignored (flaky tests passed today; 3 failed yesterday). Seed 777 pop=14 diagnostics / pop=11 report-card (delta=3, non-determinism). Seed 777 wood=0 (new low; 2 seeds now wood<10). Check #53 added: grain dead-end (seed 777 grain=38, planks=0). Check #48 convergence clears (seeds 137=11, 777=14, diff=3). Rubric recovery 2.2→2.4: Emergent 1→2 (better seed divergence). All 3 baselines PASS. 33 validate_features.sh warnings, 0 errors."
   },
   {
     "date": "2026-06-07",
@@ -3182,7 +3182,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "Drops from 2.6 (2026-06-09) back to 2.4: events fired 0/3 seeds today (vs 2/3 yesterday \u2014 RNG-favorable run). Seed 137 REVERSED: pop=4 diag vs pop=11 report-card (delta=7), opposite of yesterday (pop=11 diag vs pop=4 report). Seed 777 Granary food-drain: grain=26, food/cap=1.64 (check #57 first fires). Seed 137 build backlog: 8 sites/4 workers (check #52). All baselines PASS. check #57 added (food-drain anti-pattern). 36 warnings, 0 errors."
+    "notes": "Drops from 2.6 (2026-06-09) back to 2.4: events fired 0/3 seeds today (vs 2/3 yesterday — RNG-favorable run). Seed 137 REVERSED: pop=4 diag vs pop=11 report-card (delta=7), opposite of yesterday (pop=11 diag vs pop=4 report). Seed 777 Granary food-drain: grain=26, food/cap=1.64 (check #57 first fires). Seed 137 build backlog: 8 sites/4 workers (check #52). All baselines PASS. check #57 added (food-drain anti-pattern). 36 warnings, 0 errors."
   },
   {
     "date": "2026-06-11",
@@ -3259,7 +3259,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "Seed 137 total starvation recurs (food=0, pop=11, WolfSurge fired) \u2014 4th occurrence (prev: 2026-05-16, 2026-05-21, 2026-05-28). Seed 777 pops 11\u21924 (rand::rng() placed 1 Hut vs 5 yesterday). Seed 137 reversed diagnostics vs yesterday (pop=11 today vs pop=4 yesterday). Test: 778 passed/1 failed (construction_dust_particles_spawn flaky). Check #58 added: recurring total starvation detector. 0 errors, 38 warnings."
+    "notes": "Seed 137 total starvation recurs (food=0, pop=11, WolfSurge fired) — 4th occurrence (prev: 2026-05-16, 2026-05-21, 2026-05-28). Seed 777 pops 11→4 (rand::rng() placed 1 Hut vs 5 yesterday). Seed 137 reversed diagnostics vs yesterday (pop=11 today vs pop=4 yesterday). Test: 778 passed/1 failed (construction_dust_particles_spawn flaky). Check #58 added: recurring total starvation detector. 0 errors, 38 warnings."
   },
   {
     "date": "2026-06-12",
@@ -3336,7 +3336,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "Seed 137/777 both flip to pop=11 (rand::rng() placed 5 Huts each). Seed 137 food recovers (0->16) from yesterday starvation \u2014 same RNG reversal. 0 events fired all 3 seeds (WolfSurge absent; last fired 2026-06-11). All 3 baselines PASS. Test: 778 passed/0 failed/10 ignored. 0 errors, 37 warnings."
+    "notes": "Seed 137/777 both flip to pop=11 (rand::rng() placed 5 Huts each). Seed 137 food recovers (0->16) from yesterday starvation — same RNG reversal. 0 events fired all 3 seeds (WolfSurge absent; last fired 2026-06-11). All 3 baselines PASS. Test: 778 passed/0 failed/10 ignored. 0 errors, 37 warnings."
   },
   {
     "date": "2026-06-13",
@@ -3490,7 +3490,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "Score stable at 2.4. 778/0/10 tests. 0 errors, 37 warnings (validate_features; down 2 from noted 39 yesterday \u2014 seed 777 planks=3 prevents check #53 grain-dead-end). All 3 baselines PASS. 0 events all seeds. Seed 42 36th consecutive pop=4 food=12 stuck run. Seed 137 grain=0 (food=11 < 15 threshold; Granary never fires this run). Seed 777 grain=24 planks=3 partial Bakery progress (Forest<1% prevents planks>=8). 2/3 seeds rabbits=0 today (check #31 will fire next run). rand::rng() within-session swing smaller today (seed 777 delta=1 vs \u00b17 last week)."
+    "notes": "Score stable at 2.4. 778/0/10 tests. 0 errors, 37 warnings (validate_features; down 2 from noted 39 yesterday — seed 777 planks=3 prevents check #53 grain-dead-end). All 3 baselines PASS. 0 events all seeds. Seed 42 36th consecutive pop=4 food=12 stuck run. Seed 137 grain=0 (food=11 < 15 threshold; Granary never fires this run). Seed 777 grain=24 planks=3 partial Bakery progress (Forest<1% prevents planks>=8). 2/3 seeds rabbits=0 today (check #31 will fire next run). rand::rng() within-session swing smaller today (seed 777 delta=1 vs ±7 last week)."
   },
   {
     "date": "2026-06-15",
@@ -3874,7 +3874,7 @@
       "simulation_health": 4,
       "emergent_behavior": 2
     },
-    "notes": "777 passed/1 failed (build_site_gets_completed_in_game flaky)/10 ignored. validate_features.sh: 0 errors, 43 warnings. Seed 777 planks=6 (first non-zero since 2026-05-26); 2nd Workshop placed. Seed 777 pop=13 (diagnostics) vs pop=11 (report-card) \u2014 within-session RNG divergence. All seeds events=0. Seed 42 41st consecutive pop=4 stagnation."
+    "notes": "777 passed/1 failed (build_site_gets_completed_in_game flaky)/10 ignored. validate_features.sh: 0 errors, 43 warnings. Seed 777 planks=6 (first non-zero since 2026-05-26); 2nd Workshop placed. Seed 777 pop=13 (diagnostics) vs pop=11 (report-card) — within-session RNG divergence. All seeds events=0. Seed 42 41st consecutive pop=4 stagnation."
   },
   {
     "date": "2026-06-20",
@@ -4114,7 +4114,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "5th consecutive day at 2.4/5.0 \u2014 check #17 (score plateau) fires after this entry (last 5 entries all 2.4). Rabbits extinct in seeds 42/137 (check #31 fires). Seed 137 food/cap=1.09 (acute crisis, check #39 fires). All 3 seeds seek_pct > 65% (check #62 fires all 3: seed 42=75%, seed 137=72.7%, seed 777=66.7%). Seed 137 report-card pop=4 vs diagnostics pop=11 (delta=7, daily flip continued). Seed 777 baseline-vs-diagnostics pop=11 vs pop=12 (delta=1). Check #63 added: rand::rng() baseline guard for build.rs (<=1) and events.rs (<=2). Baseline check: all 3 PASS. validate_features.sh: 0 errors, 41 warnings."
+    "notes": "5th consecutive day at 2.4/5.0 — check #17 (score plateau) fires after this entry (last 5 entries all 2.4). Rabbits extinct in seeds 42/137 (check #31 fires). Seed 137 food/cap=1.09 (acute crisis, check #39 fires). All 3 seeds seek_pct > 65% (check #62 fires all 3: seed 42=75%, seed 137=72.7%, seed 777=66.7%). Seed 137 report-card pop=4 vs diagnostics pop=11 (delta=7, daily flip continued). Seed 777 baseline-vs-diagnostics pop=11 vs pop=12 (delta=1). Check #63 added: rand::rng() baseline guard for build.rs (<=1) and events.rs (<=2). Baseline check: all 3 PASS. validate_features.sh: 0 errors, 41 warnings."
   },
   {
     "date": "2026-06-23",
@@ -4194,7 +4194,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "6th consecutive day at 2.4/5.0. Seed 137 seek_pct=81.8% \u2014 above check #60 threshold (>80% at pop=11), 9/11 villagers in Seek. All 3 seeds events_fired=0 (6th consecutive zero-event diagnostic run, 2026-06-18 through 2026-06-23). Rabbits extinct in seeds 42/137; seed 777 rabbits=8 (up from 2 yesterday). Seed 777 grain=14, planks=3 (both down from 26/6 yesterday \u2014 rand::rng() variance). Wood=4 in seeds 137/777 (critical stall, check #44). Seed 42 38th consecutive stuck run at pop=4, wood=43. Baseline check: all 3 PASS. validate_features.sh: 0 errors, 43 warnings."
+    "notes": "6th consecutive day at 2.4/5.0. Seed 137 seek_pct=81.8% — above check #60 threshold (>80% at pop=11), 9/11 villagers in Seek. All 3 seeds events_fired=0 (6th consecutive zero-event diagnostic run, 2026-06-18 through 2026-06-23). Rabbits extinct in seeds 42/137; seed 777 rabbits=8 (up from 2 yesterday). Seed 777 grain=14, planks=3 (both down from 26/6 yesterday — rand::rng() variance). Wood=4 in seeds 137/777 (critical stall, check #44). Seed 42 38th consecutive stuck run at pop=4, wood=43. Baseline check: all 3 PASS. validate_features.sh: 0 errors, 43 warnings."
   },
   {
     "date": "2026-06-24",
@@ -4274,7 +4274,7 @@
       "simulation": 4,
       "emergent": 2
     },
-    "notes": "7th consecutive day at 2.4/5.0. Known-flaky test construction_dust_particles_spawn FAILED (777 passed, 1 failed, 10 ignored) \u2014 expected ~0.3% rate, not a regression. Seed 777 seek_pct flipped 63.6%\u219281.8% (bidirectional RNG); seed 137 dropped 81.8%\u219272.7%. Seed 777 planks: 3\u21920, grain: 14\u21926 (rand::rng() Workshop output variance). 7th consecutive zero-event diagnostic run (2026-06-18 through 2026-06-24). Seed 42 rabbits bounced 0\u21921 (non-deterministic). Seed 42 39th consecutive stuck run at pop=4, food=12, wood=43. Baseline check: all 3 PASS (seed 777 baseline pop=14 vs diagnostics pop=11 \u2014 within-session RNG delta=3). validate_features.sh: 0 errors, 42 warnings."
+    "notes": "7th consecutive day at 2.4/5.0. Known-flaky test construction_dust_particles_spawn FAILED (777 passed, 1 failed, 10 ignored) — expected ~0.3% rate, not a regression. Seed 777 seek_pct flipped 63.6%→81.8% (bidirectional RNG); seed 137 dropped 81.8%→72.7%. Seed 777 planks: 3→0, grain: 14→6 (rand::rng() Workshop output variance). 7th consecutive zero-event diagnostic run (2026-06-18 through 2026-06-24). Seed 42 rabbits bounced 0→1 (non-deterministic). Seed 42 39th consecutive stuck run at pop=4, food=12, wood=43. Baseline check: all 3 PASS (seed 777 baseline pop=14 vs diagnostics pop=11 — within-session RNG delta=3). validate_features.sh: 0 errors, 42 warnings."
   },
   {
     "date": "2026-06-25",
@@ -5531,7 +5531,7 @@
         "build_sites": 1
       }
     },
-    "notes": "Tests clean: 778/0/10 both runs. Score flat 2.4 (23rd consecutive; check #67 fires). rubric_breakdown shift: simulation_health=5 (up from 4 yesterday), emergent_behavior=1 (down from 2) \u2014 net same 2.4. Seed 42: 55th consecutive stuck diagnostic run at pop=4, food=12, wood=43. Seed 137: fpc=1.00 (Critical; food=11, pop=11) \u2014 worst fpc for this seed in recent history; housing_cap=20 (5 Huts, rand::rng() favorable). Seed 777: Workshop:2, grain=14, planks=3 (non-deterministic). All 3 seeds events_fired=0 (23rd consecutive zero-event day). seek_pct improved vs yesterday: seed137=63.6% (was 72.7%), seed777=63.6% (was 72.7%) \u2014 rand::rng() favorable task assignment today, not structural fix. validate_features.sh: 0 errors, 46 warnings."
+    "notes": "Tests clean: 778/0/10 both runs. Score flat 2.4 (23rd consecutive; check #67 fires). rubric_breakdown shift: simulation_health=5 (up from 4 yesterday), emergent_behavior=1 (down from 2) — net same 2.4. Seed 42: 55th consecutive stuck diagnostic run at pop=4, food=12, wood=43. Seed 137: fpc=1.00 (Critical; food=11, pop=11) — worst fpc for this seed in recent history; housing_cap=20 (5 Huts, rand::rng() favorable). Seed 777: Workshop:2, grain=14, planks=3 (non-deterministic). All 3 seeds events_fired=0 (23rd consecutive zero-event day). seek_pct improved vs yesterday: seed137=63.6% (was 72.7%), seed777=63.6% (was 72.7%) — rand::rng() favorable task assignment today, not structural fix. validate_features.sh: 0 errors, 46 warnings."
   },
   {
     "date": "2026-07-11",
@@ -5611,7 +5611,7 @@
       "simulation_health": 5,
       "emergent_behavior": 1
     },
-    "notes": "Tests clean: 778/0/10. Score flat 2.4 (24th consecutive; checks #66, #67 fire). Seed 42: 56th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: fpc=1.18 (up from 1.00 yesterday) \u2014 improved but still Critical; housing_cap=12 (3 Huts, rand::rng()); rabbits=0 (extinct, was 4 yesterday); growth_potential=1. Seed 777: fpc=1.64 (up from 1.36); rabbits=6 (up from 4); housing_cap=20 (5 Huts, rand::rng()-favorable). All 3 seeds events_fired=0 (24th consecutive zero-event diagnostic run). validate_features.sh: 0 errors, 44 warnings (down from 46). Baselines: 3/3 PASS. No new design drift vs 2026-07-10."
+    "notes": "Tests clean: 778/0/10. Score flat 2.4 (24th consecutive; checks #66, #67 fire). Seed 42: 56th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: fpc=1.18 (up from 1.00 yesterday) — improved but still Critical; housing_cap=12 (3 Huts, rand::rng()); rabbits=0 (extinct, was 4 yesterday); growth_potential=1. Seed 777: fpc=1.64 (up from 1.36); rabbits=6 (up from 4); housing_cap=20 (5 Huts, rand::rng()-favorable). All 3 seeds events_fired=0 (24th consecutive zero-event diagnostic run). validate_features.sh: 0 errors, 44 warnings (down from 46). Baselines: 3/3 PASS. No new design drift vs 2026-07-10."
   },
   {
     "date": "2026-07-12",
@@ -5770,7 +5770,7 @@
       "simulation_health": 5,
       "emergent_behavior": 1
     },
-    "notes": "Tests clean: 778/0/10 (both runs). Score drops 2.6\u21922.4: WolfSurge from 2026-07-12 (seeds 42/137) non-reproducible \u2014 all 3 seeds events_fired=0 today. Seed 42: 58th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: food=8 (fpc=0.73, Critical; worst recent), seek_pct=81.8% (9/11 Seeking, check #60 fires), wood=3, grain=0. Seed 777: pop=12 (vs 13 yesterday), planks=6, grain=28. Within-session: seed 137 report-card housing_cap=20 (5 Huts) vs diagnostic 12 (3 Huts, rand::rng()). Baselines: 3/3 PASS. validate_features.sh: 0 errors, 44 warnings."
+    "notes": "Tests clean: 778/0/10 (both runs). Score drops 2.6→2.4: WolfSurge from 2026-07-12 (seeds 42/137) non-reproducible — all 3 seeds events_fired=0 today. Seed 42: 58th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: food=8 (fpc=0.73, Critical; worst recent), seek_pct=81.8% (9/11 Seeking, check #60 fires), wood=3, grain=0. Seed 777: pop=12 (vs 13 yesterday), planks=6, grain=28. Within-session: seed 137 report-card housing_cap=20 (5 Huts) vs diagnostic 12 (3 Huts, rand::rng()). Baselines: 3/3 PASS. validate_features.sh: 0 errors, 44 warnings."
   },
   {
     "date": "2026-07-16",
@@ -5928,6 +5928,85 @@
       }
     },
     "rubric_avg": 2.5,
-    "notes": "Seed 777 collapsed pop=11->4 in diagnostics (rand::rng() placed 1 Hut vs 5 yesterday); report-card=11, baseline=12 \u2014 three-way within-session divergence. Seed 42: 62nd consecutive stuck run at pop=4, food=12, wood=43. Yesterday WolfSurge (seeds 137+777) non-reproducible today; 0 events all 3 seeds. Seed 137 grain=0 (Granary consumed all grain at food=16>15). All wood_skill=pure decay. Score drops 2.9->2.5. Tests CLEAN: 778/0/10. Baselines: 3/3 PASS."
+    "notes": "Seed 777 collapsed pop=11->4 in diagnostics (rand::rng() placed 1 Hut vs 5 yesterday); report-card=11, baseline=12 — three-way within-session divergence. Seed 42: 62nd consecutive stuck run at pop=4, food=12, wood=43. Yesterday WolfSurge (seeds 137+777) non-reproducible today; 0 events all 3 seeds. Seed 137 grain=0 (Granary consumed all grain at food=16>15). All wood_skill=pure decay. Score drops 2.9->2.5. Tests CLEAN: 778/0/10. Baselines: 3/3 PASS."
+  },
+  {
+    "date": "2026-07-18",
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "wood": 43,
+        "buildings": 5,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.4,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "events_fired": 0,
+        "housing_growth_potential": 0,
+        "wood_skill": 0.5487951708942683,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 75.0,
+        "build_sites": 2,
+        "housing_cap": 4,
+        "threat_score": 10.68
+      },
+      "137": {
+        "population": 11,
+        "food": 12,
+        "food_per_cap": 1.09,
+        "wood": 5,
+        "buildings": 11,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "rabbits": 0,
+        "survived": true,
+        "slope_flat_pct": 98.69,
+        "desert_pct": 48.8,
+        "forest_pct": 0.1,
+        "events_fired": 0,
+        "housing_growth_potential": 5,
+        "wood_skill": 0.5487951708942683,
+        "grain": 0,
+        "planks": 0,
+        "bread": 0,
+        "seek_pct": 54.5,
+        "build_sites": 3,
+        "housing_cap": 16,
+        "threat_score": 25.73
+      },
+      "777": {
+        "population": 11,
+        "food": 15,
+        "food_per_cap": 1.36,
+        "wood": 4,
+        "buildings": 12,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "rabbits": 9,
+        "survived": true,
+        "slope_flat_pct": 98.57,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "events_fired": 0,
+        "housing_growth_potential": 9,
+        "wood_skill": 0.5487951708942683,
+        "grain": 14,
+        "planks": 3,
+        "bread": 0,
+        "seek_pct": 63.6,
+        "build_sites": 1,
+        "housing_cap": 20,
+        "threat_score": 27.94
+      }
+    },
+    "rubric_avg": 2.5,
+    "notes": "Seed 42: 63rd consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0. Seed 137: pop=11 (RNG-favorable run), fpc=1.09 (CRITICAL, food=12/pop=11 near-starvation), rabbits=0, grain=0 (Granary consumed all grain earlier when food was >15). Seed 777: recovered from yesterday's pop=4 collapse (pop=11, housing_cap=20, growth_potential=9, planks=3, rabbits=9). Seeds 137/777 both pop=11 (diff=0, check #48 fires). Zero events all 3 seeds (WolfSurge from 07-16 non-reproducible for 2nd day; zero-event streak=2). All wood_skill=pure decay. Score: 2.5/5.0 (unchanged). Tests CLEAN: 778/0/10 (220.83s). Baselines: 3/3 PASS."
   }
 ]
