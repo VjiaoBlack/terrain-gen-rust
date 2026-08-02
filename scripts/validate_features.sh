@@ -2065,6 +2065,54 @@ else
   echo "SKIP: docs/metrics_history.json not found — cannot check long plateau"
 fi
 
+# 68. Early grain accumulation stall detection
+# grain > 8 AND planks == 0 AND bread == 0 in any seed signals the FoodToGrain Granary
+# is draining the food buffer into grain, but the downstream production chain (Workshop →
+# planks → Bakery → bread) cannot advance. Complementary to check #53 (grain > 20 dead-end)
+# but fires earlier to catch the anti-pattern before grain accumulates past the threshold.
+# Today seed 777 shows grain=14, planks=0, bread=0, Workshop:2 with wood=4 — early signal.
+# Root fix: biome distribution (check #42) to increase Forest coverage for stable plank output.
+# First added: 2026-08-02.
+echo ""
+echo "=== Early grain accumulation stall detection ==="
+if [ -f "docs/metrics_history.json" ]; then
+  early_grain=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    stalled = [
+        (s, v.get('grain', 0))
+        for s, v in seeds.items()
+        if v.get('grain', 0) > 8
+        and v.get('planks', 0) == 0
+        and v.get('bread', 0) == 0
+        and 'grain' in v and 'planks' in v and 'bread' in v
+    ]
+    if stalled:
+        desc = ', '.join(f'seed {s}=grain:{g}' for s, g in stalled)
+        print(f'stall:{len(stalled)}:{desc}')
+    else:
+        print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$early_grain" | grep -q "^stall:"; then
+    count=$(echo "$early_grain" | cut -d: -f2)
+    desc=$(echo "$early_grain" | cut -d: -f3-)
+    echo "WARN: Early grain stall — grain > 8 with planks=0 bread=0 in ${count} seed(s) (${desc}). FoodToGrain Granary accumulating grain but Workshop/Bakery chain blocked. Root cause: wood exhaustion (check #44) from Forest<1% (check #42). Fix biome distribution before tuning Granary food threshold (check #51) or Bakery conditions (check #47). See also check #53 (grain > 20 dead-end)."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$early_grain" | grep -q "no_data"; then
+    echo "SKIP: No grain/planks/bread fields in latest metrics_history entry"
+  else
+    echo "OK: No early grain stall (grain <= 8, or planks/bread > 0 in all seeds)"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
