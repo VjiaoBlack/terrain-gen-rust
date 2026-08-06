@@ -7209,5 +7209,80 @@
         "build_sites": 1
       }
     }
+  },
+  {
+    "date": "2026-08-06",
+    "rubric_avg": 2.6,
+    "seeds": {
+      "42": {
+        "population": 4,
+        "food": 12,
+        "food_per_cap": 3.0,
+        "buildings": 5,
+        "survived": true,
+        "water_pct": 30.7,
+        "biomes": 13,
+        "housing_cap": 4,
+        "housing_growth_potential": 0,
+        "wood": 43,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "rabbits": 3,
+        "events_fired": 0,
+        "desert_pct": 32.0,
+        "forest_pct": 0.3,
+        "slope_flat_pct": 98.4,
+        "wood_skill": 0.5487951708942683,
+        "seek_pct": 75.0,
+        "build_sites": 2
+      },
+      "137": {
+        "population": 11,
+        "food": 14,
+        "food_per_cap": 1.27,
+        "buildings": 10,
+        "survived": true,
+        "water_pct": 17.9,
+        "biomes": 14,
+        "housing_cap": 20,
+        "housing_growth_potential": 9,
+        "wood": 4,
+        "grain": 4,
+        "planks": 0,
+        "bread": 0,
+        "rabbits": 0,
+        "events_fired": 0,
+        "desert_pct": 48.7,
+        "forest_pct": 0.1,
+        "slope_flat_pct": 98.69,
+        "wood_skill": 0.5487951708942683,
+        "seek_pct": 72.7,
+        "build_sites": 4
+      },
+      "777": {
+        "population": 13,
+        "food": 14,
+        "food_per_cap": 1.08,
+        "buildings": 11,
+        "survived": true,
+        "water_pct": 38.0,
+        "biomes": 14,
+        "housing_cap": 16,
+        "housing_growth_potential": 3,
+        "wood": 4,
+        "grain": 32,
+        "planks": 6,
+        "bread": 0,
+        "rabbits": 1,
+        "events_fired": 0,
+        "desert_pct": 0.1,
+        "forest_pct": 0.6,
+        "slope_flat_pct": 98.57,
+        "wood_skill": 0.5487951708942683,
+        "seek_pct": 61.5,
+        "build_sites": 1
+      }
+    }
   }
 ]
