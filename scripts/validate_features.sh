@@ -2114,6 +2114,55 @@ else
 fi
 
 echo ""
+echo "=== Check 69: Full schema staleness detector ==="
+# record_metrics.sh only saves 5 basic fields; health check agents save full entries (20 fields).
+# When the most recent entry with ALL required fields is > 7 days old, checks #31, #32, #41,
+# #42, #44, #49, #60, #62, etc. silently SKIP. This detector flags that gap.
+if [ -f "docs/metrics_history.json" ]; then
+  staleness=$(python3 -c "
+import json, sys
+from datetime import date
+REQUIRED = ['population','food','food_per_cap','wood','buildings','water_pct','biomes',
+            'rabbits','survived','slope_flat_pct','desert_pct','forest_pct',
+            'events_fired','housing_growth_potential','wood_skill','grain','planks','bread',
+            'seek_pct','build_sites']
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+today = date.today()
+for entry in reversed(data):
+    seeds = entry.get('seeds', {})
+    if not seeds:
+        continue
+    all_full = all(all(field in v for field in REQUIRED) for v in seeds.values())
+    if all_full:
+        lv = date.fromisoformat(entry['date'])
+        days = (today - lv).days
+        if days > 7:
+            print(f'stale:{days}:{entry[\"date\"]}')
+        else:
+            print(f'ok:{days}:{entry[\"date\"]}')
+        break
+else:
+    print('no_full_entry')
+" 2>/dev/null || echo "ok")
+  if echo "$staleness" | grep -q "^stale:"; then
+    days=$(echo "$staleness" | cut -d: -f2)
+    ldate=$(echo "$staleness" | cut -d: -f3)
+    echo "WARN: Last full-schema metrics_history entry is ${days} days old (${ldate}) — downstream checks (#31, #32, #41, #42, #44, #49, #60, #62, etc.) have been SKIPping silently. Health check agents must append a full entry (all 20 required fields) on each run. record_metrics.sh only saves 5 basic fields."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$staleness" | grep -q "^no_full_entry"; then
+    echo "WARN: No full-schema metrics_history entry found — all metric-dependent checks permanently SKIPping."
+    WARNINGS=$((WARNINGS + 1))
+  else
+    ok_days=$(echo "$staleness" | cut -d: -f2)
+    ok_date=$(echo "$staleness" | cut -d: -f3)
+    echo "OK: Last full-schema metrics_history entry is ${ok_days} days old (${ok_date}) — downstream checks can fire"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
+echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
 echo "Systems: $systems"
