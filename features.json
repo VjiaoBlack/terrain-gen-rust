@@ -8,15 +8,15 @@
         "src/terrain_gen.rs",
         "src/terrain_pipeline.rs"
       ],
-      "test_count": 23,
+      "test_count": 29,
       "known_issues": [
         "Terrain enum has 26 variants with 10+ match blocks — should use data-driven TerrainDef structs",
-        "features.json test_count was 25; actual grep count is 23 (terrain_gen.rs:6 + terrain_pipeline.rs:17)",
+        "features.json test_count was 23 (stale: counted terrain_pipeline.rs:17 but it now has 23 tests); actual count is terrain_gen.rs:6 + terrain_pipeline.rs:23 = 29 as of 2026-08-09",
         "terrain_pipeline.rs is 2232 lines — approaching split threshold",
         "Desert biome dominant in 2/3 evaluation seeds (32–49%) with near-zero Forest (0.1–0.7%); biome distribution imbalanced post-WorldState refactor",
-        "Slope distribution is 98.4–98.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09–0.11. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
+        "Slope distribution is 98.4–98.7% flat across all 3 evaluation seeds (steep=0%, cliff=0%); elevation_std=0.09–0.12. Terrain is nearly uniformly flat, contradicting Pillar 1 ('Geography Shapes Everything') which requires hills, mountain passes, and varied topography to create strategic terrain. First measured 2026-04-30."
       ],
-      "last_verified": "2026-08-08"
+      "last_verified": "2026-08-09"
     },
     "analytical_erosion": {
       "status": "ok",
@@ -28,7 +28,7 @@
       "known_issues": [
         "src/analytical_erosion.rs not documented in docs/ARCHITECTURE.md — omitted from file map (check #38 added 2026-05-08)"
       ],
-      "last_verified": "2026-08-08"
+      "last_verified": "2026-08-09"
     },
     "pipe_water": {
       "status": "ok",
@@ -40,7 +40,7 @@
       "known_issues": [
         "Research prototype — volume conservation not extensively tested"
       ],
-      "last_verified": "2026-08-08"
+      "last_verified": "2026-08-09"
     },
     "simulation_water": {
       "status": "needs_cleanup",
@@ -255,9 +255,10 @@
         "Seed 42: 79th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0 as of 2026-08-05. Seed 137: recovering from 5th total starvation event (food=0 on 2026-08-03); today food=7, fpc=0.64 (Critical), seek_pct=81.8% (check #60 fires). Seed 777: pop=11 (down from 13 on 2026-08-04 — rand::rng() variance), planks=3 (down from 6), Workshop:2 with wood=4 (check #68 fires). All seeds events_fired=0, wood_skill=0.5487951708942683 (pure decay, 79th run with zero woodcutting, Forest<1%). Tests CLEAN: 778/0/10. Baselines: 3/3 PASS. Score: 2.4/5.0.",
         "Seed 42: 80th consecutive stuck diagnostic run at pop=4, food=12, wood=43, housing_growth_potential=0 as of 2026-08-06. Seed 137: recovered from 5th total starvation (food=0 on 2026-08-03); today food=14, fpc=1.27, rabbits=0 (extinct), housing_cap=20 (5 Huts, RNG-favorable run vs 3 Huts yesterday). Seed 777: pop=13 (up from 11 yesterday), grain=32 (Bakery grain threshold >30 met for first time this session), planks=6 (2 short of >=8 minimum), wood=4 (near-exhausted, blocks Workshop output from enabling Bakery). All wood_skill=0.5487951708942683 (pure decay, 80th run with zero woodcutting, Forest<1%). Tests CLEAN: 778/0/10.",
         "Seed 42: RNG-favorable diagnostic run on 2026-08-07 (pop=6, food=2, fpc=0.33 Critical, housing_cap=8, 2 Huts placed) — 'RNG housing boom food crash' pattern (first documented 2026-07-19): increased pop drives food below safe threshold faster than farms compensate; dies at t6668 in playtest. rc run shows pop=4 (1 Hut, food=12) in same session — within-session divergence. Seed 137: pop=11, food=16, grain=0 (post-starvation recovery; food>15 Granary will fire soon), housing_cap=12 (3 Huts today vs 5 Huts yesterday — RNG flip). Seed 777: pop=13, food=15, grain=28 (down from 32 on 2026-08-06), planks=6, wood=4, rabbits=12, seek_pct=15.4% (best reading this session — RNG-favorable task assignment). All seeds events_fired=0 (19th consecutive zero-event diagnostic run from 2026-07-19, one break 2026-07-24). All wood_skill=0.5487951708942683 (pure decay, 81st run with zero woodcutting, Forest<1%). Tests CLEAN: 778/0/10. Baselines: 3/3 PASS. validate_features: 0 errors, 33 warnings. Score: 2.4/5.0.",
-        "Seed 42: Reverted to stuck state (pop=4, food=12, wood=43, housing_growth_potential=0) on 2026-08-08 — one day after the 2026-08-07 RNG-favorable run (pop=6). Favorable placement did not persist; rand::rng() produced unfavorable outcomes this run. Consecutive same-seed runs show ±7 population variance. Root cause: rand::rng() in game/build.rs:631, ecs/systems.rs, game/mod.rs."
+        "Seed 42: Reverted to stuck state (pop=4, food=12, wood=43, housing_growth_potential=0) on 2026-08-08 — one day after the 2026-08-07 RNG-favorable run (pop=6). Favorable placement did not persist; rand::rng() produced unfavorable outcomes this run. Consecutive same-seed runs show ±7 population variance. Root cause: rand::rng() in game/build.rs:631, ecs/systems.rs, game/mod.rs.",
+        "Seed 42: Another stuck diagnostic run on 2026-08-09 (pop=4, food=12, wood=43, housing_growth_potential=0). Rabbits=0 (persistent extinction). All wood_skill=0.5487951708942683 (pure decay, Forest<1%). Seed 777: pop=12 (RNG-favorable run, housing_cap=20, growth_potential=8, WolfSurge active, wolves=2, rabbits=7, grain=20, planks=3). Seed 137: pop=11, food=12, fpc=1.09 (Critical), seek_pct=81.8% (9/11 Seeking, check #60 fires). Within-session divergence: seed 777 diagnostics pop=12 vs report-card pop=8 — rand::rng() in game/build.rs placed 5 Huts (cap=20) in diagnostics vs 2 Huts (cap=8) in report-card."
       ],
-      "last_verified": "2026-08-08"
+      "last_verified": "2026-08-09"
     },
     "ecs_spatial": {
       "status": "ok",
@@ -403,9 +404,10 @@
         "17th consecutive zero-event diagnostic run as of 2026-08-05 (2026-07-19 through 2026-08-05, one break 2026-07-24 seed 137 WolfSurge). All 3 seeds events_fired=0; threat scores: seed42=10.68 (wolves=0), seed137=19.71 (wolves=0), seed777=28.26 (wolves=0). tick_config modifier chain remains broken (check #33). Drought structurally impossible in eval window (check #27). Zero-event streak now at 17 entries — check #66 (>15 threshold) fires.",
         "18th consecutive zero-event diagnostic run as of 2026-08-06 (2026-07-19 through 2026-08-06, one break 2026-07-24 seed 137 WolfSurge). All 3 seeds events_fired=0; threat scores: seed42=10.68 (wolves=0), seed137=23.82 (wolves=0), seed777=27.66 (wolves=0). tick_config modifier chain remains broken (check #33). Drought structurally impossible in eval window (check #27). Zero-event streak at 6 consecutive entries (below 15-entry escalation threshold, check #66 does not fire).",
         "19th consecutive zero-event diagnostic run as of 2026-08-07 (2026-07-19 through 2026-08-07, one break 2026-07-24 seed 137 WolfSurge). All 3 seeds events_fired=0; threat scores: seed42=11.53 (wolves=0), seed137=21.77 (wolves=0), seed777=27.61 (wolves=0). tick_config modifier chain remains broken (check #33). Drought structurally impossible in eval window (check #27). Zero-event streak at 7 consecutive entries (below 15-entry escalation threshold, check #66 does not fire).",
-        "20th consecutive zero-event diagnostic run as of 2026-08-08 (2026-07-19 through 2026-08-08, one break 2026-07-24 seed 137). tick_config event modifier chain confirmed broken (check #33): drought_chance/harvest_bonus modifiers never reach simulation layer. Root cause: TickConfig not threaded through Game::step(). No events across 20 eval runs."
+        "20th consecutive zero-event diagnostic run as of 2026-08-08 (2026-07-19 through 2026-08-08, one break 2026-07-24 seed 137). tick_config event modifier chain confirmed broken (check #33): drought_chance/harvest_bonus modifiers never reach simulation layer. Root cause: TickConfig not threaded through Game::step(). No events across 20 eval runs.",
+        "Seed 777 WolfSurge fires on 2026-08-09 (threat_score=28.61, wolves=2, rabbits=7, events=[WolfSurge]) — breaks 21-day zero-event diagnostic streak (2026-07-19 through 2026-08-08, one prior break 2026-07-24 seed 137). Seeds 42 (threat_score=10.68, wolves=0, events=0) and 137 (threat_score=19.75, wolves=0, events=0) had no events. WolfSurge fires via threat-based code path independent of broken tick_config chain (check #33). Non-reproducible: baseline run of seed 777 showed events=0 (different rand::rng() state). Zero-event streak resets to 0 for seed 777."
       ],
-      "last_verified": "2026-08-08"
+      "last_verified": "2026-08-09"
     },
     "chokepoint": {
       "status": "ok",
