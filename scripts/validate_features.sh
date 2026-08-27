@@ -2162,6 +2162,57 @@ else
   echo "SKIP: docs/metrics_history.json not found"
 fi
 
+# 70. Food crisis + seek saturation combo detector
+# When food=0 (or food_per_cap < 0.5) AND seek_pct > 80% coincide in any seed,
+# it indicates villagers have no food AND cannot find farm work — a farming task-assignment
+# failure mode. Each condition alone can occur normally; together they signal structural failure:
+# the settlement is starving AND workers are idle (not farming). Observed 2026-08-27:
+# seed 137 food=0, seek_pct=90.9% (10/11 villagers seeking, 1 farming) at pop=11 with 2 farms.
+# Root cause: rand::rng() task-assignment may route villagers away from farms when food is 0
+# (possibly seeking food that doesn't exist, or seeking tasks that have no available resources).
+# Complement to check #39 (acute food only) and check #67 (seek only).
+# Requires 'food', 'food_per_cap', and 'seek_pct' fields in metrics_history entries.
+echo ""
+echo "=== Food crisis + seek saturation combo detector ==="
+if [ -f "docs/metrics_history.json" ]; then
+  food_seek=$(python3 -c "
+import json
+with open('docs/metrics_history.json') as f:
+    data = json.load(f)
+if not data:
+    print('no_data')
+else:
+    last = data[-1]
+    seeds = last.get('seeds', {})
+    has_fields = any('food_per_cap' in v and 'seek_pct' in v for v in seeds.values())
+    if not has_fields:
+        print('no_field_data')
+    else:
+        crisis = []
+        for s, v in seeds.items():
+            fpc = v.get('food_per_cap', 999)
+            seek = v.get('seek_pct', 0)
+            pop = v.get('population', 0)
+            if fpc < 0.5 and seek > 80.0 and pop >= 5:
+                crisis.append(f'seed {s}: food_per_cap={fpc:.2f}, seek_pct={seek:.1f}%')
+        if crisis:
+            print('crisis:' + '|'.join(crisis))
+        else:
+            print('ok')
+" 2>/dev/null || echo "ok")
+  if echo "$food_seek" | grep -q "^crisis:"; then
+    desc=$(echo "$food_seek" | cut -d: -f2- | tr '|' '\n')
+    echo "WARN: FOOD-CRISIS + SEEK-SATURATION — starvation AND task-assignment failure simultaneously: $desc. Villagers are starving (food_per_cap < 0.5) AND idle (seek_pct > 80%). Possible causes: (1) rand::rng() routes villagers to non-farm tasks when food=0; (2) farm sites are occupied/blocked; (3) FoodToGrain Granary (check #51) depleted food before assignment was corrected. Diagnose villager task assignment in ecs/ai.rs for Seek behavior when food=0."
+    WARNINGS=$((WARNINGS + 1))
+  elif echo "$food_seek" | grep -q "no_field_data"; then
+    echo "SKIP: No 'food_per_cap' or 'seek_pct' fields in latest metrics_history — add them to enable food-crisis+seek detection (first observed 2026-08-27: seed 137 food=0, seek=90.9%)"
+  else
+    echo "OK: No food-crisis + seek-saturation combo detected"
+  fi
+else
+  echo "SKIP: docs/metrics_history.json not found"
+fi
+
 echo ""
 echo "=== Summary ==="
 systems=$(jq '.systems | length' "$FEATURES")
